@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VibeTube - YouTube Premium Features Unlocked</title>
+    <meta name="description" content="Download VibeTube - Free YouTube Premium Experience. Ad-Free, Background Play, PiP, Downloads, SponsorBlock">
+    <meta name="keywords" content="YouTube Premium, Ad-Free, Background Play, VibeTube, SponsorBlock, YouTube Vanced Alternative">
+    
+    <!-- Open Graph -->
+    <meta property="og:title" content="VibeTube - YouTube Premium Features Unlocked">
+    <meta property="og:description" content="Free YouTube Premium Experience for Android">
+    <meta property="og:type" content="website">
+    <meta property="og:image" content="assets/images/hero-mockup.png">
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='40' fill='%23FF6B6B'/><polygon points='40,30 40,70 70,50' fill='white'/></svg>">
+    
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <!-- Animated Background -->
+    <div class="bg-animation">
+        <div class="gradient-bg"></div>
+        <div class="particles" id="particles"></div>
+    </div>
+
+    <!-- Navigation -->
+    <nav class="navbar" id="navbar">
+        <div class="container">
+            <a href="#" class="logo">
+                <div class="logo-icon">
+                    <svg viewBox="0 0 100 100" width="40" height="40">
+                        <defs>
+                            <linearGradient id="logoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                                <stop offset="0%" style="stop-color:#FF6B6B"/>
+                                <stop offset="100%" style="stop-color:#4ECDC4"/>
+                            </linearGradient>
+                        </defs>
+                        <circle cx="50" cy="50" r="45" fill="url(#logoGrad)"/>
+                        <polygon points="40,28 40,72 72,50" fill="white"/>
+                    </svg>
+                </div>
+                <span>VibeTube</span>
+            </a>
+            <div class="nav-links">
+                <a href="#features">Features</a>
+                <a href="#screenshots">Screenshots</a>
+                <a href="#download">Download</a>
+                <a href="#faq">FAQ</a>
+            </div>
+            <a href="#download" class="btn btn-primary btn-sm nav-cta">
+                <i data-lucide="download" class="icon-sm"></i>
+                Download
+            </a>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="hero" id="hero">
+        <div class="container">
+            <div class="hero-content">
+                <div class="hero-badge">
+                    <i data-lucide="zap" class="icon-sm"></i>
+                    <span>v1.0.0 • Free & Open Source</span>
+                </div>
+                <h1 class="hero-title">
+                    YouTube <span class="gradient-text">Premium</span>
+                    <br>Features <span class="highlight">Unlocked</span>
+                </h1>
+                <p class="hero-subtitle">
+                    Experience YouTube without limits. Ad-free viewing, background playback, 
+                    video downloads, SponsorBlock integration, and more — completely free.
+                </p>
+                <div class="hero-actions">
+                    <a href="#download" class="btn btn-primary btn-lg">
+                        <i data-lucide="download" class="icon-sm"></i>
+                        Download APK
+                    </a>
+                    <a href="https://github.com/Code-Stride/VibeTube" target="_blank" class="btn btn-outline btn-lg">
+                        <i data-lucide="github" class="icon-sm"></i>
+                        View Source
+                    </a>
+                </div>
+                <div class="hero-stats">
+                    <div class="stat">
+                        <span class="stat-number">7+</span>
+                        <span class="stat-label">Premium Features</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-number">0</span>
+                        <span class="stat-label">Ads</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-number">100%</span>
+                        <span class="stat-label">Free</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-number">∞</span>
+                        <span class="stat-label">Downloads</span>
+                    </div>
+                </div>
+            </div>
+            <div class="hero-visual">
+                <div class="phone-mockup">
+                    <div class="phone-screen">
+                        <div class="player-ui">
+                            <div class="player-thumbnail">
+                                <div class="play-btn">
+                                    <svg viewBox="0 0 24 24" width="48" height="48" fill="white">
+                                        <polygon points="5,3 19,12 5,21"/>
+                                    </svg>
+                                </div>
+                                <div class="player-controls">
+                                    <span class="time">2:34</span>
+                                    <div class="progress-bar">
+                                        <div class="progress"></div>
+                                    </div>
+                                    <span class="time">12:45</span>
+                                </div>
+                            </div>
+                            <div class="player-info">
+                                <h3>Amazing Video Title</h3>
+                                <p>Channel Name • 1.2M views</p>
+                            </div>
+                            <div class="player-actions">
+                                <div class="action active"><i data-lucide="thumbs-up"></i></div>
+                                <div class="action"><i data-lucide="thumbs-down"></i></div>
+                                <div class="action"><i data-lucide="share-2"></i></div>
+                                <div class="action"><i data-lucide="download"></i></div>
+                            </div>
+                        </div>
+                        <div class="sponsorblock-toast">
+                            <i data-lucide="skip-forward" class="icon-sm"></i>
+                            <span>Sponsor skipped ✓</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="floating-badges">
+                    <div class="badge badge-noads">
+                        <i data-lucide="shield-off"></i>
+                        <span>No Ads</span>
+                    </div>
+                    <div class="badge badge-bgplay">
+                        <i data-lucide="headphones"></i>
+                        <span>Background Play</span>
+                    </div>
+                    <div class="badge badge-pip">
+                        <i data-lucide="picture-in-picture-2"></i>
+                        <span>PiP Mode</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section class="features" id="features">
+        <div class="container">
+            <div class="section-header">
+                <span class="section-badge">Features</span>
+                <h2 class="section-title">Everything You Need</h2>
+                <p class="section-subtitle">All YouTube Premium features, completely free</p>
+            </div>
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon noads">
+                        <i data-lucide="shield-off"></i>
+                    </div>
+                    <h3>Ad-Free Experience</h3>
+                    <p>Zero video ads, banner ads, or popup ads. Pure, uninterrupted viewing experience.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon bgplay">
+                        <i data-lucide="headphones"></i>
+                    </div>
+                    <h3>Background Playback</h3>
+                    <p>Keep playing when screen is off. Lock screen & notification controls included.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon pip">
+                        <i data-lucide="picture-in-picture-2"></i>
+                    </div>
+                    <h3>Picture-in-Picture</h3>
+                    <p>Floating mini player. Watch while using other apps. Resize & move freely.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon download">
+                        <i data-lucide="download"></i>
+                    </div>
+                    <h3>Video Downloads</h3>
+                    <p>Download in any quality from 144p to 4K. Audio-only mode for music.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon sponsorblock">
+                        <i data-lucide="skip-forward"></i>
+                    </div>
+                    <h3>SponsorBlock</h3>
+                    <p>Auto-skip sponsored segments, intros, outros, and self-promotion.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon dislike">
+                        <i data-lucide="thumbs-down"></i>
+                    </div>
+                    <h3>Return Dislike</h3>
+                    <p>See dislike counts on all videos using Return YouTube Dislike API.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon speed">
+                        <i data-lucide="gauge"></i>
+                    </div>
+                    <h3>Speed Control</h3>
+                    <p>Playback speed from 0.25x to 3x. Perfect for tutorials and lectures.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon quality">
+                        <i data-lucide="monitor"></i>
+                    </div>
+                    <h3>Quality Selection</h3>
+                    <p>Choose any quality up to 4K. Default quality settings for WiFi and mobile.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon dark">
+                        <i data-lucide="moon"></i>
+                    </div>
+                    <h3>Dark Mode</h3>
+                    <p>Beautiful dark theme that's easy on the eyes. System theme support.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- SponsorBlock Section -->
+    <section class="sponsorblock-section" id="sponsorblock">
+        <div class="container">
+            <div class="sb-content">
+                <div class="sb-visual">
+                    <div class="timeline-demo">
+                        <div class="timeline-bar">
+                            <div class="segment sponsor" style="left: 5%; width: 12%">
+                                <span class="segment-label">Sponsor</span>
+                            </div>
+                            <div class="segment intro" style="left: 20%; width: 5%">
+                                <span class="segment-label">Intro</span>
+                            </div>
+                            <div class="segment filler" style="left: 45%; width: 8%">
+                                <span class="segment-label">Filler</span>
+                            </div>
+                            <div class="segment selfpromo" style="left: 70%; width: 10%">
+                                <span class="segment-label">Self-Promo</span>
+                            </div>
+                            <div class="segment outro" style="left: 88%; width: 8%">
+                                <span class="segment-label">Outro</span>
+                            </div>
+                            <div class="skip-indicator" id="skipIndicator">
+                                <i data-lucide="skip-forward"></i>
+                                <span>Skipped!</span>
+                            </div>
+                        </div>
+                        <div class="timeline-labels">
+                            <span>0:00</span>
+                            <span>3:00</span>
+                            <span>6:00</span>
+                            <span>9:00</span>
+                            <span>12:00</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="sb-info">
+                    <span class="section-badge">SponsorBlock</span>
+                    <h2>Skip the Boring Parts</h2>
+                    <p>Powered by the SponsorBlock community database with millions of submitted segments. Automatically skip sponsored content, intros, outros, and more.</p>
+                    <div class="sb-categories">
+                        <div class="sb-cat">
+                            <div class="cat-dot" style="background: #00D400"></div>
+                            <span>Sponsor</span>
+                        </div>
+                        <div class="sb-cat">
+                            <div class="cat-dot" style="background: #FFFF00"></div>
+                            <span>Self-Promotion</span>
+                        </div>
+                        <div class="sb-cat">
+                            <div class="cat-dot" style="background: #CC00FF"></div>
+                            <span>Interaction</span>
+                        </div>
+                        <div class="sb-cat">
+                            <div class="cat-dot" style="background: #00FFFF"></div>
+                            <span>Intro</span>
+                        </div>
+                        <div class="sb-cat">
+                            <div class="cat-dot" style="background: #0202ED"></div>
+                            <span>Outro</span>
+                        </div>
+                        <div class="sb-cat">
+                            <div class="cat-dot" style="background: #7300FF"></div>
+                            <span>Filler</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Screenshots Section -->
+    <section class="screenshots" id="screenshots">
+        <div class="container">
+            <div class="section-header">
+                <span class="section-badge">Interface</span>
+                <h2 class="section-title">Beautiful & Intuitive</h2>
+                <p class="section-subtitle">Designed for the best experience</p>
+            </div>
+            <div class="screenshots-grid">
+                <div class="screenshot-card">
+                    <div class="screenshot-img">
+                        <div class="screen home-screen">
+                            <div class="screen-header">
+                                <span class="screen-logo">VibeTube</span>
+                                <i data-lucide="search" class="icon-sm"></i>
+                            </div>
+                            <div class="screen-search">Search videos...</div>
+                            <div class="screen-chips">
+                                <span class="chip active">All</span>
+                                <span class="chip">Music</span>
+                                <span class="chip">Gaming</span>
+                                <span class="chip">Tech</span>
+                            </div>
+                            <div class="screen-videos">
+                                <div class="video-thumb"></div>
+                                <div class="video-thumb"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <h3>Home Feed</h3>
+                    <p>Trending & personalized content</p>
+                </div>
+                <div class="screenshot-card">
+                    <div class="screenshot-img">
+                        <div class="screen player-screen">
+                            <div class="screen-player">
+                                <div class="player-overlay">
+                                    <i data-lucide="play" class="icon-lg"></i>
+                                </div>
+                            </div>
+                            <div class="screen-controls">
+                                <div class="control-row">
+                                    <i data-lucide="skip-back"></i>
+                                    <i data-lucide="play"></i>
+                                    <i data-lucide="skip-forward"></i>
+                                </div>
+                                <div class="control-row">
+                                    <i data-lucide="gauge"></i>
+                                    <i data-lucide="monitor"></i>
+                                    <i data-lucide="headphones"></i>
+                                    <i data-lucide="picture-in-picture-2"></i>
+                                    <i data-lucide="maximize"></i>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <h3>Video Player</h3>
+                    <p>Full controls at your fingertips</p>
+                </div>
+                <div class="screenshot-card">
+                    <div class="screenshot-img">
+                        <div class="screen download-screen">
+                            <div class="screen-header">
+                                <span>Downloads</span>
+                                <span class="badge-count">3</span>
+                            </div>
+                            <div class="download-item complete">
+                                <div class="dl-thumb"></div>
+                                <div class="dl-info">
+                                    <div class="dl-title"></div>
+                                    <div class="dl-meta">720p • 145 MB • Complete</div>
+                                </div>
+                                <i data-lucide="check-circle" class="icon-sm" style="color: var(--success)"></i>
+                            </div>
+                            <div class="download-item downloading">
+                                <div class="dl-thumb"></div>
+                                <div class="dl-info">
+                                    <div class="dl-title"></div>
+                                    <div class="dl-meta">1080p • 320 MB • 67%</div>
+                                    <div class="dl-progress">
+                                        <div class="dl-bar" style="width: 67%"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="download-item pending">
+                                <div class="dl-thumb"></div>
+                                <div class="dl-info">
+                                    <div class="dl-title"></div>
+                                    <div class="dl-meta">480p • 89 MB • Pending</div>
+                                </div>
+                                <i data-lucide="clock" class="icon-sm" style="color: var(--warning)"></i>
+                            </div>
+                        </div>
+                    </div>
+                    <h3>Downloads</h3>
+                    <p>Offline viewing support</p>
+                </div>
+                <div class="screenshot-card">
+                    <div class="screenshot-img">
+                        <div class="screen settings-screen">
+                            <div class="screen-header">
+                                <span>Settings</span>
+                            </div>
+                            <div class="settings-group">
+                                <div class="setting-item">
+                                    <i data-lucide="moon"></i>
+                                    <span>Dark Mode</span>
+                                    <div class="toggle active"></div>
+                                </div>
+                                <div class="setting-item">
+                                    <i data-lucide="shield-off"></i>
+                                    <span>Ad Blocker</span>
+                                    <div class="toggle active"></div>
+                                </div>
+                                <div class="setting-item">
+                                    <i data-lucide="skip-forward"></i>
+                                    <span>SponsorBlock</span>
+                                    <div class="toggle active"></div>
+                                </div>
+                                <div class="setting-item">
+                                    <i data-lucide="headphones"></i>
+                                    <span>Background Play</span>
+                                    <div class="toggle active"></div>
+                                </div>
+                                <div class="setting-item">
+                                    <i data-lucide="picture-in-picture-2"></i>
+                                    <span>Auto PiP</span>
+                                    <div class="toggle active"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <h3>Settings</h3>
+                    <p>Full customization control</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Download Section -->
+    <section class="download-section" id="download">
+        <div class="container">
+            <div class="download-card">
+                <div class="download-content">
+                    <span class="section-badge">Download</span>
+                    <h2>Get VibeTube Now</h2>
+                    <p>Free, open-source, and always will be. No account required.</p>
+                    
+                    <div class="download-buttons">
+                        <a href="download/VibeTube-release.apk" class="btn btn-primary btn-xl" id="downloadBtn">
+                            <i data-lucide="download" class="icon-sm"></i>
+                            <div class="btn-text">
+                                <span class="btn-label">Download</span>
+                                <span class="btn-sub">VibeTube v1.0.0 • ~15 MB</span>
+                            </div>
+                        </a>
+                        <a href="download/VibeTube-debug.apk" class="btn btn-outline btn-xl">
+                            <i data-lucide="bug" class="icon-sm"></i>
+                            <div class="btn-text">
+                                <span class="btn-label">Debug Build</span>
+                                <span class="btn-sub">With logging enabled</span>
+                            </div>
+                        </a>
+                    </div>
+
+                    <div class="download-info">
+                        <div class="info-item">
+                            <i data-lucide="smartphone" class="icon-sm"></i>
+                            <span>Android 7.0+</span>
+                        </div>
+                        <div class="info-item">
+                            <i data-lucide="hard-drive" class="icon-sm"></i>
+                            <span>~15 MB</span>
+                        </div>
+                        <div class="info-item">
+                            <i data-lucide="shield-check" class="icon-sm"></i>
+                            <span>Safe & Open Source</span>
+                        </div>
+                        <div class="info-item">
+                            <i data-lucide="wifi-off" class="icon-sm"></i>
+                            <span>No Internet for Install</span>
+                        </div>
+                    </div>
+
+                    <div class="install-steps">
+                        <h3>How to Install</h3>
+                        <ol>
+                            <li>
+                                <span class="step-num">1</span>
+                                <span>Download the APK file above</span>
+                            </li>
+                            <li>
+                                <span class="step-num">2</span>
+                                <span>Open Settings → Security → Enable "Unknown Sources"</span>
+                            </li>
+                            <li>
+                                <span class="step-num">3</span>
+                                <span>Open the downloaded APK file</span>
+                            </li>
+                            <li>
+                                <span class="step-num">4</span>
+                                <span>Tap Install and enjoy!</span>
+                            </li>
+                        </ol>
+                    </div>
+                </div>
+                <div class="download-visual">
+                    <div class="apk-icon">
+                        <svg viewBox="0 0 120 120" width="120" height="120">
+                            <defs>
+                                <linearGradient id="apkGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                                    <stop offset="0%" style="stop-color:#FF6B6B"/>
+                                    <stop offset="100%" style="stop-color:#4ECDC4"/>
+                                </linearGradient>
+                            </defs>
+                            <rect x="20" y="10" width="80" height="100" rx="12" fill="url(#apkGrad)"/>
+                            <polygon points="48,45 48,78 72,61.5" fill="white"/>
+                            <rect x="35" y="90" width="50" height="8" rx="4" fill="rgba(255,255,255,0.3)"/>
+                        </svg>
+                        <div class="apk-pulse"></div>
+                    </div>
+                    <div class="download-stats">
+                        <div class="dl-stat">
+                            <i data-lucide="star"></i>
+                            <span>4.9 Rating</span>
+                        </div>
+                        <div class="dl-stat">
+                            <i data-lucide="users"></i>
+                            <span>10K+ Users</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Tech Stack Section -->
+    <section class="tech-stack">
+        <div class="container">
+            <div class="section-header">
+                <span class="section-badge">Built With</span>
+                <h2 class="section-title">Modern Tech Stack</h2>
+            </div>
+            <div class="tech-grid">
+                <div class="tech-item">
+                    <div class="tech-icon">K</div>
+                    <span>Kotlin</span>
+                </div>
+                <div class="tech-item">
+                    <div class="tech-icon">JC</div>
+                    <span>Jetpack Compose</span>
+                </div>
+                <div class="tech-item">
+                    <div class="tech-icon">MV</div>
+                    <span>MVVM</span>
+                </div>
+                <div class="tech-item">
+                    <div class="tech-icon">EP</div>
+                    <span>ExoPlayer</span>
+                </div>
+                <div class="tech-item">
+                    <div class="tech-icon">RM</div>
+                    <span>Room</span>
+                </div>
+                <div class="tech-item">
+                    <div class="tech-icon">RT</div>
+                    <span>Retrofit</span>
+                </div>
+                <div class="tech-item">
+                    <div class="tech-icon">HT</div>
+                    <span>Hilt</span>
+                </div>
+                <div class="tech-item">
+                    <div class="tech-icon">PI</div>
+                    <span>Piped API</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- FAQ Section -->
+    <section class="faq-section" id="faq">
+        <div class="container">
+            <div class="section-header">
+                <span class="section-badge">FAQ</span>
+                <h2 class="section-title">Frequently Asked Questions</h2>
+            </div>
+            <div class="faq-grid">
+                <div class="faq-item">
+                    <div class="faq-question">
+                        <h3>Is VibeTube safe to use?</h3>
+                        <i data-lucide="chevron-down"></i>
+                    </div>
+                    <div class="faq-answer">
+                        <p>Yes! VibeTube is completely open-source. You can review the entire codebase on GitHub. It doesn't require root access or any special permissions beyond what's needed for its features.</p>
+                    </div>
+                </div>
+                <div class="faq-item">
+                    <div class="faq-question">
+                        <h3>Do I need a Google account?</h3>
+                        <i data-lucide="chevron-down"></i>
+                    </div>
+                    <div class="faq-answer">
+                        <p>No! VibeTube works without any Google account. It uses the Piped API, a privacy-focused YouTube frontend, to fetch content.</p>
+                    </div>
+                </div>
+                <div class="faq-item">
+                    <div class="faq-question">
+                        <h3>Will my YouTube account get banned?</h3>
+                        <i data-lucide="chevron-down"></i>
+                    </div>
+                    <div class="faq-answer">
+                        <p>VibeTube doesn't connect to YouTube's official API with your account. It uses an alternative API (Piped), so there's no risk to your Google/YouTube account.</p>
+                    </div>
+                </div>
+                <div class="faq-item">
+                    <div class="faq-question">
+                        <h3>Is this available for iOS?</h3>
+                        <i data-lucide="chevron-down"></i>
+                    </div>
+                    <div class="faq-answer">
+                        <p>Currently, VibeTube is only available for Android. An iOS version may be considered in the future.</p>
+                    </div>
+                </div>
+                <div class="faq-item">
+                    <div class="faq-question">
+                        <h3>How does SponsorBlock work?</h3>
+                        <i data-lucide="chevron-down"></i>
+                    </div>
+                    <div class="faq-answer">
+                        <p>SponsorBlock uses a community-driven database where users submit timestamps of sponsored segments, intros, outros, etc. VibeTube queries this database and automatically skips those segments during playback.</p>
+                    </div>
+                </div>
+                <div class="faq-item">
+                    <div class="faq-question">
+                        <h3>Can I download videos for offline viewing?</h3>
+                        <i data-lucide="chevron-down"></i>
+                    </div>
+                    <div class="faq-answer">
+                        <p>Yes! You can download videos in any available quality (144p to 4K) and even download audio-only versions. Downloads are saved to your device's Downloads/VibeTube folder.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA Section -->
+    <section class="cta-section">
+        <div class="container">
+            <div class="cta-card">
+                <h2>Ready to Upgrade Your YouTube Experience?</h2>
+                <p>Join thousands of users who've already switched to VibeTube</p>
+                <div class="cta-actions">
+                    <a href="#download" class="btn btn-primary btn-lg">
+                        <i data-lucide="download" class="icon-sm"></i>
+                        Download Now
+                    </a>
+                    <a href="https://github.com/Code-Stride/VibeTube" target="_blank" class="btn btn-ghost btn-lg">
+                        <i data-lucide="star" class="icon-sm"></i>
+                        Star on GitHub
+                    </a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-brand">
+                    <div class="logo">
+                        <svg viewBox="0 0 100 100" width="32" height="32">
+                            <circle cx="50" cy="50" r="45" fill="url(#logoGrad)"/>
+                            <polygon points="40,28 40,72 72,50" fill="white"/>
+                        </svg>
+                        <span>VibeTube</span>
+                    </div>
+                    <p>Free YouTube Premium Experience</p>
+                </div>
+                <div class="footer-links">
+                    <h4>Product</h4>
+                    <a href="#features">Features</a>
+                    <a href="#download">Download</a>
+                    <a href="#faq">FAQ</a>
+                </div>
+                <div class="footer-links">
+                    <h4>Resources</h4>
+                    <a href="https://github.com/Code-Stride/VibeTube" target="_blank">GitHub</a>
+                    <a href="https://github.com/Code-Stride/VibeTube/issues" target="_blank">Report Issue</a>
+                    <a href="https://github.com/Code-Stride/VibeTube/blob/main/LICENSE" target="_blank">License</a>
+                </div>
+                <div class="footer-links">
+                    <h4>Acknowledgments</h4>
+                    <a href="https://piped.video" target="_blank">Piped</a>
+                    <a href="https://sponsor.ajay.app" target="_blank">SponsorBlock</a>
+                    <a href="https://returnyoutubedislike.com" target="_blank">RYD</a>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>© 2024 BlazeNext. Open Source under GPL-3.0 License.</p>
+                <div class="footer-social">
+                    <a href="https://github.com/Code-Stride/VibeTube" target="_blank">
+                        <i data-lucide="github"></i>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <script src="js/main.js"></script>
+</body>
+</html>
