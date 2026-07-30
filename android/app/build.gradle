@@ -4,18 +4,12 @@ plugins {
     id "dev.flutter.flutter-gradle-plugin"
 }
 
-def keystorePropertiesFile = rootProject.file("key.properties")
-def keystoreProperties = new Properties()
-if (keystorePropertiesFile.exists()) {
-    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
-}
-
-def hasReleaseKeystore = file("keystore.jks").exists() ||
-        (keystorePropertiesFile.exists() && keystoreProperties["storeFile"] != null)
+def hasReleaseKeystore = file("keystore.jks").exists()
 
 android {
     namespace "com.blazenxt.vibetube"
     compileSdk 36
+    ndkVersion flutter.ndkVersion
 
     defaultConfig {
         applicationId "com.blazenxt.vibetube"
@@ -29,28 +23,17 @@ android {
     signingConfigs {
         if (hasReleaseKeystore) {
             release {
-                if (file("keystore.jks").exists()) {
-                    storeFile file("keystore.jks")
-                    storePassword "android"
-                    keyAlias "vibetube"
-                    keyPassword "android"
-                } else {
-                    keyAlias keystoreProperties["keyAlias"]
-                    keyPassword keystoreProperties["keyPassword"]
-                    storeFile file(keystoreProperties["storeFile"])
-                    storePassword keystoreProperties["storePassword"]
-                }
+                storeFile file("keystore.jks")
+                storePassword "android"
+                keyAlias "vibetube"
+                keyPassword "android"
             }
         }
     }
 
     buildTypes {
         release {
-            if (hasReleaseKeystore) {
-                signingConfig signingConfigs.release
-            } else {
-                signingConfig signingConfigs.debug
-            }
+            signingConfig hasReleaseKeystore ? signingConfigs.release : signingConfigs.debug
             minifyEnabled false
             shrinkResources false
         }
@@ -67,7 +50,6 @@ android {
     }
 
     lint {
-        disable "InvalidPackage"
         checkReleaseBuilds false
         abortOnError false
     }
