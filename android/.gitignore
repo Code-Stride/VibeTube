@@ -7,9 +7,8 @@ gradle-wrapper.jar
 GeneratedPluginRegistrant.java
 .cxx/
 
-# Remember to never commit signing keys except our stable release keystore
 key.properties
 **/*.keystore
 **/keystore.jks
-# allow vibetube-release.jks (stable sideload signing)
+# Shared CI/sideload key (see README security notes)
 !**/vibetube-release.jks

@@ -12,29 +12,61 @@
 .swiftpm/
 migrate_working_dir/
 
-# IntelliJ
+# IntelliJ / Android Studio
 *.iml
 *.ipr
 *.iws
 .idea/
+*.ap_
+*.aab
+
+# Local APK copies (releases live on GitHub Releases)
+/*.apk
+
+# VS Code (optional local)
+.vscode/
+!.vscode/extensions.json
 
 # Flutter/Dart
 .dart_tool/
+.flutter-plugins
 .flutter-plugins-dependencies
+.packages
 .pub-cache/
 .pub/
 /build/
 /coverage/
+.melos_tool/
 
 # Symbolication / obfuscation
 app.*.symbols
 app.*.map.json
 
-# Android Studio
+# Android Studio build outputs
 /android/app/debug
 /android/app/profile
 /android/app/release
+/android/.gradle/
+/android/local.properties
+**/GeneratedPluginRegistrant.java
+**/GeneratedPluginRegistrant.swift
 
-# Ephemeral CI keystores only
+# iOS
+**/dgph
+**/Pods/
+**/DerivedData/
+**/xcuserdata/
+
+# Signing — personal keys only; keep shared CI sideload key tracked
+android/key.properties
 android/app/keystore.jks
-# NOTE: vibetube-release.jks is intentionally committed for consistent sideload upgrades
+*.keystore
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Tooling
+.fvm/
+.fvmrc

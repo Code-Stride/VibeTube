@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Releases & APKs
+    url: https://github.com/Code-Stride/VibeTube/releases
+    about: Download builds and read release notes
+  - name: Security report
+    url: https://github.com/Code-Stride/VibeTube/blob/main/SECURITY.md
+    about: How to report vulnerabilities privately
