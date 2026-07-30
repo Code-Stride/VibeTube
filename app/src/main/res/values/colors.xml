@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Primary Colors -->
+    <color name="primary">#FF6B6B</color>
+    <color name="primary_dark">#FF5252</color>
+    <color name="primary_light">#FF8A80</color>
+    <color name="on_primary">#FFFFFF</color>
+
+    <!-- Secondary Colors -->
+    <color name="secondary">#4ECDC4</color>
+    <color name="secondary_dark">#26A69A</color>
+    <color name="on_secondary">#FFFFFF</color>
+
+    <!-- Accent -->
+    <color name="accent">#FFE66D</color>
+
+    <!-- Background & Surface -->
+    <color name="background">#121212</color>
+    <color name="background_dark">#0D0D0D</color>
+    <color name="surface">#1E1E1E</color>
+    <color name="surface_variant">#2D2D2D</color>
+    <color name="surface_bright">#383838</color>
+
+    <!-- Text Colors -->
+    <color name="text_primary">#FFFFFF</color>
+    <color name="text_secondary">#B0B0B0</color>
+    <color name="text_hint">#757575</color>
+    <color name="text_disabled">#555555</color>
+
+    <!-- Status Colors -->
+    <color name="success">#4CAF50</color>
+    <color name="error">#F44336</color>
+    <color name="warning">#FF9800</color>
+    <color name="info">#2196F3</color>
+
+    <!-- Player Colors -->
+    <color name="player_background">#000000</color>
+    <color name="player_controls">#CC000000</color>
+    <color name="player_progress">#FF6B6B</color>
+    <color name="player_buffer">#40FF6B6B</color>
+
+    <!-- SponsorBlock Colors -->
+    <color name="sb_sponsor">#00D400</color>
+    <color name="sb_selfpromo">#FFFF00</color>
+    <color name="sb_interaction">#CC00FF</color>
+    <color name="sb_intro">#00FFFF</color>
+    <color name="sb_outro">#0202ED</color>
+    <color name="sb_preview">#008FD6</color>
+    <color name="sb_filler">#7300FF</color>
+
+    <!-- Download Status -->
+    <color name="download_pending">#FF9800</color>
+    <color name="download_active">#2196F3</color>
+    <color name="download_complete">#4CAF50</color>
+    <color name="download_error">#F44336</color>
+
+    <!-- Bottom Nav -->
+    <color name="bottom_nav_active">#FF6B6B</color>
+    <color name="bottom_nav_inactive">#757575</color>
+
+    <!-- Ripple -->
+    <color name="ripple">#20FF6B6B</color>
+
+    <!-- Divider -->
+    <color name="divider">#1FFFFFFF</color>
+</resources>
