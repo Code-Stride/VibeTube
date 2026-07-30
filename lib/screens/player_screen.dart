@@ -12,17 +12,20 @@ import '../providers/app_provider.dart';
 import '../utils/theme.dart';
 import '../widgets/video_card.dart';
 import '../services/native_player.dart';
+import '../providers/mini_player_controller.dart';
 
 class PlayerScreen extends StatefulWidget {
   final String videoId;
   final Video? preview;
   final String? localPath;
+  final bool resumeSession;
 
   const PlayerScreen({
     super.key,
     required this.videoId,
     this.preview,
     this.localPath,
+    this.resumeSession = false,
   });
 
   @override
@@ -52,6 +55,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool _inPip = false;
   bool _bgActive = false;
   bool _pipSupported = false;
+  bool _handedToMini = false;
+  bool _resumed = false;
 
   @override
   void initState() {
@@ -62,6 +67,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   Future<void> _boot() async {
     final provider = context.read<AppProvider>();
+    final mini = context.read<MiniPlayerController>();
+    mini.setExpanded(true);
+
     _speed = provider.defaultSpeed;
     _quality = provider.defaultQuality.isEmpty ? 'Auto (HLS)' : provider.defaultQuality;
     if (_quality == 'Auto') _quality = 'Auto (HLS)';
@@ -73,11 +81,44 @@ class _PlayerScreenState extends State<PlayerScreen> {
       setState(() => _inPip = inPip);
     });
 
+    // Resume from mini player — same controller, no reload
+    if (widget.resumeSession &&
+        mini.hasSession &&
+        mini.video?.id == widget.videoId &&
+        mini.controller != null &&
+        mini.controller!.value.isInitialized) {
+      _resumed = true;
+      _controller = mini.controller;
+      _activeUrl = mini.activeUrl;
+      _quality = mini.quality;
+      _speed = mini.speed;
+      _ready = true;
+      _isBuffering = false;
+      _duration = _controller!.value.duration;
+      _position = _controller!.value.position;
+      _controller!.removeListener(_onTick);
+      _controller!.addListener(_onTick);
+      mini.bindExisting(_controller!);
+      _startPosTimer();
+      _armHide();
+      if (mounted) setState(() {});
+      // refresh side data quietly
+      if (provider.currentVideo?.id != widget.videoId) {
+        provider.loadVideoDetails(widget.videoId, preview: widget.preview);
+      }
+      _dislikes = provider.dislikeCount;
+      return;
+    }
+
+    // Opening a different video while mini is open — close mini first
+    if (mini.hasSession && mini.video?.id != widget.videoId) {
+      await mini.close();
+    }
+
     // Offline local file
     if (widget.localPath != null && widget.localPath!.isNotEmpty) {
       try {
         await _attachController(widget.localPath!);
-        // still refresh metadata in background
         provider.loadVideoDetails(widget.videoId, preview: widget.preview);
         return;
       } catch (e) {
@@ -85,7 +126,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
       }
     }
 
-    // Start loading stream immediately
     await provider.loadVideoDetails(widget.videoId, preview: widget.preview);
     if (!mounted) return;
 
@@ -417,16 +457,67 @@ class _PlayerScreenState extends State<PlayerScreen> {
     ]);
   }
 
+  /// YouTube-style: keep playing in bottom mini player.
+  Future<void> _minimizeToMiniPlayer() async {
+    final mini = context.read<MiniPlayerController>();
+    final provider = context.read<AppProvider>();
+    final c = _controller;
+    if (c == null || !c.value.isInitialized) {
+      if (mounted) Navigator.of(context).pop();
+      return;
+    }
+
+    final meta = provider.currentVideo;
+    final preview = widget.preview;
+    final v = Video(
+      id: widget.videoId,
+      title: meta?.title.isNotEmpty == true
+          ? meta!.title
+          : (preview?.title ?? 'Playing'),
+      thumbnailUrl: meta?.thumbnailUrl.isNotEmpty == true
+          ? meta!.thumbnailUrl
+          : (preview?.thumbnailUrl ?? ''),
+      channelName: meta?.channelName.isNotEmpty == true
+          ? meta!.channelName
+          : (preview?.channelName ?? ''),
+      channelId: meta?.channelId ?? preview?.channelId ?? '',
+      viewCount: meta?.viewCount ?? preview?.viewCount ?? 0,
+      duration: meta?.duration ?? preview?.duration ?? Duration.zero,
+      publishedAt: meta?.publishedAt ?? preview?.publishedAt ?? '',
+    );
+
+    // Detach listeners so dispose won't fight mini
+    c.removeListener(_onTick);
+    _posTimer?.cancel();
+    _hideTimer?.cancel();
+    _handedToMini = true;
+    _controller = null;
+
+    mini.adopt(
+      ctrl: c,
+      video: v,
+      details: meta,
+      activeUrl: _activeUrl,
+      quality: _quality,
+      speed: _speed,
+    );
+
+    if (mounted) Navigator.of(context).pop();
+  }
+
   @override
   void dispose() {
     _hideTimer?.cancel();
     _posTimer?.cancel();
-    _controller?.removeListener(_onTick);
-    _controller?.dispose();
-    WakelockPlus.disable();
-    if (_bgActive) {
-      NativePlayer.stopBackground();
-      _bgActive = false;
+    if (!_handedToMini) {
+      _controller?.removeListener(_onTick);
+      _controller?.dispose();
+      _controller = null;
+      WakelockPlus.disable();
+      if (_bgActive) {
+        NativePlayer.stopBackground();
+        _bgActive = false;
+      }
     }
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
@@ -442,7 +533,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
       );
     }
 
-    return Scaffold(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        await _minimizeToMiniPlayer();
+      },
+      child: Scaffold(
       backgroundColor: AppTheme.background,
       body: Consumer<AppProvider>(
         builder: (context, provider, _) {
@@ -466,6 +563,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
           );
         },
       ),
+    ),
     );
   }
 
@@ -619,11 +717,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       fullscreen ? Icons.fullscreen_exit : Icons.arrow_back,
                       color: Colors.white,
                     ),
-                    onPressed: () {
+                    onPressed: () async {
                       if (fullscreen) {
-                        _exitFullscreen();
+                        await _exitFullscreen();
                       } else {
-                        Navigator.pop(context);
+                        await _minimizeToMiniPlayer();
                       }
                     },
                   ),

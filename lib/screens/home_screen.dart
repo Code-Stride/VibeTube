@@ -9,6 +9,8 @@ import 'player_screen.dart';
 import 'library_screen.dart';
 import 'downloads_screen.dart';
 import 'settings_screen.dart';
+import '../providers/mini_player_controller.dart';
+import '../widgets/mini_player_bar.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -24,7 +26,19 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _scheduleUpdateCheck());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<MiniPlayerController>().setUseGlobalOverlay(false);
+      _scheduleUpdateCheck();
+    });
+  }
+
+  @override
+  void dispose() {
+    // Leaving main shell (shouldn't often) — allow global mini
+    try {
+      context.read<MiniPlayerController>().setUseGlobalOverlay(true);
+    } catch (_) {}
+    super.dispose();
   }
 
   Future<void> _scheduleUpdateCheck() async {
@@ -57,36 +71,55 @@ class _HomeScreenState extends State<HomeScreen> {
       const SettingsScreen(),
     ];
 
+    final showMini = context.watch<MiniPlayerController>().showMiniBar;
+
     return Scaffold(
       body: IndexedStack(index: _index, children: pages),
-      bottomNavigationBar: Container(
-        decoration: BoxDecoration(
-          border: Border(top: BorderSide(color: VibeColors.of(context).border, width: 0.6)),
-        ),
-        child: BottomNavigationBar(
-          currentIndex: _index,
-          onTap: (i) => setState(() => _index = i),
-          items: const [
-            BottomNavigationBarItem(
-                icon: Icon(Icons.home_outlined),
-                activeIcon: Icon(Icons.home),
-                label: 'Home'),
-            BottomNavigationBarItem(
-                icon: Icon(Icons.search), label: 'Search'),
-            BottomNavigationBarItem(
-                icon: Icon(Icons.video_library_outlined),
-                activeIcon: Icon(Icons.video_library),
-                label: 'Library'),
-            BottomNavigationBarItem(
-                icon: Icon(Icons.download_outlined),
-                activeIcon: Icon(Icons.download),
-                label: 'Downloads'),
-            BottomNavigationBarItem(
-                icon: Icon(Icons.settings_outlined),
-                activeIcon: Icon(Icons.settings),
-                label: 'Settings'),
-          ],
-        ),
+      bottomNavigationBar: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (showMini) const MiniPlayerBar(embedded: true),
+          Container(
+            decoration: BoxDecoration(
+              border: Border(
+                top: BorderSide(
+                  color: VibeColors.of(context).border,
+                  width: 0.6,
+                ),
+              ),
+            ),
+            child: BottomNavigationBar(
+              currentIndex: _index,
+              onTap: (i) => setState(() => _index = i),
+              items: const [
+                BottomNavigationBarItem(
+                  icon: Icon(Icons.home_outlined),
+                  activeIcon: Icon(Icons.home),
+                  label: 'Home',
+                ),
+                BottomNavigationBarItem(
+                  icon: Icon(Icons.search),
+                  label: 'Search',
+                ),
+                BottomNavigationBarItem(
+                  icon: Icon(Icons.video_library_outlined),
+                  activeIcon: Icon(Icons.video_library),
+                  label: 'Library',
+                ),
+                BottomNavigationBarItem(
+                  icon: Icon(Icons.download_outlined),
+                  activeIcon: Icon(Icons.download),
+                  label: 'Downloads',
+                ),
+                BottomNavigationBarItem(
+                  icon: Icon(Icons.settings_outlined),
+                  activeIcon: Icon(Icons.settings),
+                  label: 'Settings',
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
