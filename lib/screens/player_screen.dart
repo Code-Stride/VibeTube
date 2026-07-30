@@ -101,7 +101,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Future<void> _startPlayback(VideoDetails details, {String? quality}) async {
     final q = quality ?? _quality;
 
-    // Build ordered candidate URLs: chosen quality → all muxed → HLS
     final candidates = <String>[];
     void add(String? u) {
       if (u != null && u.isNotEmpty && !candidates.contains(u)) {
@@ -109,25 +108,36 @@ class _PlayerScreenState extends State<PlayerScreen> {
       }
     }
 
-    // Quality-aware order
-    add(details.urlForQuality(q));
-    if (q.startsWith('Auto') || q == 'Best') {
-      add(details.hlsUrl); // high quality adaptive first
-      add(details.preferredPlayUrl);
-      add(details.bestMuxedUrl);
-    } else {
-      add(details.bestMuxedUrl);
+    final locked = details.urlForQuality(q);
+    add(locked);
+
+    final isAuto = q.startsWith('Auto') || q == 'Best';
+    if (isAuto) {
       add(details.hlsUrl);
+      add(details.preferredPlayUrl);
+      if (details.hlsVariants.isNotEmpty) {
+        final hs = details.hlsVariants.keys.toList()
+          ..sort((a, b) => b.compareTo(a));
+        add(details.hlsVariants[hs.first]);
+      }
+      add(details.bestMuxedUrl);
+    } else if (q != 'Audio Only') {
+      final target = int.tryParse(q.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+      if (target > 0) {
+        final hHeights = details.hlsVariants.keys.toList()
+          ..sort((a, b) => (a - target).abs().compareTo((b - target).abs()));
+        for (final h in hHeights.take(3)) {
+          add(details.hlsVariants[h]);
+        }
+        final pHeights = details.progressiveByHeight.keys.toList()
+          ..sort((a, b) => (a - target).abs().compareTo((b - target).abs()));
+        for (final h in pHeights.take(2)) {
+          add(details.progressiveByHeight[h]);
+        }
+      }
+      add(details.hlsUrl);
+      add(details.bestMuxedUrl);
     }
-    final muxed = details.formats.where((f) => f.isMuxed && f.url.isNotEmpty).toList()
-      ..sort((a, b) => b.height.compareTo(a.height));
-    for (final f in muxed) {
-      add(f.url);
-    }
-    for (final f in details.formats) {
-      if (!f.isAudioOnly && f.url.isNotEmpty) add(f.url);
-    }
-    add(details.hlsUrl);
 
     if (candidates.isEmpty) {
       if (mounted) {
@@ -136,7 +146,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
           _ready = false;
         });
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No playable stream URL found for this video')),
+          const SnackBar(
+              content: Text('No playable stream URL found for this video')),
         );
       }
       return;
@@ -146,7 +157,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
     for (final url in candidates) {
       try {
         await _attachController(url);
-        if (_ready) return;
+        if (_ready) {
+          debugPrint('Playing quality=$q url=${url.substring(0, url.length > 80 ? 80 : url.length)}');
+          return;
+        }
       } catch (e) {
         lastErr = e;
         debugPrint('candidate failed: $e');
@@ -1228,7 +1242,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                   child: Text(
                     hasHls
-                        ? 'HLS adaptive unlocked — up to 1080p/4K when available'
+                        ? 'All qualities unlocked via HLS (${_maxQualityLabel(details)} max)'
                         : 'Only progressive streams found (often max 360p)',
                     style: TextStyle(color: c.textMuted, fontSize: 12),
                   ),
@@ -1241,12 +1255,35 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       final q = qs[i];
                       final selected = _quality == q;
                       String? sub;
+                      final d = details;
                       if (q.startsWith('Auto')) {
-                        sub = hasHls ? 'Best available via HLS' : 'Best progressive';
+                        final maxQ = _maxQualityLabel(d);
+                        sub = hasHls
+                            ? 'Adaptive · up to $maxQ'
+                            : 'Best progressive';
                       } else if (q == 'Audio Only') {
-                        sub = 'Music / background friendly';
-                      } else if (hasHls && q != '360p') {
-                        sub = 'HLS adaptive';
+                        sub = 'Audio track';
+                      } else {
+                        final h =
+                            int.tryParse(q.replaceAll(RegExp(r'[^0-9]'), '')) ??
+                                0;
+                        final hasExact = d != null &&
+                            (d.hlsVariants.containsKey(h) ||
+                                d.progressiveByHeight.containsKey(h));
+                        final hasNear = d != null &&
+                            (d.hlsVariants.keys
+                                    .any((x) => (x - h).abs() <= 20) ||
+                                d.progressiveByHeight.keys
+                                    .any((x) => (x - h).abs() <= 20));
+                        if (hasExact || hasNear) {
+                          final isHls = d!.hlsVariants.containsKey(h) ||
+                              d.hlsVariants.keys.any((x) => (x - h).abs() <= 20);
+                          sub = isHls ? 'Tap to lock · HLS' : 'Tap to lock · MP4';
+                        } else if (hasHls) {
+                          sub = 'via nearest HLS';
+                        } else {
+                          sub = 'May fallback';
+                        }
                       }
                       return ListTile(
                         title: Text(q,
@@ -1270,10 +1307,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
                           final d = context.read<AppProvider>().currentVideo;
                           if (d != null) {
                             final pos = _controller?.value.position;
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Switching to $q…'),
+                                  duration: const Duration(seconds: 1),
+                                ),
+                              );
+                            }
                             await _startPlayback(d, quality: q);
-                            if (pos != null) {
-                              await _controller?.seekTo(pos);
-                              await _controller?.play();
+                            if (pos != null && _controller != null) {
+                              await _controller!.seekTo(pos);
+                              await _controller!.play();
                             }
                           }
                         },

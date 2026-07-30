@@ -143,6 +143,10 @@ class VideoDetails extends Video {
   final String? dashUrl;
   final int likeCount;
   final bool isLive;
+  /// height (e.g. 720) -> specific HLS media playlist URL (muxed A/V)
+  final Map<int, String> hlsVariants;
+  /// height -> progressive muxed mp4 when available
+  final Map<int, String> progressiveByHeight;
 
   const VideoDetails({
     required super.id,
@@ -161,33 +165,41 @@ class VideoDetails extends Video {
     this.dashUrl,
     this.likeCount = 0,
     this.isLive = false,
+    this.hlsVariants = const {},
+    this.progressiveByHeight = const {},
   });
 
   /// Best progressive (muxed audio+video) URL.
   String? get bestMuxedUrl {
+    if (progressiveByHeight.isNotEmpty) {
+      final h = progressiveByHeight.keys.toList()..sort((a, b) => b.compareTo(a));
+      return progressiveByHeight[h.first];
+    }
     final muxed = formats.where((f) => f.isMuxed).toList()
       ..sort((a, b) => b.height.compareTo(a.height));
     if (muxed.isNotEmpty) return muxed.first.url;
     for (final f in formats) {
       if (f.url.isNotEmpty && !f.isAudioOnly && f.hasVideo) return f.url;
     }
-    for (final f in formats) {
-      if (f.url.isNotEmpty && !f.isAudioOnly) return f.url;
-    }
     return null;
   }
 
-  /// Auto: prefer HLS (adaptive high quality).
+  /// Auto: master HLS (player picks best) → else best progressive.
   String? get preferredPlayUrl {
     if (hlsUrl != null && hlsUrl!.isNotEmpty) return hlsUrl;
+    if (hlsVariants.isNotEmpty) {
+      final h = hlsVariants.keys.toList()..sort((a, b) => b.compareTo(a));
+      return hlsVariants[h.first];
+    }
     return bestMuxedUrl;
   }
 
   String? get progressiveUrl => bestMuxedUrl;
 
+  /// Resolve a concrete playable URL for the chosen quality label.
   String? urlForQuality(String quality) {
     final q = quality.trim();
-    if (q == 'Auto' || q == 'Best' || q == 'Auto (HLS)') {
+    if (q == 'Auto' || q == 'Best' || q == 'Auto (HLS)' || q == 'Auto') {
       return preferredPlayUrl;
     }
     if (q == 'Audio Only') {
@@ -195,50 +207,83 @@ class VideoDetails extends Video {
           formats.where((f) => f.isAudioOnly && f.url.isNotEmpty).toList()
             ..sort((a, b) => b.bitrate.compareTo(a.bitrate));
       if (audio.isNotEmpty) return audio.first.url;
+      // lowest hls as audio-ish fallback
+      if (hlsVariants.isNotEmpty) {
+        final h = hlsVariants.keys.toList()..sort();
+        return hlsVariants[h.first];
+      }
       return preferredPlayUrl;
     }
+
     final target = int.tryParse(q.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
-    if (target > 0) {
-      final muxed = formats.where((f) => f.isMuxed && f.url.isNotEmpty).toList();
-      final exact = muxed.where((f) => f.height == target).toList();
-      if (exact.isNotEmpty) return exact.first.url;
-      if (muxed.isNotEmpty) {
-        muxed.sort((a, b) =>
-            (a.height - target).abs().compareTo((b.height - target).abs()));
-        if ((muxed.first.height - target).abs() <= 120) {
-          return muxed.first.url;
-        }
-      }
-      if (hlsUrl != null && hlsUrl!.isNotEmpty) return hlsUrl;
-      return bestMuxedUrl;
+    if (target <= 0) return preferredPlayUrl;
+
+    // 1) Exact HLS variant for this height (best — real quality lock)
+    if (hlsVariants.containsKey(target)) {
+      return hlsVariants[target];
     }
-    return preferredPlayUrl;
+    // nearest HLS height
+    if (hlsVariants.isNotEmpty) {
+      final heights = hlsVariants.keys.toList()
+        ..sort((a, b) => (a - target).abs().compareTo((b - target).abs()));
+      return hlsVariants[heights.first];
+    }
+
+    // 2) Progressive muxed map
+    if (progressiveByHeight.containsKey(target)) {
+      return progressiveByHeight[target];
+    }
+    if (progressiveByHeight.isNotEmpty) {
+      final heights = progressiveByHeight.keys.toList()
+        ..sort((a, b) => (a - target).abs().compareTo((b - target).abs()));
+      return progressiveByHeight[heights.first];
+    }
+
+    // 3) formats list muxed
+    final muxed = formats.where((f) => f.isMuxed && f.url.isNotEmpty).toList();
+    if (muxed.isNotEmpty) {
+      muxed.sort((a, b) =>
+          (a.height - target).abs().compareTo((b.height - target).abs()));
+      return muxed.first.url;
+    }
+
+    // 4) master HLS / anything
+    if (hlsUrl != null && hlsUrl!.isNotEmpty) return hlsUrl;
+    return bestMuxedUrl;
   }
 
   List<String> get availableQualities {
-    final qs = <String>{};
-    for (final f in formats.where((f) => f.isMuxed || (f.hasVideo && !f.isAudioOnly))) {
-      if (f.height >= 2160) {
-        qs.add('2160p');
-      } else if (f.height >= 1440) {
-        qs.add('1440p');
-      } else if (f.height >= 1080) {
-        qs.add('1080p');
-      } else if (f.height >= 720) {
-        qs.add('720p');
-      } else if (f.height >= 480) {
-        qs.add('480p');
-      } else if (f.height >= 360) {
-        qs.add('360p');
-      } else if (f.height >= 240) {
-        qs.add('240p');
-      } else if (f.height >= 144) {
-        qs.add('144p');
-      }
+    final heights = <int>{
+      ...hlsVariants.keys,
+      ...progressiveByHeight.keys,
+    };
+    for (final f in formats.where((f) => f.isMuxed && f.height > 0)) {
+      heights.add(f.height);
     }
-    if (hlsUrl != null && hlsUrl!.isNotEmpty) {
-      qs.addAll(['144p', '240p', '360p', '480p', '720p', '1080p', '1440p', '2160p']);
+
+    String labelFor(int h) {
+      if (h >= 2160) return '2160p';
+      if (h >= 1440) return '1440p';
+      if (h >= 1080) return '1080p';
+      if (h >= 720) return '720p';
+      if (h >= 480) return '480p';
+      if (h >= 360) return '360p';
+      if (h >= 240) return '240p';
+      if (h >= 144) return '144p';
+      return '${h}p';
     }
+
+    // Normalize to standard ladder labels (unique)
+    final labels = <String>{};
+    for (final h in heights) {
+      labels.add(labelFor(h));
+    }
+
+    // If we only have master HLS without parsed variants yet, still show ladder
+    if (labels.isEmpty && hlsUrl != null && hlsUrl!.isNotEmpty) {
+      labels.addAll(['144p', '240p', '360p', '480p', '720p', '1080p']);
+    }
+
     const order = [
       '2160p',
       '1440p',
@@ -249,8 +294,51 @@ class VideoDetails extends Video {
       '240p',
       '144p'
     ];
-    final list = order.where(qs.contains).toList();
+    final list = order.where(labels.contains).toList();
     return ['Auto (HLS)', ...list, 'Audio Only'];
+  }
+
+  /// Whether a quality can be locked (has concrete URL, not just master).
+  bool canLockQuality(String quality) {
+    final q = quality.trim();
+    if (q.startsWith('Auto') || q == 'Best' || q == 'Audio Only') return true;
+    final target = int.tryParse(q.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+    if (target <= 0) return false;
+    if (hlsVariants.containsKey(target)) return true;
+    if (progressiveByHeight.containsKey(target)) return true;
+    // nearest within 20p from known heights
+    for (final h in [...hlsVariants.keys, ...progressiveByHeight.keys]) {
+      if ((h - target).abs() <= 20) return true;
+    }
+    return hlsUrl != null && hlsUrl!.isNotEmpty;
+  }
+
+  VideoDetails copyWithStreams({
+    Map<int, String>? hlsVariants,
+    Map<int, String>? progressiveByHeight,
+    String? hlsUrl,
+    List<VideoFormat>? formats,
+  }) {
+    return VideoDetails(
+      id: id,
+      title: title,
+      description: description,
+      channelName: channelName,
+      channelId: channelId,
+      channelAvatar: channelAvatar,
+      viewCount: viewCount,
+      duration: duration,
+      thumbnailUrl: thumbnailUrl,
+      publishedAt: publishedAt,
+      localPath: localPath,
+      formats: formats ?? this.formats,
+      hlsUrl: hlsUrl ?? this.hlsUrl,
+      dashUrl: dashUrl,
+      likeCount: likeCount,
+      isLive: isLive,
+      hlsVariants: hlsVariants ?? this.hlsVariants,
+      progressiveByHeight: progressiveByHeight ?? this.progressiveByHeight,
+    );
   }
 }
 

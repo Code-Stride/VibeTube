@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/video.dart';
+import '../services/hls_parser.dart';
 
 /// YouTube InnerTube client.
 /// ANDROID client returns plain progressive MP4 URLs (no cipher) — most reliable for mobile players.
@@ -344,6 +345,37 @@ class InnerTubeClient {
       if (f.url.isNotEmpty && seen.add(f.url)) mergedFormats.add(f);
     }
 
+    final formatsFinal =
+        mergedFormats.isNotEmpty ? mergedFormats : base.formats;
+    final hls = iosDetails?.hlsUrl ?? base.hlsUrl;
+
+    // Progressive muxed by height (itag 18 etc.)
+    final progressive = <int, String>{};
+    for (final f in formatsFinal.where((f) => f.isMuxed && f.height > 0)) {
+      final prev = progressive[f.height];
+      if (prev == null || f.bitrate > 0) {
+        progressive[f.height] = f.url;
+      }
+    }
+
+    // Parse HLS master → per-quality locked playlists
+    var hlsVariants = <int, String>{};
+    if (hls != null && hls.isNotEmpty) {
+      try {
+        final variants = await HlsParser.parseMaster(
+          hls,
+          headers: {
+            'User-Agent':
+                'com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)',
+            'Accept': '*/*',
+          },
+        );
+        for (final v in variants) {
+          hlsVariants[v.height] = v.url;
+        }
+      } catch (_) {}
+    }
+
     return VideoDetails(
       id: base.id,
       title: (iosDetails?.title.isNotEmpty == true)
@@ -368,11 +400,13 @@ class InnerTubeClient {
           ? base.thumbnailUrl
           : (androidDetails?.thumbnailUrl ?? ''),
       publishedAt: base.publishedAt,
-      formats: mergedFormats.isNotEmpty ? mergedFormats : base.formats,
-      hlsUrl: iosDetails?.hlsUrl ?? base.hlsUrl,
+      formats: formatsFinal,
+      hlsUrl: hls,
       dashUrl: base.dashUrl ?? androidDetails?.dashUrl,
       likeCount: base.likeCount,
       isLive: base.isLive || (androidDetails?.isLive ?? false),
+      hlsVariants: hlsVariants,
+      progressiveByHeight: progressive,
     );
   }
 
