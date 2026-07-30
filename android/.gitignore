@@ -7,8 +7,9 @@ gradle-wrapper.jar
 GeneratedPluginRegistrant.java
 .cxx/
 
-# Remember to never publicly share your keystore.
-# See https://flutter.dev/to/reference-keystore
+# Remember to never commit signing keys except our stable release keystore
 key.properties
 **/*.keystore
-**/*.jks
+**/keystore.jks
+# allow vibetube-release.jks (stable sideload signing)
+!**/vibetube-release.jks
