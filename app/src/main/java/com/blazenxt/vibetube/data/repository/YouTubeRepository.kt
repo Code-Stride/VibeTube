@@ -6,9 +6,6 @@ import com.blazenxt.vibetube.data.model.*
 import com.blazenxt.vibetube.sponsorblock.SponsorBlockApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.schabi.newpipe.extractor.NewPipe
-import org.schabi.newpipe.extractor.ServiceList
-import org.schabi.newpipe.extractor.stream.StreamInfo
 import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Singleton

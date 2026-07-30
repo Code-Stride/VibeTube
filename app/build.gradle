@@ -128,9 +128,6 @@ dependencies {
     implementation 'io.coil-kt:coil-compose:2.5.0'
     implementation 'io.coil-kt:coil-video:2.5.0'
 
-    // YouTube Extractor
-    implementation 'com.github.nicholasgasior.NewPipeExtractor:NewPipeExtractor:0.22.1'
-
     // DataStore
     implementation 'androidx.datastore:datastore-preferences:1.0.0'
 
