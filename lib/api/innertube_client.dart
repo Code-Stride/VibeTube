@@ -43,7 +43,7 @@ class InnerTubeClient {
       'hl': 'en',
       'gl': 'US',
     },
-  ]
+  ];
 
   static const Map<String, dynamic> _webContext = {
     'client': {
