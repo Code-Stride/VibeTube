@@ -4,6 +4,7 @@ import com.blazenxt.vibetube.data.api.YouTubeApiService
 import com.blazenxt.vibetube.data.api.PipedApiService
 import com.blazenxt.vibetube.data.model.*
 import com.blazenxt.vibetube.sponsorblock.SponsorBlockApi
+import com.blazenxt.vibetube.sponsorblock.SponsorSegment
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import timber.log.Timber
