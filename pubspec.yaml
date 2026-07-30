@@ -13,10 +13,7 @@ dependencies:
   # UI
   cupertino_icons: ^1.0.6
   google_fonts: ^6.1.0
-  flutter_staggered_animations: ^1.1.1
-  shimmer: ^3.0.0
   cached_network_image: ^3.3.0
-  flutter_svg: ^2.0.9
   
   # Video Player
   video_player: ^2.8.1
@@ -24,44 +21,17 @@ dependencies:
   
   # State Management
   provider: ^6.1.1
-  riverpod: ^2.4.9
-  flutter_riverpod: ^2.4.9
   
   # Network
   http: ^1.1.0
-  dio: ^5.4.0
   
   # Storage
-  hive: ^2.2.3
-  hive_flutter: ^1.1.0
-  path_provider: ^2.1.1
   shared_preferences: ^2.2.2
   
   # Utils
   intl: ^0.19.0
-  uuid: ^4.2.1
   url_launcher: ^6.2.1
   share_plus: ^7.2.1
-  
-  # Downloads
-  flutter_downloader: ^1.11.5
-  permission_handler: ^11.1.0
-  
-  # Audio
-  just_audio: ^0.9.36
-  audio_session: ^0.1.18
-  
-  # Notifications
-  flutter_local_notifications: ^17.0.0
-  
-  # SponsorBlock
-  # We'll implement our own API client
-  
-  # YouTube InnerTube
-  # We'll implement our own client
-  
-  # Ads blocking
-  # Built into our InnerTube client
 
 dev_dependencies:
   flutter_test:
