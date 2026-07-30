@@ -57,7 +57,7 @@ class AppTheme {
         unselectedItemColor: textMuted,
         type: BottomNavigationBarType.fixed,
       ),
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         color: surface,
         elevation: 0,
         shape: RoundedRectangleBorder(
