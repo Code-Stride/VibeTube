@@ -7,16 +7,11 @@ import 'utils/theme.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
-    statusBarColor: Colors.transparent,
-    statusBarIconBrightness: Brightness.light,
-    systemNavigationBarColor: AppTheme.surface,
-    systemNavigationBarIconBrightness: Brightness.light,
-  ));
   await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
 
   final provider = AppProvider();
   await provider.init();
+  AppTheme.applySystemUi(provider.isDarkMode);
 
   runApp(VibeTubeApp(provider: provider));
 }
@@ -31,6 +26,7 @@ class VibeTubeApp extends StatelessWidget {
       value: provider,
       child: Consumer<AppProvider>(
         builder: (context, p, _) {
+          AppTheme.applySystemUi(p.isDarkMode);
           return MaterialApp(
             title: 'VibeTube',
             debugShowCheckedModeBanner: false,

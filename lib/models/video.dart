@@ -175,65 +175,73 @@ class VideoDetails extends Video {
     return null;
   }
 
-  /// Prefer progressive MP4 (most reliable on Android video_player).
-  /// HLS is fallback when no muxed progressive exists.
+  /// Auto: prefer HLS (adaptive high quality). Explicit ladder uses progressive when available.
   String? get preferredPlayUrl {
-    final muxed = bestMuxedUrl;
-    if (muxed != null && muxed.isNotEmpty) return muxed;
     if (hlsUrl != null && hlsUrl!.isNotEmpty) return hlsUrl;
-    return null;
+    return bestMuxedUrl;
   }
 
+  /// Progressive-only best URL (for downloads / fallback).
+  String? get progressiveUrl => bestMuxedUrl;
+
   String? urlForQuality(String quality) {
-    if (quality == 'Auto' || quality == 'Best') return preferredPlayUrl;
-    if (quality == 'Audio Only') {
+    final q = quality.trim();
+    if (q == 'Auto' || q == 'Best' || q == 'Auto (HLS)') {
+      return preferredPlayUrl;
+    }
+    if (q == 'Audio Only') {
       final audio =
           formats.where((f) => f.isAudioOnly && f.url.isNotEmpty).toList()
             ..sort((a, b) => b.bitrate.compareTo(a.bitrate));
-      return audio.isNotEmpty ? audio.first.url : preferredPlayUrl;
+      if (audio.isNotEmpty) return audio.first.url;
+      return preferredPlayUrl;
     }
-    // Specific progressive ladder when available
-    final target =
-        int.tryParse(quality.replaceAll(RegExp(r'[^0-9]'), '')) ?? 720;
-    final muxed = formats.where((f) => f.isMuxed).toList()
-      ..sort((a, b) {
-        final da = (a.height - target).abs();
-        final db = (b.height - target).abs();
-        return da.compareTo(db);
-      });
-    if (muxed.isNotEmpty) return muxed.first.url;
-    // HLS still better than nothing for high qualities
+    // Specific height — try progressive muxed matching height, else HLS (player adaptive)
+    final target = int.tryParse(q.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+    if (target > 0) {
+      final muxed = formats.where((f) => f.isMuxed && f.url.isNotEmpty).toList();
+      // exact or nearest progressive
+      final exact = muxed.where((f) => f.height == target).toList();
+      if (exact.isNotEmpty) return exact.first.url;
+      if (muxed.isNotEmpty) {
+        muxed.sort((a, b) => (a.height - target).abs().compareTo((b.height - target).abs()));
+        // Only use progressive if reasonably close (within 120p) otherwise HLS
+        if ((muxed.first.height - target).abs() <= 120) {
+          return muxed.first.url;
+        }
+      }
+      // High qualities (720+) almost always need HLS on mobile clients
+      if (hlsUrl != null && hlsUrl!.isNotEmpty) return hlsUrl;
+      return bestMuxedUrl;
+    }
     return preferredPlayUrl;
   }
 
   List<String> get availableQualities {
     final qs = <String>{};
-    for (final f in formats.where((f) => f.isMuxed)) {
-      if (f.height >= 1080) {
-        qs.add('1080p');
-      } else if (f.height >= 720) {
-        qs.add('720p');
-      } else if (f.height >= 480) {
-        qs.add('480p');
-      } else if (f.height >= 360) {
-        qs.add('360p');
-      } else if (f.height > 0) {
-        qs.add('${f.height}p');
-      }
+    // From progressive
+    for (final f in formats.where((f) => f.isMuxed || (f.hasVideo && !f.isAudioOnly))) {
+      if (f.height >= 2160) qs.add('2160p');
+      else if (f.height >= 1440) qs.add('1440p');
+      else if (f.height >= 1080) qs.add('1080p');
+      else if (f.height >= 720) qs.add('720p');
+      else if (f.height >= 480) qs.add('480p');
+      else if (f.height >= 360) qs.add('360p');
+      else if (f.height >= 240) qs.add('240p');
+      else if (f.height >= 144) qs.add('144p');
     }
-    final list = qs.toList();
-    list.sort((a, b) {
-      final ai = int.tryParse(a.replaceAll('p', '')) ?? 0;
-      final bi = int.tryParse(b.replaceAll('p', '')) ?? 0;
-      return bi.compareTo(ai);
-    });
-    if (hlsUrl != null && hlsUrl!.isNotEmpty && !list.contains('1080p')) {
-      // HLS typically includes 720/1080
-      if (!list.contains('720p')) list.insert(0, '720p');
+    // HLS unlocks full ladder even when progressive is only 360p
+    if (hlsUrl != null && hlsUrl!.isNotEmpty) {
+      qs.addAll(['144p', '240p', '360p', '480p', '720p', '1080p']);
+      // common extras
+      qs.add('1440p');
+      qs.add('2160p');
     }
-    return ['Auto', ...list, 'Audio Only'];
+    final order = ['2160p', '1440p', '1080p', '720p', '480p', '360p', '240p', '144p'];
+    final list = order.where(qs.contains).toList();
+    return ['Auto (HLS)', ...list, 'Audio Only'];
   }
-}
+
 
 class Comment {
   final String id;

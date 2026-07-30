@@ -30,8 +30,9 @@ class UpdateDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c = VibeColors.of(context);
     return AlertDialog(
-      backgroundColor: AppTheme.surface,
+      backgroundColor: c.surface,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       title: Row(
         children: [
@@ -63,7 +64,7 @@ class UpdateDialog extends StatelessWidget {
             width: double.infinity,
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: AppTheme.surfaceLight,
+              color: c.surfaceLight,
               borderRadius: BorderRadius.circular(12),
             ),
             child: Row(
@@ -74,7 +75,7 @@ class UpdateDialog extends StatelessWidget {
                     children: [
                       const Text('Current',
                           style: TextStyle(
-                              color: AppTheme.textMuted, fontSize: 11)),
+                              color: c.textMuted, fontSize: 11)),
                       Text(info.currentVersion,
                           style: const TextStyle(fontWeight: FontWeight.w600)),
                     ],
@@ -87,7 +88,7 @@ class UpdateDialog extends StatelessWidget {
                     children: [
                       const Text('Latest',
                           style: TextStyle(
-                              color: AppTheme.textMuted, fontSize: 11)),
+                              color: c.textMuted, fontSize: 11)),
                       Text('v${info.latestVersion}',
                           style: const TextStyle(
                               fontWeight: FontWeight.w700,
@@ -110,7 +111,7 @@ class UpdateDialog extends StatelessWidget {
                     ? 'Bug fixes, performance improvements and new features.'
                     : info.releaseNotes,
                 style: const TextStyle(
-                    color: AppTheme.textSecondary, fontSize: 13, height: 1.4),
+                    color: c.textSecondary, fontSize: 13, height: 1.4),
               ),
             ),
           ),
@@ -123,7 +124,7 @@ class UpdateDialog extends StatelessWidget {
             Navigator.pop(context);
             onLater();
           },
-          child: const Text('Later', style: TextStyle(color: AppTheme.textSecondary)),
+          child: const Text('Later', style: TextStyle(color: c.textSecondary)),
         ),
         if (onSkip != null)
           TextButton(
@@ -131,7 +132,7 @@ class UpdateDialog extends StatelessWidget {
               Navigator.pop(context);
               onSkip!();
             },
-            child: const Text('Skip', style: TextStyle(color: AppTheme.textMuted)),
+            child: const Text('Skip', style: TextStyle(color: c.textMuted)),
           ),
         ElevatedButton.icon(
           onPressed: () async {

@@ -31,17 +31,18 @@ class _SearchScreenState extends State<SearchScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final c = VibeColors.of(context);
     return SafeArea(
       child: Column(
         children: [
           Container(
             padding: const EdgeInsets.fromLTRB(8, 10, 12, 10),
-            color: AppTheme.surface,
+            color: c.surface,
             child: Row(
               children: [
                 if (widget.standalone)
                   IconButton(
-                    icon: const Icon(Icons.arrow_back),
+                    icon: Icon(Icons.arrow_back, color: c.textPrimary),
                     onPressed: () => Navigator.pop(context),
                   ),
                 Expanded(
@@ -50,15 +51,16 @@ class _SearchScreenState extends State<SearchScreen> {
                     focusNode: _focus,
                     autofocus: widget.standalone,
                     textInputAction: TextInputAction.search,
-                    style: const TextStyle(color: AppTheme.textPrimary),
+                    style: TextStyle(color: c.textPrimary),
                     decoration: InputDecoration(
                       hintText: 'Search VibeTube',
-                      prefixIcon: const Icon(Icons.search,
-                          color: AppTheme.textMuted, size: 22),
+                      hintStyle: TextStyle(color: c.textMuted),
+                      prefixIcon:
+                          Icon(Icons.search, color: c.textMuted, size: 22),
                       suffixIcon: _controller.text.isEmpty
                           ? null
                           : IconButton(
-                              icon: const Icon(Icons.close, size: 18),
+                              icon: Icon(Icons.close, size: 18, color: c.textMuted),
                               onPressed: () {
                                 _controller.clear();
                                 context.read<AppProvider>().clearSearch();
@@ -80,17 +82,17 @@ class _SearchScreenState extends State<SearchScreen> {
                   return const Center(child: CircularProgressIndicator());
                 }
                 if (provider.searchQuery.isEmpty) {
-                  return _suggestions(provider);
+                  return _suggestions(provider, c);
                 }
                 if (provider.searchResults.isEmpty) {
-                  return const Center(
+                  return Center(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.search_off, size: 56, color: AppTheme.textMuted),
-                        SizedBox(height: 12),
+                        Icon(Icons.search_off, size: 56, color: c.textMuted),
+                        const SizedBox(height: 12),
                         Text('No results',
-                            style: TextStyle(color: AppTheme.textSecondary)),
+                            style: TextStyle(color: c.textSecondary)),
                       ],
                     ),
                   );
@@ -122,7 +124,7 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
-  Widget _suggestions(AppProvider provider) {
+  Widget _suggestions(AppProvider provider, VibeColors c) {
     const trending = [
       'Music',
       'Bollywood',
@@ -136,17 +138,18 @@ class _SearchScreenState extends State<SearchScreen> {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        const Text('Trending searches',
-            style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+        Text('Trending searches',
+            style: TextStyle(
+                fontWeight: FontWeight.w700, fontSize: 16, color: c.textPrimary)),
         const SizedBox(height: 12),
         Wrap(
           spacing: 8,
           runSpacing: 8,
           children: trending
               .map((t) => ActionChip(
-                    avatar: const Icon(Icons.trending_up, size: 16),
-                    label: Text(t),
-                    backgroundColor: AppTheme.surfaceLight,
+                    avatar: Icon(Icons.trending_up, size: 16, color: c.textSecondary),
+                    label: Text(t, style: TextStyle(color: c.textPrimary)),
+                    backgroundColor: c.surfaceLight,
                     onPressed: () {
                       _controller.text = t;
                       _submit(t);
@@ -156,8 +159,11 @@ class _SearchScreenState extends State<SearchScreen> {
         ),
         if (provider.history.isNotEmpty) ...[
           const SizedBox(height: 28),
-          const Text('Continue watching',
-              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+          Text('Continue watching',
+              style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 16,
+                  color: c.textPrimary)),
           const SizedBox(height: 8),
           ...provider.history.take(6).map((v) => VideoCard(
                 video: v,

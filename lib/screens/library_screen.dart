@@ -11,6 +11,7 @@ class LibraryScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c = VibeColors.of(context);
     return SafeArea(
       child: Consumer<AppProvider>(
         builder: (context, provider, _) {
@@ -18,45 +19,43 @@ class LibraryScreen extends StatelessWidget {
             children: [
               Container(
                 width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                color: AppTheme.surface,
-                child: const Text(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                color: c.surface,
+                child: Text(
                   'Library',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+                  style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                      color: c.textPrimary),
                 ),
               ),
               Expanded(
                 child: ListView(
                   padding: const EdgeInsets.all(16),
                   children: [
-                    _section(
-                      context,
-                      icon: Icons.history,
-                      title: 'History',
-                      count: provider.history.length,
-                      videos: provider.history,
-                      onClear: provider.history.isEmpty
-                          ? null
-                          : () async {
-                              await provider.clearHistory();
-                            },
-                    ),
+                    _section(context, c,
+                        icon: Icons.history,
+                        title: 'History',
+                        count: provider.history.length,
+                        videos: provider.history,
+                        onClear: provider.history.isEmpty
+                            ? null
+                            : () async {
+                                await provider.clearHistory();
+                              }),
                     const SizedBox(height: 18),
-                    _section(
-                      context,
-                      icon: Icons.watch_later_outlined,
-                      title: 'Watch Later',
-                      count: provider.watchLater.length,
-                      videos: provider.watchLater,
-                    ),
+                    _section(context, c,
+                        icon: Icons.watch_later_outlined,
+                        title: 'Watch Later',
+                        count: provider.watchLater.length,
+                        videos: provider.watchLater),
                     const SizedBox(height: 18),
-                    _section(
-                      context,
-                      icon: Icons.thumb_up_outlined,
-                      title: 'Liked videos',
-                      count: provider.liked.length,
-                      videos: provider.liked,
-                    ),
+                    _section(context, c,
+                        icon: Icons.thumb_up_outlined,
+                        title: 'Liked videos',
+                        count: provider.liked.length,
+                        videos: provider.liked),
                     const SizedBox(height: 24),
                     const Text(
                       'Premium unlocked',
@@ -67,12 +66,12 @@ class LibraryScreen extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 10),
-                    _feature(Icons.block, 'Ad-free playback'),
-                    _feature(Icons.skip_next, 'SponsorBlock auto-skip'),
-                    _feature(Icons.thumb_down, 'Return YouTube Dislike'),
-                    _feature(Icons.speed, 'Speed control up to 3x'),
-                    _feature(Icons.hd, 'Quality selection'),
-                    _feature(Icons.dark_mode, 'OLED dark theme'),
+                    _feature(c, Icons.high_quality, 'HLS high quality (720p+)'),
+                    _feature(c, Icons.picture_in_picture_alt, 'Picture-in-Picture'),
+                    _feature(c, Icons.headphones, 'Background playback'),
+                    _feature(c, Icons.skip_next, 'SponsorBlock auto-skip'),
+                    _feature(c, Icons.thumb_down, 'Return YouTube Dislike'),
+                    _feature(c, Icons.speed, 'Speed control up to 3x'),
                   ],
                 ),
               ),
@@ -84,7 +83,8 @@ class LibraryScreen extends StatelessWidget {
   }
 
   Widget _section(
-    BuildContext context, {
+    BuildContext context,
+    VibeColors c, {
     required IconData icon,
     required String title,
     required int count,
@@ -99,10 +99,12 @@ class LibraryScreen extends StatelessWidget {
             Icon(icon, size: 20, color: AppTheme.primary),
             const SizedBox(width: 8),
             Text(title,
-                style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+                style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 15,
+                    color: c.textPrimary)),
             const SizedBox(width: 6),
-            Text('($count)',
-                style: const TextStyle(color: AppTheme.textMuted, fontSize: 13)),
+            Text('($count)', style: TextStyle(color: c.textMuted, fontSize: 13)),
             const Spacer(),
             if (onClear != null)
               TextButton(
@@ -117,13 +119,10 @@ class LibraryScreen extends StatelessWidget {
             width: double.infinity,
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: AppTheme.surface,
+              color: c.surface,
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Text(
-              'Nothing here yet',
-              style: TextStyle(color: AppTheme.textMuted.withValues(alpha: 0.9)),
-            ),
+            child: Text('Nothing here yet', style: TextStyle(color: c.textMuted)),
           )
         else
           ...videos.take(8).map((v) => VideoCard(
@@ -142,7 +141,7 @@ class LibraryScreen extends StatelessWidget {
     );
   }
 
-  Widget _feature(IconData icon, String title) {
+  Widget _feature(VibeColors c, IconData icon, String title) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Row(
@@ -159,7 +158,10 @@ class LibraryScreen extends StatelessWidget {
           const SizedBox(width: 12),
           Expanded(
             child: Text(title,
-                style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14)),
+                style: TextStyle(
+                    fontWeight: FontWeight.w500,
+                    fontSize: 14,
+                    color: c.textPrimary)),
           ),
           const Icon(Icons.check_circle, color: AppTheme.success, size: 18),
         ],

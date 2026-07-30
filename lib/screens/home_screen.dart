@@ -60,8 +60,8 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       body: IndexedStack(index: _index, children: pages),
       bottomNavigationBar: Container(
-        decoration: const BoxDecoration(
-          border: Border(top: BorderSide(color: AppTheme.border, width: 0.6)),
+        decoration: BoxDecoration(
+          border: Border(top: BorderSide(color: VibeColors.of(context).border, width: 0.6)),
         ),
         child: BottomNavigationBar(
           currentIndex: _index,
@@ -120,9 +120,9 @@ class _HomeFeedState extends State<_HomeFeed> {
         children: [
           Container(
             padding: const EdgeInsets.fromLTRB(16, 10, 8, 10),
-            decoration: const BoxDecoration(
-              color: AppTheme.surface,
-              border: Border(bottom: BorderSide(color: AppTheme.border, width: 0.6)),
+            decoration: BoxDecoration(
+              color: VibeColors.of(context).surface,
+              border: Border(bottom: BorderSide(color: VibeColors.of(context).border, width: 0.6)),
             ),
             child: Row(
               children: [
@@ -139,10 +139,10 @@ class _HomeFeedState extends State<_HomeFeed> {
                       color: Colors.white, size: 22),
                 ),
                 const SizedBox(width: 10),
-                const Text(
+                Text(
                   'VibeTube',
                   style: TextStyle(
-                    color: AppTheme.textPrimary,
+                    color: VibeColors.of(context).textPrimary,
                     fontSize: 20,
                     fontWeight: FontWeight.w800,
                     letterSpacing: -0.3,
@@ -197,9 +197,9 @@ class _HomeFeedState extends State<_HomeFeed> {
                       onSelected: (_) => provider.setCategory(c),
                       showCheckmark: false,
                       selectedColor: AppTheme.primary,
-                      backgroundColor: AppTheme.surfaceLight,
+                      backgroundColor: VibeColors.of(context).surfaceLight,
                       labelStyle: TextStyle(
-                        color: selected ? Colors.white : AppTheme.textPrimary,
+                        color: selected ? Colors.white : VibeColors.of(context).textPrimary,
                         fontWeight:
                             selected ? FontWeight.w700 : FontWeight.w500,
                         fontSize: 13,

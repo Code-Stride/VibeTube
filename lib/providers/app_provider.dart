@@ -4,6 +4,7 @@ import '../models/video.dart';
 import '../services/download_service.dart';
 import '../services/storage_service.dart';
 import '../services/update_service.dart';
+import '../services/native_player.dart';
 
 class AppProvider extends ChangeNotifier {
   final InnerTubeClient _client = InnerTubeClient();
@@ -46,7 +47,7 @@ class AppProvider extends ChangeNotifier {
   bool sbIntro = false;
   bool sbOutro = false;
   bool sbFiller = false;
-  String defaultQuality = 'Auto';
+  String defaultQuality = 'Auto (HLS)';
   double defaultSpeed = 1.0;
   String region = 'IN';
 
@@ -60,7 +61,7 @@ class AppProvider extends ChangeNotifier {
     isSponsorBlockEnabled = s['isSponsorBlockEnabled'] ?? true;
     isBackgroundPlayEnabled = s['isBackgroundPlayEnabled'] ?? true;
     isAutoPipEnabled = s['isAutoPipEnabled'] ?? true;
-    defaultQuality = s['defaultQuality'] ?? 'Auto';
+    defaultQuality = s['defaultQuality'] ?? 'Auto (HLS)';
     defaultSpeed = (s['defaultSpeed'] as num?)?.toDouble() ?? 1.0;
     region = s['region'] ?? 'IN';
     sbSponsor = s['sbSponsor'] ?? true;
@@ -328,12 +329,16 @@ class AppProvider extends ChangeNotifier {
 
   void toggleBackgroundPlay() {
     isBackgroundPlayEnabled = !isBackgroundPlayEnabled;
+    if (!isBackgroundPlayEnabled) {
+      NativePlayer.stopBackground();
+    }
     _persistSettings();
     notifyListeners();
   }
 
   void toggleAutoPip() {
     isAutoPipEnabled = !isAutoPipEnabled;
+    NativePlayer.setAutoPip(isAutoPipEnabled);
     _persistSettings();
     notifyListeners();
   }

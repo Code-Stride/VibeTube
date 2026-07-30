@@ -20,12 +20,16 @@ class InnerTubeClient {
       '_ua': 'com.google.android.youtube/20.10.38 (Linux; U; Android 14) gzip',
     },
     {
-      'clientName': 'ANDROID',
-      'clientVersion': '19.35.36',
-      'androidSdkVersion': 30,
+      'clientName': 'IOS',
+      'clientVersion': '20.10.4',
+      'deviceMake': 'Apple',
+      'deviceModel': 'iPhone16,2',
+      'osName': 'iPhone',
+      'osVersion': '18.3.2.22D82',
       'hl': 'en',
       'gl': 'US',
-      '_ua': 'com.google.android.youtube/19.35.36 (Linux; U; Android 13) gzip',
+      '_ua':
+          'com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)',
     },
     {
       'clientName': 'ANDROID_VR',
@@ -39,18 +43,6 @@ class InnerTubeClient {
       'gl': 'US',
       '_ua':
           'com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 12L) gzip',
-    },
-    {
-      'clientName': 'IOS',
-      'clientVersion': '20.10.4',
-      'deviceMake': 'Apple',
-      'deviceModel': 'iPhone16,2',
-      'osName': 'iPhone',
-      'osVersion': '18.3.2.22D82',
-      'hl': 'en',
-      'gl': 'US',
-      '_ua':
-          'com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)',
     },
   ];
 
@@ -136,58 +128,93 @@ class InnerTubeClient {
     return SearchResult(videos: videos, continuation: null);
   }
 
-  /// Fetch playable details. ANDROID progressive MP4 is preferred for ExoPlayer.
+  /// Fetch playable details.
+  /// Merges ANDROID progressive (instant/reliable) + IOS HLS (720p–4K adaptive).
   Future<VideoDetails> getVideoDetails(String videoId) async {
     Object? lastError;
-    VideoDetails? bestMuxed;
-    VideoDetails? bestHls;
+    VideoDetails? androidDetails;
+    VideoDetails? iosDetails;
     VideoDetails? anyOk;
 
     for (final raw in _playerClients) {
       final cfg = Map<String, dynamic>.from(raw);
       final ua = cfg.remove('_ua') as String?;
+      final name = cfg['clientName']?.toString() ?? '';
       try {
         final details = await _fetchPlayer(videoId, cfg, ua);
         anyOk ??= details;
-        if (details.bestMuxedUrl != null) {
-          bestMuxed ??= details;
-          // Progressive MP4 is enough to start — return ASAP for instant play
-          break;
+        if (name == 'ANDROID' || name == 'ANDROID_VR') {
+          if (details.bestMuxedUrl != null) {
+            androidDetails ??= details;
+          } else {
+            anyOk = details;
+          }
+        } else if (name == 'IOS') {
+          if (details.hlsUrl != null && details.hlsUrl!.isNotEmpty) {
+            iosDetails ??= details;
+          }
+        } else {
+          if (details.hlsUrl != null && details.hlsUrl!.isNotEmpty) {
+            iosDetails ??= details;
+          }
+          if (details.bestMuxedUrl != null) {
+            androidDetails ??= details;
+          }
         }
-        if (details.hlsUrl != null && details.hlsUrl!.isNotEmpty) {
-          bestHls ??= details;
-        }
+        // Stop early once we have both stream types
+        if (androidDetails != null && iosDetails != null) break;
       } catch (e) {
         lastError = e;
       }
     }
 
-    // Merge HLS URL onto muxed metadata if both exist
-    if (bestMuxed != null) {
-      if (bestHls?.hlsUrl != null) {
-        return VideoDetails(
-          id: bestMuxed.id,
-          title: bestMuxed.title,
-          description: bestMuxed.description,
-          channelName: bestMuxed.channelName,
-          channelId: bestMuxed.channelId,
-          channelAvatar: bestMuxed.channelAvatar,
-          viewCount: bestMuxed.viewCount,
-          duration: bestMuxed.duration,
-          thumbnailUrl: bestMuxed.thumbnailUrl,
-          publishedAt: bestMuxed.publishedAt,
-          formats: bestMuxed.formats,
-          hlsUrl: bestHls!.hlsUrl,
-          dashUrl: bestMuxed.dashUrl ?? bestHls.dashUrl,
-          likeCount: bestMuxed.likeCount,
-          isLive: bestMuxed.isLive,
-        );
-      }
-      return bestMuxed;
+    VideoDetails? base = iosDetails ?? androidDetails ?? anyOk;
+    if (base == null) {
+      throw Exception('No playable stream found. $lastError');
     }
-    if (bestHls != null) return bestHls;
-    if (anyOk != null) return anyOk;
-    throw Exception('No playable stream found. $lastError');
+
+    // Merge formats from android + hls from ios
+    final formats = <VideoFormat>[
+      ...?androidDetails?.formats,
+      ...?iosDetails?.formats,
+    ];
+    // Dedupe by url
+    final seen = <String>{};
+    final mergedFormats = <VideoFormat>[];
+    for (final f in formats) {
+      if (f.url.isNotEmpty && seen.add(f.url)) mergedFormats.add(f);
+    }
+
+    return VideoDetails(
+      id: base.id,
+      title: (iosDetails?.title.isNotEmpty == true)
+          ? iosDetails!.title
+          : (androidDetails?.title ?? base.title),
+      description: base.description.isNotEmpty
+          ? base.description
+          : (androidDetails?.description ?? iosDetails?.description ?? ''),
+      channelName: base.channelName.isNotEmpty
+          ? base.channelName
+          : (androidDetails?.channelName ?? ''),
+      channelId: base.channelId.isNotEmpty
+          ? base.channelId
+          : (androidDetails?.channelId ?? ''),
+      viewCount: base.viewCount > 0
+          ? base.viewCount
+          : (androidDetails?.viewCount ?? iosDetails?.viewCount ?? 0),
+      duration: base.duration != Duration.zero
+          ? base.duration
+          : (androidDetails?.duration ?? Duration.zero),
+      thumbnailUrl: base.thumbnailUrl.isNotEmpty
+          ? base.thumbnailUrl
+          : (androidDetails?.thumbnailUrl ?? ''),
+      publishedAt: base.publishedAt,
+      formats: mergedFormats.isNotEmpty ? mergedFormats : base.formats,
+      hlsUrl: iosDetails?.hlsUrl ?? base.hlsUrl,
+      dashUrl: base.dashUrl ?? androidDetails?.dashUrl,
+      likeCount: base.likeCount,
+      isLive: base.isLive || (androidDetails?.isLive ?? false),
+    );
   }
 
   Future<VideoDetails> _fetchPlayer(

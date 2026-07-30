@@ -11,6 +11,7 @@ import '../models/video.dart';
 import '../providers/app_provider.dart';
 import '../utils/theme.dart';
 import '../widgets/video_card.dart';
+import '../services/native_player.dart';
 
 class PlayerScreen extends StatefulWidget {
   final String videoId;
@@ -48,6 +49,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
   double _seekValue = 0;
   int? _dislikes;
   bool _descExpanded = false;
+  bool _inPip = false;
+  bool _bgActive = false;
+  bool _pipSupported = false;
 
   @override
   void initState() {
@@ -59,8 +63,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Future<void> _boot() async {
     final provider = context.read<AppProvider>();
     _speed = provider.defaultSpeed;
-    _quality = provider.defaultQuality;
+    _quality = provider.defaultQuality.isEmpty ? 'Auto (HLS)' : provider.defaultQuality;
+    if (_quality == 'Auto') _quality = 'Auto (HLS)';
     _liked = await provider.isLiked(widget.videoId);
+    _pipSupported = await NativePlayer.isPipSupported();
+    await NativePlayer.setAutoPip(provider.isAutoPipEnabled);
+    NativePlayer.listenPip((inPip) {
+      if (!mounted) return;
+      setState(() => _inPip = inPip);
+    });
 
     // Offline local file
     if (widget.localPath != null && widget.localPath!.isNotEmpty) {
@@ -98,15 +109,21 @@ class _PlayerScreenState extends State<PlayerScreen> {
       }
     }
 
+    // Quality-aware order
     add(details.urlForQuality(q));
-    add(details.bestMuxedUrl);
-    add(details.preferredPlayUrl);
+    if (q.startsWith('Auto') || q == 'Best') {
+      add(details.hlsUrl); // high quality adaptive first
+      add(details.preferredPlayUrl);
+      add(details.bestMuxedUrl);
+    } else {
+      add(details.bestMuxedUrl);
+      add(details.hlsUrl);
+    }
     final muxed = details.formats.where((f) => f.isMuxed && f.url.isNotEmpty).toList()
       ..sort((a, b) => b.height.compareTo(a.height));
     for (final f in muxed) {
       add(f.url);
     }
-    // any progressive-looking non-audio
     for (final f in details.formats) {
       if (!f.isAudioOnly && f.url.isNotEmpty) add(f.url);
     }
@@ -211,8 +228,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _duration = c.value.duration;
     });
     await c.play();
-    if (context.read<AppProvider>().isBackgroundPlayEnabled) {
+    final provider = context.read<AppProvider>();
+    if (provider.isBackgroundPlayEnabled) {
       WakelockPlus.enable();
+      final title = provider.currentVideo?.title ?? widget.preview?.title ?? 'VibeTube';
+      final artist = provider.currentVideo?.channelName ?? widget.preview?.channelName ?? 'Playing';
+      await NativePlayer.startBackground(title: title, artist: artist);
+      _bgActive = true;
     }
     _armHide();
     _startPosTimer();
@@ -346,6 +368,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _controller?.removeListener(_onTick);
     _controller?.dispose();
     WakelockPlus.disable();
+    if (_bgActive) {
+      NativePlayer.stopBackground();
+      _bgActive = false;
+    }
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
     super.dispose();
@@ -635,15 +661,23 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     ),
                   ),
                   IconButton(
-                    icon: const Icon(Icons.picture_in_picture_alt,
-                        color: Colors.white, size: 22),
-                    onPressed: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text(
-                              'PiP: press Home while playing (Android system PiP)'),
-                        ),
-                      );
+                    icon: Icon(
+                      _inPip ? Icons.picture_in_picture_alt : Icons.picture_in_picture_alt_outlined,
+                      color: Colors.white,
+                      size: 22,
+                    ),
+                    tooltip: 'Picture-in-Picture',
+                    onPressed: () async {
+                      final ok = await NativePlayer.enterPip();
+                      if (!ok && mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(_pipSupported
+                                ? 'PiP unavailable right now — try while playing'
+                                : 'PiP not supported on this device'),
+                          ),
+                        );
+                      }
                     },
                   ),
                   IconButton(
@@ -1057,91 +1091,201 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   void _showSpeedSheet() {
-    final speeds = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0];
+    final speeds = [
+      0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5, 2.75, 3.0
+    ];
+    final c = VibeColors.of(context);
     showModalBottomSheet(
       context: context,
-      backgroundColor: AppTheme.surface,
+      isScrollControlled: true,
+      backgroundColor: c.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
       ),
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Padding(
-              padding: EdgeInsets.all(16),
-              child: Text('Playback speed',
-                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+      builder: (ctx) {
+        final h = MediaQuery.sizeOf(ctx).height;
+        return SafeArea(
+          child: SizedBox(
+            height: h * 0.55,
+            child: Column(
+              children: [
+                const SizedBox(height: 10),
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: c.surfaceVariant,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+                  child: Row(
+                    children: [
+                      Text('Playback speed',
+                          style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 16,
+                              color: c.textPrimary)),
+                      const Spacer(),
+                      Text('${_speed}x',
+                          style: const TextStyle(
+                              color: AppTheme.primary,
+                              fontWeight: FontWeight.w700)),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1),
+                Expanded(
+                  child: ListView.builder(
+                    itemCount: speeds.length,
+                    itemBuilder: (_, i) {
+                      final s = speeds[i];
+                      final selected = (_speed - s).abs() < 0.001;
+                      return ListTile(
+                        title: Text('${s}x',
+                            style: TextStyle(
+                              color: c.textPrimary,
+                              fontWeight: selected
+                                  ? FontWeight.w700
+                                  : FontWeight.w500,
+                            )),
+                        subtitle: s == 1.0
+                            ? Text('Normal',
+                                style: TextStyle(
+                                    color: c.textMuted, fontSize: 12))
+                            : null,
+                        trailing: selected
+                            ? const Icon(Icons.check, color: AppTheme.primary)
+                            : null,
+                        onTap: () async {
+                          Navigator.pop(ctx);
+                          setState(() => _speed = s);
+                          await _controller?.setPlaybackSpeed(s);
+                          if (mounted) {
+                            context.read<AppProvider>().setDefaultSpeed(s);
+                          }
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
             ),
-            ...speeds.map((s) => ListTile(
-                  title: Text('${s}x'),
-                  trailing: _speed == s
-                      ? const Icon(Icons.check, color: AppTheme.primary)
-                      : null,
-                  onTap: () async {
-                    Navigator.pop(ctx);
-                    setState(() => _speed = s);
-                    await _controller?.setPlaybackSpeed(s);
-                    if (mounted) {
-                      context.read<AppProvider>().setDefaultSpeed(s);
-                    }
-                  },
-                )),
-            const SizedBox(height: 8),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
   void _showQualitySheet() {
     final details = context.read<AppProvider>().currentVideo;
     final qs = details?.availableQualities ??
-        ['Auto', '1080p', '720p', '480p', '360p', 'Audio Only'];
+        ['Auto (HLS)', '1080p', '720p', '480p', '360p', 'Audio Only'];
+    final hasHls = details?.hlsUrl != null && details!.hlsUrl!.isNotEmpty;
+    final c = VibeColors.of(context);
     showModalBottomSheet(
       context: context,
-      backgroundColor: AppTheme.surface,
+      isScrollControlled: true,
+      backgroundColor: c.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
       ),
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Padding(
-              padding: EdgeInsets.all(16),
-              child: Text('Quality',
-                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
-            ),
-            ...qs.map((q) => ListTile(
-                  title: Text(q),
-                  subtitle: q == 'Auto' && _activeUrl != null
-                      ? Text('Streaming',
+      builder: (ctx) {
+        final h = MediaQuery.sizeOf(ctx).height;
+        return SafeArea(
+          child: SizedBox(
+            height: h * 0.6,
+            child: Column(
+              children: [
+                const SizedBox(height: 10),
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: c.surfaceVariant,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
+                  child: Row(
+                    children: [
+                      Text('Quality',
                           style: TextStyle(
-                              fontSize: 11, color: AppTheme.textMuted))
-                      : null,
-                  trailing: _quality == q
-                      ? const Icon(Icons.check, color: AppTheme.primary)
-                      : null,
-                  onTap: () async {
-                    Navigator.pop(ctx);
-                    setState(() => _quality = q);
-                    context.read<AppProvider>().setDefaultQuality(q);
-                    final d = context.read<AppProvider>().currentVideo;
-                    if (d != null) {
-                      final pos = _controller?.value.position;
-                      await _startPlayback(d, quality: q);
-                      if (pos != null) {
-                        await _controller?.seekTo(pos);
-                        await _controller?.play();
+                              fontWeight: FontWeight.w700,
+                              fontSize: 16,
+                              color: c.textPrimary)),
+                      const Spacer(),
+                      Text(_quality,
+                          style: const TextStyle(
+                              color: AppTheme.primary,
+                              fontWeight: FontWeight.w700)),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                  child: Text(
+                    hasHls
+                        ? 'HLS adaptive unlocked — up to 1080p/4K when available'
+                        : 'Only progressive streams found (often max 360p)',
+                    style: TextStyle(color: c.textMuted, fontSize: 12),
+                  ),
+                ),
+                const Divider(height: 1),
+                Expanded(
+                  child: ListView.builder(
+                    itemCount: qs.length,
+                    itemBuilder: (_, i) {
+                      final q = qs[i];
+                      final selected = _quality == q;
+                      String? sub;
+                      if (q.startsWith('Auto')) {
+                        sub = hasHls ? 'Best available via HLS' : 'Best progressive';
+                      } else if (q == 'Audio Only') {
+                        sub = 'Music / background friendly';
+                      } else if (hasHls && q != '360p') {
+                        sub = 'HLS adaptive';
                       }
-                    }
-                  },
-                )),
-            const SizedBox(height: 8),
-          ],
-        ),
-      ),
+                      return ListTile(
+                        title: Text(q,
+                            style: TextStyle(
+                              color: c.textPrimary,
+                              fontWeight:
+                                  selected ? FontWeight.w700 : FontWeight.w500,
+                            )),
+                        subtitle: sub == null
+                            ? null
+                            : Text(sub,
+                                style: TextStyle(
+                                    fontSize: 11, color: c.textMuted)),
+                        trailing: selected
+                            ? const Icon(Icons.check, color: AppTheme.primary)
+                            : null,
+                        onTap: () async {
+                          Navigator.pop(ctx);
+                          setState(() => _quality = q);
+                          context.read<AppProvider>().setDefaultQuality(q);
+                          final d = context.read<AppProvider>().currentVideo;
+                          if (d != null) {
+                            final pos = _controller?.value.position;
+                            await _startPlayback(d, quality: q);
+                            if (pos != null) {
+                              await _controller?.seekTo(pos);
+                              await _controller?.play();
+                            }
+                          }
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 

@@ -10,16 +10,18 @@ class DownloadsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c = VibeColors.of(context);
     return SafeArea(
       child: Column(
         children: [
           Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            color: AppTheme.surface,
-            child: const Text(
+            color: c.surface,
+            child: Text(
               'Downloads',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+              style: TextStyle(
+                  fontSize: 20, fontWeight: FontWeight.w800, color: c.textPrimary),
             ),
           ),
           Expanded(
@@ -27,23 +29,25 @@ class DownloadsScreen extends StatelessWidget {
               builder: (context, provider, _) {
                 final active = provider.downloadingIds.toList();
                 if (provider.downloads.isEmpty && active.isEmpty) {
-                  return const Center(
+                  return Center(
                     child: Padding(
-                      padding: EdgeInsets.all(24),
+                      padding: const EdgeInsets.all(24),
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Icon(Icons.download_done_rounded,
-                              size: 56, color: AppTheme.textMuted),
-                          SizedBox(height: 12),
+                              size: 56, color: c.textMuted),
+                          const SizedBox(height: 12),
                           Text('No downloads yet',
                               style: TextStyle(
-                                  fontSize: 17, fontWeight: FontWeight.w700)),
-                          SizedBox(height: 6),
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.w700,
+                                  color: c.textPrimary)),
+                          const SizedBox(height: 6),
                           Text(
                             'Open a video → tap Download.\nFiles are saved offline in the app.',
                             textAlign: TextAlign.center,
-                            style: TextStyle(color: AppTheme.textSecondary),
+                            style: TextStyle(color: c.textSecondary),
                           ),
                         ],
                       ),
@@ -56,11 +60,14 @@ class DownloadsScreen extends StatelessWidget {
                     ...active.map((id) {
                       final p = provider.downloadProgress[id] ?? 0;
                       return Card(
+                        color: c.surface,
                         child: ListTile(
                           leading: const CircularProgressIndicator(strokeWidth: 2),
-                          title: Text('Downloading $id'),
+                          title: Text('Downloading…',
+                              style: TextStyle(color: c.textPrimary)),
                           subtitle: LinearProgressIndicator(value: p),
-                          trailing: Text('${(p * 100).toStringAsFixed(0)}%'),
+                          trailing: Text('${(p * 100).toStringAsFixed(0)}%',
+                              style: TextStyle(color: c.textSecondary)),
                         ),
                       );
                     }),
