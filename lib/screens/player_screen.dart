@@ -108,34 +108,51 @@ class _PlayerScreenState extends State<PlayerScreen> {
       }
     }
 
-    final locked = details.urlForQuality(q);
-    add(locked);
+    final isAuto = q.startsWith('Auto') || q == 'Best' || q == 'Auto (HLS)';
+    final target = int.tryParse(q.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
 
-    final isAuto = q.startsWith('Auto') || q == 'Best';
     if (isAuto) {
+      // 1) Master HLS (adaptive)
       add(details.hlsUrl);
-      add(details.preferredPlayUrl);
+      // 2) Highest locked HLS variant (forces high quality if adaptive stays low)
       if (details.hlsVariants.isNotEmpty) {
         final hs = details.hlsVariants.keys.toList()
           ..sort((a, b) => b.compareTo(a));
-        add(details.hlsVariants[hs.first]);
+        // Prefer 1080 then 720 then rest
+        for (final prefer in [1080, 720, 480, 1440, 2160]) {
+          if (details.hlsVariants.containsKey(prefer)) {
+            add(details.hlsVariants[prefer]);
+          }
+        }
+        for (final h in hs) {
+          add(details.hlsVariants[h]);
+        }
       }
+      add(details.preferredPlayUrl);
+      // 3) Progressive last (often only 360p)
       add(details.bestMuxedUrl);
-    } else if (q != 'Audio Only') {
-      final target = int.tryParse(q.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+    } else if (q == 'Audio Only') {
+      add(details.urlForQuality(q));
+      add(details.bestMuxedUrl);
+    } else {
+      // Locked quality — NEVER silently jump to unrelated 360p first
+      add(details.urlForQuality(q));
       if (target > 0) {
+        // exact + nearest HLS
         final hHeights = details.hlsVariants.keys.toList()
           ..sort((a, b) => (a - target).abs().compareTo((b - target).abs()));
-        for (final h in hHeights.take(3)) {
+        for (final h in hHeights) {
           add(details.hlsVariants[h]);
         }
         final pHeights = details.progressiveByHeight.keys.toList()
           ..sort((a, b) => (a - target).abs().compareTo((b - target).abs()));
-        for (final h in pHeights.take(2)) {
+        for (final h in pHeights) {
           add(details.progressiveByHeight[h]);
         }
       }
+      // master HLS as soft fallback (adaptive)
       add(details.hlsUrl);
+      // progressive only if nothing else
       add(details.bestMuxedUrl);
     }
 
@@ -146,19 +163,25 @@ class _PlayerScreenState extends State<PlayerScreen> {
           _ready = false;
         });
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content: Text('No playable stream URL found for this video')),
+          const SnackBar(content: Text('No playable stream for this video')),
         );
       }
       return;
     }
+
+    debugPrint(
+        'Quality=$q candidates=${candidates.length} hlsVars=${details.hlsVariants.keys.toList()} prog=${details.progressiveByHeight.keys.toList()} hlsMaster=${details.hlsUrl != null}');
 
     Object? lastErr;
     for (final url in candidates) {
       try {
         await _attachController(url);
         if (_ready) {
-          debugPrint('Playing quality=$q url=${url.substring(0, url.length > 80 ? 80 : url.length)}');
+          final tag = url.contains('m3u8')
+              ? (url == details.hlsUrl ? 'HLS-master' : 'HLS-variant')
+              : 'MP4';
+          debugPrint('Playing $q via $tag');
+          if (mounted) setState(() {}); // refresh quality label if needed
           return;
         }
       } catch (e) {
@@ -172,7 +195,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         _ready = false;
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Playback failed: $lastErr')),
+        SnackBar(content: Text('Playback failed ($q): $lastErr')),
       );
     }
   }
@@ -188,42 +211,61 @@ class _PlayerScreenState extends State<PlayerScreen> {
     await prev?.dispose();
 
     final isLocal = url.startsWith('/') || url.startsWith('file:');
-    late final VideoPlayerController c;
+    final isHls = url.contains('m3u8') || url.contains('/manifest/hls');
+
     if (isLocal) {
       final path = url.startsWith('file:') ? Uri.parse(url).toFilePath() : url;
-      c = VideoPlayerController.file(File(path));
-    } else {
-      // Try with YT-like headers first
-      c = VideoPlayerController.networkUrl(
-        Uri.parse(url),
-        httpHeaders: const {
+      final c = VideoPlayerController.file(File(path));
+      await c.initialize().timeout(const Duration(seconds: 20));
+      await _finishAttach(c, url);
+      return;
+    }
+
+    // Header sets to try (order matters).
+    // HLS from YouTube IOS client often needs IOS UA; Android UA can fail or degrade.
+    final headerSets = <Map<String, String>?>[
+      if (isHls)
+        {
+          'User-Agent':
+              'com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)',
+          'Accept': '*/*',
+        }
+      else
+        {
           'User-Agent':
               'com.google.android.youtube/20.10.38 (Linux; U; Android 14) gzip',
           'Referer': 'https://www.youtube.com/',
           'Origin': 'https://www.youtube.com',
         },
-      );
-    }
+      // bare — some CDNs hate extra headers
+      null,
+      // browser-like
+      {
+        'User-Agent':
+            'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36',
+        'Accept': '*/*',
+      },
+    ];
 
-    try {
-      await c.initialize().timeout(const Duration(seconds: 20));
-    } catch (e) {
-      await c.dispose();
-      // Retry network without custom headers (some CDNs reject them)
-      if (!isLocal) {
-        final c2 = VideoPlayerController.networkUrl(Uri.parse(url));
+    Object? lastErr;
+    for (final headers in headerSets) {
+      VideoPlayerController? c;
+      try {
+        c = headers == null
+            ? VideoPlayerController.networkUrl(Uri.parse(url))
+            : VideoPlayerController.networkUrl(Uri.parse(url), httpHeaders: headers);
+        await c.initialize().timeout(const Duration(seconds: 25));
+        await _finishAttach(c, url);
+        return;
+      } catch (e) {
+        lastErr = e;
+        debugPrint('attach fail headers=${headers != null}: $e');
         try {
-          await c2.initialize().timeout(const Duration(seconds: 20));
-          await _finishAttach(c2, url);
-          return;
-        } catch (e2) {
-          await c2.dispose();
-          rethrow;
-        }
+          await c?.dispose();
+        } catch (_) {}
       }
-      rethrow;
     }
-    await _finishAttach(c, url);
+    throw lastErr ?? Exception('Failed to open stream');
   }
 
   Future<void> _finishAttach(VideoPlayerController c, String url) async {
@@ -1241,9 +1283,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                   child: Text(
-                    hasHls
-                        ? 'All qualities unlocked via HLS (${_maxQualityLabel(details)} max)'
-                        : 'Only progressive streams found (often max 360p)',
+                    (details?.hlsVariants.isNotEmpty == true)
+                        ? '${details!.hlsVariants.length} stream(s) · up to ${_maxQualityLabel(details)}'
+                        : (hasHls
+                            ? 'HLS master only · try Auto'
+                            : 'Only progressive (often 360p)'),
                     style: TextStyle(color: c.textMuted, fontSize: 12),
                   ),
                 ),

@@ -11,16 +11,6 @@ class InnerTubeClient {
   /// Proven working clients (ordered by reliability for plain URLs).
   static const List<Map<String, dynamic>> _playerClients = [
     {
-      'clientName': 'ANDROID',
-      'clientVersion': '20.10.38',
-      'androidSdkVersion': 34,
-      'osName': 'Android',
-      'osVersion': '14',
-      'hl': 'en',
-      'gl': 'IN',
-      '_ua': 'com.google.android.youtube/20.10.38 (Linux; U; Android 14) gzip',
-    },
-    {
       'clientName': 'IOS',
       'clientVersion': '20.10.4',
       'deviceMake': 'Apple',
@@ -33,19 +23,17 @@ class InnerTubeClient {
           'com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)',
     },
     {
-      'clientName': 'ANDROID_VR',
-      'clientVersion': '1.60.19',
-      'deviceMake': 'Oculus',
-      'deviceModel': 'Quest 3',
+      'clientName': 'ANDROID',
+      'clientVersion': '20.10.38',
+      'androidSdkVersion': 34,
       'osName': 'Android',
-      'osVersion': '12L',
-      'androidSdkVersion': 32,
+      'osVersion': '14',
       'hl': 'en',
-      'gl': 'US',
-      '_ua':
-          'com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 12L) gzip',
+      'gl': 'IN',
+      '_ua': 'com.google.android.youtube/20.10.38 (Linux; U; Android 14) gzip',
     },
   ];
+
 
   static const Map<String, dynamic> _webClient = {
     'hl': 'en',
@@ -289,56 +277,44 @@ class InnerTubeClient {
   }
 
   /// Fetch playable details.
-  /// Merges ANDROID progressive (instant/reliable) + IOS HLS (720p–4K adaptive).
+  /// Always merges IOS HLS (multi-quality) + ANDROID progressive (fallback).
   Future<VideoDetails> getVideoDetails(String videoId) async {
     Object? lastError;
     VideoDetails? androidDetails;
     VideoDetails? iosDetails;
-    VideoDetails? anyOk;
 
+    // Fetch IOS + ANDROID in parallel — never skip HLS for speed.
+    final futures = <Future<void>>[];
     for (final raw in _playerClients) {
       final cfg = Map<String, dynamic>.from(raw);
       final ua = cfg.remove('_ua') as String?;
       final name = cfg['clientName']?.toString() ?? '';
-      try {
-        final details = await _fetchPlayer(videoId, cfg, ua);
-        anyOk ??= details;
-        if (name == 'ANDROID' || name == 'ANDROID_VR') {
-          if (details.bestMuxedUrl != null) {
-            androidDetails ??= details;
-          } else {
-            anyOk = details;
+      futures.add(() async {
+        try {
+          final details = await _fetchPlayer(videoId, cfg, ua);
+          if (name == 'IOS') {
+            if (details.hlsUrl != null && details.hlsUrl!.isNotEmpty) {
+              iosDetails = details;
+            }
+          } else if (name == 'ANDROID' || name == 'ANDROID_VR') {
+            androidDetails = details;
           }
-        } else if (name == 'IOS') {
-          if (details.hlsUrl != null && details.hlsUrl!.isNotEmpty) {
-            iosDetails ??= details;
-          }
-        } else {
-          if (details.hlsUrl != null && details.hlsUrl!.isNotEmpty) {
-            iosDetails ??= details;
-          }
-          if (details.bestMuxedUrl != null) {
-            androidDetails ??= details;
-          }
+        } catch (e) {
+          lastError = e;
         }
-        // Stop early once we have both stream types
-        if (androidDetails != null && iosDetails != null) break;
-      } catch (e) {
-        lastError = e;
-      }
+      }());
     }
+    await Future.wait(futures);
 
-    VideoDetails? base = iosDetails ?? androidDetails ?? anyOk;
+    final base = iosDetails ?? androidDetails;
     if (base == null) {
       throw Exception('No playable stream found. $lastError');
     }
 
-    // Merge formats from android + hls from ios
     final formats = <VideoFormat>[
       ...?androidDetails?.formats,
       ...?iosDetails?.formats,
     ];
-    // Dedupe by url
     final seen = <String>{};
     final mergedFormats = <VideoFormat>[];
     for (final f in formats) {
@@ -349,32 +325,57 @@ class InnerTubeClient {
         mergedFormats.isNotEmpty ? mergedFormats : base.formats;
     final hls = iosDetails?.hlsUrl ?? base.hlsUrl;
 
-    // Progressive muxed by height (itag 18 etc.)
+    // Progressive muxed by height
     final progressive = <int, String>{};
     for (final f in formatsFinal.where((f) => f.isMuxed && f.height > 0)) {
-      final prev = progressive[f.height];
-      if (prev == null || f.bitrate > 0) {
-        progressive[f.height] = f.url;
+      progressive.putIfAbsent(f.height, () => f.url);
+    }
+
+    // Parse HLS master → per-quality locked playlists (critical for 720p+)
+    var hlsVariants = <int, String>{};
+    if (hls != null && hls.isNotEmpty) {
+      final variants = await HlsParser.parseMaster(
+        hls,
+        headers: const {
+          'User-Agent':
+              'com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)',
+          'Accept': '*/*',
+        },
+      );
+      for (final v in variants) {
+        // Keep best per height (parser already prefers avc1)
+        hlsVariants[v.height] = v.url;
       }
     }
 
-    // Parse HLS master → per-quality locked playlists
-    var hlsVariants = <int, String>{};
-    if (hls != null && hls.isNotEmpty) {
-      try {
-        final variants = await HlsParser.parseMaster(
-          hls,
-          headers: {
-            'User-Agent':
-                'com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)',
-            'Accept': '*/*',
-          },
-        );
-        for (final v in variants) {
-          hlsVariants[v.height] = v.url;
-        }
-      } catch (_) {}
+    // Also map standard ladder keys (720, 1080) from nearest actual heights
+    // e.g. if we have 1280x720 only as 720
+    final normalized = <int, String>{};
+    for (final e in hlsVariants.entries) {
+      final h = e.key;
+      int bucket;
+      if (h >= 2000) {
+        bucket = 2160;
+      } else if (h >= 1300) {
+        bucket = 1440;
+      } else if (h >= 900) {
+        bucket = 1080;
+      } else if (h >= 600) {
+        bucket = 720;
+      } else if (h >= 420) {
+        bucket = 480;
+      } else if (h >= 300) {
+        bucket = 360;
+      } else if (h >= 200) {
+        bucket = 240;
+      } else {
+        bucket = 144;
+      }
+      // Prefer exact-ish higher score already in map; keep first avc-preferring
+      normalized.putIfAbsent(bucket, () => e.value);
+      normalized[h] = e.value; // keep exact too
     }
+    hlsVariants = normalized;
 
     return VideoDetails(
       id: base.id,
