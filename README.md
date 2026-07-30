@@ -108,7 +108,7 @@
 
 ```bash
 # Clone the repository
-git clone https://github.com/BlazeNext/VibeTube.git
+git clone https://github.com/BlazeNXT/VibeTube.git
 cd VibeTube
 
 # Build debug APK
@@ -215,5 +215,5 @@ VibeTube is an independent application and is not affiliated with, endorsed by, 
 ---
 
 <p align="center">
-  Made with ❤️ by <a href="https://github.com/BlazeNext">BlazeNext</a>
+  Made with ❤️ by <a href="https://github.com/BlazeNXT">BlazeNXT</a>
 </p>

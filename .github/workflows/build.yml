@@ -165,7 +165,7 @@ jobs:
             - Background Play - Play with screen off
             
             ---
-            *Built with ❤️ by BlazeNext*
+            *Built with ❤️ by BlazeNXT*
           draft: false
           prerelease: false
         env:
