@@ -281,11 +281,22 @@ class VideoCard extends StatelessWidget {
                 title: const Text('Download'),
                 onTap: () async {
                   Navigator.pop(ctx);
-                  await provider.addDownload(video);
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Added to Downloads')),
-                    );
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Starting download…')),
+                  );
+                  try {
+                    await provider.downloadVideo(video);
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Download complete')),
+                      );
+                    }
+                  } catch (e) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Download failed: $e')),
+                      );
+                    }
                   }
                 },
               ),

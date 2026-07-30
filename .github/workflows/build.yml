@@ -36,23 +36,25 @@ jobs:
       - name: Get Dependencies
         run: flutter pub get
 
-      - name: Generate Keystore
+      - name: Verify release keystore
         run: |
-          keytool -genkey -v \
-            -keystore android/app/keystore.jks \
-            -alias vibetube \
-            -keyalg RSA -keysize 2048 -validity 10000 \
-            -storepass android -keypass android \
-            -dname "CN=VibeTube, OU=BlazeNXT, O=BlazeNXT, L=India, ST=India, C=IN"
+          ls -la android/app/vibetube-release.jks
+          keytool -list -keystore android/app/vibetube-release.jks -storepass vibetube2026 | head -20
 
       - name: Build APK
-        run: flutter build apk --release --verbose
+        run: flutter build apk --release
+
+      - name: Rename APK
+        run: |
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-release.apk dist/VibeTube-release.apk
+          ls -lah dist/
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: VibeTube-Flutter-APK
-          path: build/app/outputs/flutter-apk/app-release.apk
+          path: dist/VibeTube-release.apk
           retention-days: 30
 
   release:
@@ -75,20 +77,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: release/*.apk
-          body: |
-            ## 🎬 VibeTube ${{ github.ref_name }}
-
-            ### ✨ Premium Features Unlocked
-            - 🚫 Ad-Free Experience
-            - 🎵 Background Playback
-            - 📺 Picture-in-Picture (PiP)
-            - ⬇️ Video Downloads
-            - ⏭️ SponsorBlock Integration
-            - 👎 Return YouTube Dislike
-
-            ### 📱 Built with Flutter
-            *Made with ❤️ by BlazeNXT*
-          draft: false
-          prerelease: false
+          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

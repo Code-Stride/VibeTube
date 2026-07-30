@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../api/innertube_client.dart';
 import '../models/video.dart';
+import '../services/download_service.dart';
 import '../services/storage_service.dart';
 import '../services/update_service.dart';
 
@@ -8,6 +9,7 @@ class AppProvider extends ChangeNotifier {
   final InnerTubeClient _client = InnerTubeClient();
   final StorageService storage = StorageService();
   final UpdateService updates = UpdateService();
+  final DownloadService downloader = DownloadService();
 
   List<Video> trendingVideos = [];
   List<Video> searchResults = [];
@@ -29,7 +31,10 @@ class AppProvider extends ChangeNotifier {
   String searchQuery = '';
   String selectedCategory = 'All';
 
-  // Settings
+  // download progress videoId -> 0..1
+  final Map<String, double> downloadProgress = {};
+  final Set<String> downloadingIds = {};
+
   bool isDarkMode = true;
   bool isAdBlockEnabled = true;
   bool isSponsorBlockEnabled = true;
@@ -66,7 +71,6 @@ class AppProvider extends ChangeNotifier {
     sbFiller = s['sbFiller'] ?? false;
     await refreshLibrary();
     notifyListeners();
-    // fire and forget
     loadTrending();
     checkUpdate();
   }
@@ -104,6 +108,9 @@ class AppProvider extends ChangeNotifier {
     if (info != null && info.hasUpdate) {
       pendingUpdate = info;
       notifyListeners();
+    } else if (force) {
+      pendingUpdate = info;
+      notifyListeners();
     }
   }
 
@@ -130,7 +137,7 @@ class AppProvider extends ChangeNotifier {
         trendingVideos = r.videos;
       }
       if (trendingVideos.isEmpty) {
-        error = 'No videos found. Check your internet connection.';
+        error = 'No videos found. Check internet & try again.';
       }
     } catch (e) {
       error = 'Failed to load feed. Pull to retry.';
@@ -160,6 +167,7 @@ class AppProvider extends ChangeNotifier {
     try {
       final result = await _client.search(query);
       searchResults = result.videos;
+      if (searchResults.isEmpty) error = 'No results';
     } catch (e) {
       error = 'Search failed';
       debugPrint('search: $e');
@@ -175,10 +183,10 @@ class AppProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Instant-play path: load details + streams + side data.
   Future<void> loadVideoDetails(String videoId, {Video? preview}) async {
     isPlayerLoading = true;
     playerError = null;
+    // Keep previous related while loading new? clear for clarity
     currentVideo = null;
     relatedVideos = [];
     comments = [];
@@ -192,7 +200,6 @@ class AppProvider extends ChangeNotifier {
       isPlayerLoading = false;
       notifyListeners();
 
-      // history
       await storage.addToHistory(Video(
         id: details.id,
         title: details.title,
@@ -205,26 +212,75 @@ class AppProvider extends ChangeNotifier {
       ));
       history = await storage.getHistory();
 
-      // parallel side loads (non-blocking for playback)
-      final relatedF = _client.getRelatedVideos(videoId);
-      final commentsF = _client.getComments(videoId);
-      final sbF = isSponsorBlockEnabled
-          ? _client.getSponsorSegments(videoId)
-          : Future.value(<SponsorSegment>[]);
-      final dislikeF = _client.getDislikeCount(videoId);
-
-      relatedVideos = await relatedF;
-      notifyListeners();
-      comments = await commentsF;
-      sponsorSegments = await sbF;
-      dislikeCount = await dislikeF;
-      notifyListeners();
+      // side data — non-blocking for playback
+      try {
+        relatedVideos = await _client.getRelatedVideos(videoId);
+        notifyListeners();
+      } catch (_) {}
+      try {
+        comments = await _client.getComments(videoId);
+        notifyListeners();
+      } catch (_) {}
+      try {
+        if (isSponsorBlockEnabled) {
+          sponsorSegments = await _client.getSponsorSegments(videoId);
+        }
+        notifyListeners();
+      } catch (_) {}
+      try {
+        dislikeCount = await _client.getDislikeCount(videoId);
+        notifyListeners();
+      } catch (_) {}
     } catch (e) {
-      playerError = 'Could not play this video.\n$e';
+      playerError = 'Could not load video stream.\n$e';
       isPlayerLoading = false;
       debugPrint('loadVideoDetails: $e');
       notifyListeners();
     }
+  }
+
+  /// Resolve a progressive URL for offline download.
+  Future<String?> resolveDownloadUrl(String videoId) async {
+    if (currentVideo?.id == videoId && currentVideo?.bestMuxedUrl != null) {
+      return currentVideo!.bestMuxedUrl;
+    }
+    final d = await _client.getVideoDetails(videoId);
+    return d.bestMuxedUrl ?? d.preferredPlayUrl;
+  }
+
+  Future<void> downloadVideo(Video video) async {
+    if (downloadingIds.contains(video.id)) return;
+    downloadingIds.add(video.id);
+    downloadProgress[video.id] = 0;
+    notifyListeners();
+    try {
+      final url = await resolveDownloadUrl(video.id);
+      if (url == null || url.isEmpty) {
+        throw Exception('No downloadable stream for this video');
+      }
+      final path = await downloader.downloadVideo(
+        video: video,
+        streamUrl: url,
+        onProgress: (p) {
+          downloadProgress[video.id] = p;
+          notifyListeners();
+        },
+      );
+      final saved = video.copyWith(localPath: path);
+      await storage.addDownload(saved);
+      downloads = await storage.getDownloads();
+    } finally {
+      downloadingIds.remove(video.id);
+      downloadProgress.remove(video.id);
+      notifyListeners();
+    }
+  }
+
+  Future<void> removeDownload(String id) async {
+    await downloader.delete(id);
+    await storage.removeDownload(id);
+    downloads = await storage.getDownloads();
+    notifyListeners();
   }
 
   Future<bool> toggleLike(Video video) async {
@@ -243,17 +299,8 @@ class AppProvider extends ChangeNotifier {
     return now;
   }
 
-  Future<void> addDownload(Video video) async {
-    await storage.addDownload(video);
-    downloads = await storage.getDownloads();
-    notifyListeners();
-  }
-
-  Future<void> removeDownload(String id) async {
-    await storage.removeDownload(id);
-    downloads = await storage.getDownloads();
-    notifyListeners();
-  }
+  /// Legacy list-only add (meta). Prefer [downloadVideo].
+  Future<void> addDownload(Video video) => downloadVideo(video);
 
   Future<void> clearHistory() async {
     await storage.clearHistory();
@@ -355,6 +402,7 @@ class AppProvider extends ChangeNotifier {
   @override
   void dispose() {
     _client.dispose();
+    downloader.dispose();
     super.dispose();
   }
 }

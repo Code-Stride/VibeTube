@@ -9,6 +9,7 @@ class Video {
   final Duration duration;
   final String publishedAt;
   final String description;
+  final String localPath;
 
   const Video({
     required this.id,
@@ -21,6 +22,7 @@ class Video {
     this.duration = Duration.zero,
     this.publishedAt = '',
     this.description = '',
+    this.localPath = '',
   });
 
   String get formattedViewCount {
@@ -58,6 +60,7 @@ class Video {
         'duration': duration.inSeconds,
         'publishedAt': publishedAt,
         'description': description,
+        'localPath': localPath,
       };
 
   factory Video.fromJson(Map<String, dynamic> j) => Video(
@@ -71,6 +74,7 @@ class Video {
         duration: Duration(seconds: j['duration'] ?? 0),
         publishedAt: j['publishedAt'] ?? '',
         description: j['description'] ?? '',
+        localPath: j['localPath'] ?? '',
       );
 
   Video copyWith({
@@ -84,6 +88,7 @@ class Video {
     Duration? duration,
     String? publishedAt,
     String? description,
+    String? localPath,
   }) {
     return Video(
       id: id ?? this.id,
@@ -96,6 +101,7 @@ class Video {
       duration: duration ?? this.duration,
       publishedAt: publishedAt ?? this.publishedAt,
       description: description ?? this.description,
+      localPath: localPath ?? this.localPath,
     );
   }
 }
@@ -127,7 +133,7 @@ class VideoFormat {
     this.hasVideo = false,
   });
 
-  bool get isMuxed => hasVideo && hasAudio && url.isNotEmpty;
+  bool get isMuxed => url.isNotEmpty && hasVideo && hasAudio && !isAudioOnly && !isVideoOnly;
 }
 
 class VideoDetails extends Video {
@@ -169,10 +175,13 @@ class VideoDetails extends Video {
     return null;
   }
 
-  /// Prefer HLS (adaptive multi-quality) for Auto; else progressive.
+  /// Prefer progressive MP4 (most reliable on Android video_player).
+  /// HLS is fallback when no muxed progressive exists.
   String? get preferredPlayUrl {
+    final muxed = bestMuxedUrl;
+    if (muxed != null && muxed.isNotEmpty) return muxed;
     if (hlsUrl != null && hlsUrl!.isNotEmpty) return hlsUrl;
-    return bestMuxedUrl;
+    return null;
   }
 
   String? urlForQuality(String quality) {

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -14,8 +15,14 @@ import '../widgets/video_card.dart';
 class PlayerScreen extends StatefulWidget {
   final String videoId;
   final Video? preview;
+  final String? localPath;
 
-  const PlayerScreen({super.key, required this.videoId, this.preview});
+  const PlayerScreen({
+    super.key,
+    required this.videoId,
+    this.preview,
+    this.localPath,
+  });
 
   @override
   State<PlayerScreen> createState() => _PlayerScreenState();
@@ -55,7 +62,19 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _quality = provider.defaultQuality;
     _liked = await provider.isLiked(widget.videoId);
 
-    // Start loading immediately
+    // Offline local file
+    if (widget.localPath != null && widget.localPath!.isNotEmpty) {
+      try {
+        await _attachController(widget.localPath!);
+        // still refresh metadata in background
+        provider.loadVideoDetails(widget.videoId, preview: widget.preview);
+        return;
+      } catch (e) {
+        debugPrint('local play failed: $e');
+      }
+    }
+
+    // Start loading stream immediately
     await provider.loadVideoDetails(widget.videoId, preview: widget.preview);
     if (!mounted) return;
 
@@ -70,26 +89,61 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   Future<void> _startPlayback(VideoDetails details, {String? quality}) async {
     final q = quality ?? _quality;
-    String? url = details.urlForQuality(q);
 
-    // HLS fallback for live / when no progressive
-    if ((url == null || url.isEmpty) &&
-        details.hlsUrl != null &&
-        details.hlsUrl!.isNotEmpty) {
-      url = details.hlsUrl;
+    // Build ordered candidate URLs: chosen quality → all muxed → HLS
+    final candidates = <String>[];
+    void add(String? u) {
+      if (u != null && u.isNotEmpty && !candidates.contains(u)) {
+        candidates.add(u);
+      }
     }
 
-    if (url == null || url.isEmpty) {
+    add(details.urlForQuality(q));
+    add(details.bestMuxedUrl);
+    add(details.preferredPlayUrl);
+    final muxed = details.formats.where((f) => f.isMuxed && f.url.isNotEmpty).toList()
+      ..sort((a, b) => b.height.compareTo(a.height));
+    for (final f in muxed) {
+      add(f.url);
+    }
+    // any progressive-looking non-audio
+    for (final f in details.formats) {
+      if (!f.isAudioOnly && f.url.isNotEmpty) add(f.url);
+    }
+    add(details.hlsUrl);
+
+    if (candidates.isEmpty) {
       if (mounted) {
         setState(() {
           _isBuffering = false;
           _ready = false;
         });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No playable stream URL found for this video')),
+        );
       }
       return;
     }
 
-    await _attachController(url);
+    Object? lastErr;
+    for (final url in candidates) {
+      try {
+        await _attachController(url);
+        if (_ready) return;
+      } catch (e) {
+        lastErr = e;
+        debugPrint('candidate failed: $e');
+      }
+    }
+    if (mounted) {
+      setState(() {
+        _isBuffering = false;
+        _ready = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Playback failed: $lastErr')),
+      );
+    }
   }
 
   Future<void> _attachController(String url) async {
@@ -98,63 +152,70 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _ready = false;
     });
 
-    final old = _controller;
+    final prev = _controller;
     _controller = null;
-    await old?.dispose();
+    await prev?.dispose();
 
-    final c = VideoPlayerController.networkUrl(
-      Uri.parse(url),
-      httpHeaders: {
-        'User-Agent':
-            'com.google.android.youtube/20.10.38 (Linux; U; Android 14) gzip',
-        'Referer': 'https://www.youtube.com/',
-      },
-    );
+    final isLocal = url.startsWith('/') || url.startsWith('file:');
+    late final VideoPlayerController c;
+    if (isLocal) {
+      final path = url.startsWith('file:') ? Uri.parse(url).toFilePath() : url;
+      c = VideoPlayerController.file(File(path));
+    } else {
+      // Try with YT-like headers first
+      c = VideoPlayerController.networkUrl(
+        Uri.parse(url),
+        httpHeaders: const {
+          'User-Agent':
+              'com.google.android.youtube/20.10.38 (Linux; U; Android 14) gzip',
+          'Referer': 'https://www.youtube.com/',
+          'Origin': 'https://www.youtube.com',
+        },
+      );
+    }
 
     try {
-      await c.initialize();
-      if (!mounted) {
-        await c.dispose();
-        return;
-      }
-      await c.setLooping(false);
-      await c.setPlaybackSpeed(_speed);
-      c.addListener(_onTick);
-      setState(() {
-        _controller = c;
-        _ready = true;
-        _isBuffering = false;
-        _activeUrl = url;
-        _duration = c.value.duration;
-      });
-      await c.play();
-      if (context.read<AppProvider>().isBackgroundPlayEnabled) {
-        // keep screen awake while playing
-        WakelockPlus.enable();
-      }
-      _armHide();
-      _startPosTimer();
+      await c.initialize().timeout(const Duration(seconds: 20));
     } catch (e) {
-      debugPrint('player init error: $e');
       await c.dispose();
-      if (!mounted) return;
-      // try next format
-      final details = context.read<AppProvider>().currentVideo;
-      if (details != null) {
-        final muxed = details.formats.where((f) => f.isMuxed).toList()
-          ..sort((a, b) => b.height.compareTo(a.height));
-        for (final f in muxed) {
-          if (f.url != url && f.url.isNotEmpty) {
-            await _attachController(f.url);
-            return;
-          }
+      // Retry network without custom headers (some CDNs reject them)
+      if (!isLocal) {
+        final c2 = VideoPlayerController.networkUrl(Uri.parse(url));
+        try {
+          await c2.initialize().timeout(const Duration(seconds: 20));
+          await _finishAttach(c2, url);
+          return;
+        } catch (e2) {
+          await c2.dispose();
+          rethrow;
         }
       }
-      setState(() {
-        _ready = false;
-        _isBuffering = false;
-      });
+      rethrow;
     }
+    await _finishAttach(c, url);
+  }
+
+  Future<void> _finishAttach(VideoPlayerController c, String url) async {
+    if (!mounted) {
+      await c.dispose();
+      return;
+    }
+    await c.setLooping(false);
+    await c.setPlaybackSpeed(_speed);
+    c.addListener(_onTick);
+    setState(() {
+      _controller = c;
+      _ready = true;
+      _isBuffering = false;
+      _activeUrl = url;
+      _duration = c.value.duration;
+    });
+    await c.play();
+    if (context.read<AppProvider>().isBackgroundPlayEnabled) {
+      WakelockPlus.enable();
+    }
+    _armHide();
+    _startPosTimer();
   }
 
   void _onTick() {
@@ -342,7 +403,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
             ),
             const SizedBox(height: 16),
             ElevatedButton(
-              onPressed: () => provider.loadVideoDetails(widget.videoId),
+              onPressed: () async {
+                await provider.loadVideoDetails(widget.videoId);
+                final d = provider.currentVideo;
+                if (d != null) await _startPlayback(d);
+              },
               child: const Text('Retry'),
             ),
           ],
@@ -764,15 +829,28 @@ class _PlayerScreenState extends State<PlayerScreen> {
               ),
               _action(
                 icon: Icons.download_outlined,
-                label: 'Download',
+                label: provider.downloadingIds.contains(widget.videoId)
+                    ? '${((provider.downloadProgress[widget.videoId] ?? 0) * 100).toStringAsFixed(0)}%'
+                    : 'Download',
                 onTap: () async {
                   final v = video ?? preview;
                   if (v == null) return;
-                  await provider.addDownload(v);
-                  if (!mounted) return;
+                  if (provider.downloadingIds.contains(v.id)) return;
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Saved to Downloads list')),
+                    const SnackBar(content: Text('Downloading…')),
                   );
+                  try {
+                    await provider.downloadVideo(v);
+                    if (!mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Download complete — open Downloads tab')),
+                    );
+                  } catch (e) {
+                    if (!mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Download failed: $e')),
+                    );
+                  }
                 },
               ),
             ],

@@ -2,33 +2,30 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/video.dart';
 
-/// YouTube InnerTube client with multiple player clients for reliable streams.
+/// YouTube InnerTube client.
+/// ANDROID client returns plain progressive MP4 URLs (no cipher) — most reliable for mobile players.
 class InnerTubeClient {
   static const String _baseUrl = 'https://www.youtube.com/youtubei/v1';
-  static const String _apiKey = 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8';
 
-  // Clients known to return plain (non-ciphered) stream URLs
+  /// Proven working clients (ordered by reliability for plain URLs).
   static const List<Map<String, dynamic>> _playerClients = [
-    {
-      'clientName': 'IOS',
-      'clientVersion': '20.10.4',
-      'deviceMake': 'Apple',
-      'deviceModel': 'iPhone16,2',
-      'osName': 'iPhone',
-      'osVersion': '18.3.2.22D82',
-      'userAgent':
-          'com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)',
-      'hl': 'en',
-      'gl': 'US',
-    },
     {
       'clientName': 'ANDROID',
       'clientVersion': '20.10.38',
+      'androidSdkVersion': 34,
+      'osName': 'Android',
+      'osVersion': '14',
+      'hl': 'en',
+      'gl': 'IN',
+      '_ua': 'com.google.android.youtube/20.10.38 (Linux; U; Android 14) gzip',
+    },
+    {
+      'clientName': 'ANDROID',
+      'clientVersion': '19.35.36',
       'androidSdkVersion': 30,
-      'userAgent':
-          'com.google.android.youtube/20.10.38 (Linux; U; Android 14) gzip',
       'hl': 'en',
       'gl': 'US',
+      '_ua': 'com.google.android.youtube/19.35.36 (Linux; U; Android 13) gzip',
     },
     {
       'clientName': 'ANDROID_VR',
@@ -38,36 +35,44 @@ class InnerTubeClient {
       'osName': 'Android',
       'osVersion': '12L',
       'androidSdkVersion': 32,
-      'userAgent':
-          'com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 12L) gzip',
       'hl': 'en',
       'gl': 'US',
+      '_ua':
+          'com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 12L) gzip',
+    },
+    {
+      'clientName': 'IOS',
+      'clientVersion': '20.10.4',
+      'deviceMake': 'Apple',
+      'deviceModel': 'iPhone16,2',
+      'osName': 'iPhone',
+      'osVersion': '18.3.2.22D82',
+      'hl': 'en',
+      'gl': 'US',
+      '_ua':
+          'com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)',
     },
   ];
 
-  static const Map<String, dynamic> _webContext = {
-    'client': {
-      'hl': 'en',
-      'gl': 'US',
-      'clientName': 'WEB',
-      'clientVersion': '2.20250312.00.00',
-      'userAgent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-    }
+  static const Map<String, dynamic> _webClient = {
+    'hl': 'en',
+    'gl': 'IN',
+    'clientName': 'WEB',
+    'clientVersion': '2.20250312.00.00',
+    'userAgent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
   };
 
   final http.Client _http = http.Client();
 
-  Map<String, String> _headers({String? userAgent}) => {
+  Map<String, String> _headers(String? ua) => {
         'Content-Type': 'application/json',
-        'User-Agent': userAgent ??
+        'User-Agent': ua ??
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
         'Accept': '*/*',
         'Accept-Language': 'en-US,en;q=0.9',
         'Origin': 'https://www.youtube.com',
         'Referer': 'https://www.youtube.com/',
-        'X-YouTube-Client-Name': '1',
-        'X-YouTube-Client-Version': '2.20250312.00.00',
       };
 
   Future<Map<String, dynamic>> _post(
@@ -75,30 +80,33 @@ class InnerTubeClient {
     Map<String, dynamic> body, {
     String? userAgent,
   }) async {
-    final url = Uri.parse('$_baseUrl/$endpoint?prettyPrint=false&key=$_apiKey');
+    final uri = Uri.parse('$_baseUrl/$endpoint?prettyPrint=false');
     final res = await _http
-        .post(url, headers: _headers(userAgent: userAgent), body: jsonEncode(body))
-        .timeout(const Duration(seconds: 20));
+        .post(
+          uri,
+          headers: _headers(userAgent),
+          body: jsonEncode(body),
+        )
+        .timeout(const Duration(seconds: 18));
     if (res.statusCode != 200) {
-      throw Exception('InnerTube $endpoint failed: ${res.statusCode}');
+      throw Exception('InnerTube $endpoint HTTP ${res.statusCode}');
     }
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
-  // ---------- Public API ----------
+  // ---------------- Browse / Search ----------------
 
   Future<List<Video>> getTrending({String region = 'IN'}) async {
     try {
       final response = await _post('browse', {
         'browseId': 'FEtrending',
         'context': {
-          'client': {..._webContext['client'] as Map<String, dynamic>, 'gl': region}
+          'client': {..._webClient, 'gl': region},
         },
-      });
-      final videos = _parseRichGrid(response);
+      }, userAgent: _webClient['userAgent'] as String);
+      final videos = _parseVideosDeep(response);
       if (videos.isNotEmpty) return videos;
     } catch (_) {}
-    // fallback home
     return getHomeFeed(region: region);
   }
 
@@ -106,147 +114,107 @@ class InnerTubeClient {
     final response = await _post('browse', {
       'browseId': 'FEwhat_to_watch',
       'context': {
-        'client': {..._webContext['client'] as Map<String, dynamic>, 'gl': region}
+        'client': {..._webClient, 'gl': region},
       },
-    });
-    return _parseRichGrid(response);
+    }, userAgent: _webClient['userAgent'] as String);
+    return _parseVideosDeep(response);
   }
 
   Future<SearchResult> search(String query, {String? continuation}) async {
     final body = <String, dynamic>{
       'query': query,
-      'context': _webContext,
+      'context': {'client': _webClient},
       'params': 'EgIQAQ%3D%3D',
     };
     if (continuation != null) body['continuation'] = continuation;
-    final response = await _post('search', body);
-    return _parseSearch(response);
+    final response = await _post(
+      'search',
+      body,
+      userAgent: _webClient['userAgent'] as String,
+    );
+    final videos = _parseVideosDeep(response);
+    return SearchResult(videos: videos, continuation: null);
   }
 
-  /// Fetches playable stream. Tries multiple clients until muxed URL found.
+  /// Fetch playable details. ANDROID progressive MP4 is preferred for ExoPlayer.
   Future<VideoDetails> getVideoDetails(String videoId) async {
     Object? lastError;
-    VideoDetails? withHls;
-    VideoDetails? withMuxed;
-    VideoDetails? any;
+    VideoDetails? bestMuxed;
+    VideoDetails? bestHls;
+    VideoDetails? anyOk;
 
-    // Try clients; merge best stream sources.
-    for (final client in _playerClients) {
+    for (final raw in _playerClients) {
+      final cfg = Map<String, dynamic>.from(raw);
+      final ua = cfg.remove('_ua') as String?;
       try {
-        final details = await _fetchPlayer(videoId, client);
-        any ??= details;
-        if (details.hlsUrl != null && details.hlsUrl!.isNotEmpty) {
-          withHls ??= details;
-        }
+        final details = await _fetchPlayer(videoId, cfg, ua);
+        anyOk ??= details;
         if (details.bestMuxedUrl != null) {
-          withMuxed ??= details;
+          bestMuxed ??= details;
+          // Progressive MP4 is enough to start — return ASAP for instant play
+          break;
         }
-        // Fast path: both HLS + muxed collected
-        if (withHls != null && withMuxed != null) break;
+        if (details.hlsUrl != null && details.hlsUrl!.isNotEmpty) {
+          bestHls ??= details;
+        }
       } catch (e) {
         lastError = e;
       }
     }
 
-    // Prefer HLS (higher quality multi-bitrate) with muxed formats as backup.
-    if (withHls != null) {
-      if (withMuxed != null && withHls.formats.isEmpty) {
+    // Merge HLS URL onto muxed metadata if both exist
+    if (bestMuxed != null) {
+      if (bestHls?.hlsUrl != null) {
         return VideoDetails(
-          id: withHls.id,
-          title: withHls.title,
-          description: withHls.description,
-          channelName: withHls.channelName,
-          channelId: withHls.channelId,
-          channelAvatar: withHls.channelAvatar,
-          viewCount: withHls.viewCount,
-          duration: withHls.duration,
-          thumbnailUrl: withHls.thumbnailUrl,
-          publishedAt: withHls.publishedAt,
-          formats: withMuxed.formats,
-          hlsUrl: withHls.hlsUrl,
-          dashUrl: withHls.dashUrl ?? withMuxed.dashUrl,
-          likeCount: withHls.likeCount,
-          isLive: withHls.isLive,
+          id: bestMuxed.id,
+          title: bestMuxed.title,
+          description: bestMuxed.description,
+          channelName: bestMuxed.channelName,
+          channelId: bestMuxed.channelId,
+          channelAvatar: bestMuxed.channelAvatar,
+          viewCount: bestMuxed.viewCount,
+          duration: bestMuxed.duration,
+          thumbnailUrl: bestMuxed.thumbnailUrl,
+          publishedAt: bestMuxed.publishedAt,
+          formats: bestMuxed.formats,
+          hlsUrl: bestHls!.hlsUrl,
+          dashUrl: bestMuxed.dashUrl ?? bestHls.dashUrl,
+          likeCount: bestMuxed.likeCount,
+          isLive: bestMuxed.isLive,
         );
       }
-      // attach progressive formats if missing
-      if (withMuxed != null && withHls.bestMuxedUrl == null) {
-        return VideoDetails(
-          id: withHls.id.isNotEmpty ? withHls.id : withMuxed.id,
-          title: withHls.title.isNotEmpty ? withHls.title : withMuxed.title,
-          description: withHls.description.isNotEmpty
-              ? withHls.description
-              : withMuxed.description,
-          channelName: withHls.channelName.isNotEmpty
-              ? withHls.channelName
-              : withMuxed.channelName,
-          channelId: withHls.channelId.isNotEmpty
-              ? withHls.channelId
-              : withMuxed.channelId,
-          viewCount: withHls.viewCount > 0 ? withHls.viewCount : withMuxed.viewCount,
-          duration: withHls.duration != Duration.zero
-              ? withHls.duration
-              : withMuxed.duration,
-          thumbnailUrl: withHls.thumbnailUrl.isNotEmpty
-              ? withHls.thumbnailUrl
-              : withMuxed.thumbnailUrl,
-          publishedAt: withHls.publishedAt.isNotEmpty
-              ? withHls.publishedAt
-              : withMuxed.publishedAt,
-          formats: [
-            ...withHls.formats,
-            ...withMuxed.formats,
-          ],
-          hlsUrl: withHls.hlsUrl,
-          dashUrl: withHls.dashUrl ?? withMuxed.dashUrl,
-          isLive: withHls.isLive || withMuxed.isLive,
-        );
-      }
-      return withHls;
+      return bestMuxed;
     }
-    if (withMuxed != null) return withMuxed;
-    if (any != null) return any;
-    throw Exception('Could not load stream: $lastError');
+    if (bestHls != null) return bestHls;
+    if (anyOk != null) return anyOk;
+    throw Exception('No playable stream found. $lastError');
   }
 
   Future<VideoDetails> _fetchPlayer(
     String videoId,
-    Map<String, dynamic> clientCfg,
+    Map<String, dynamic> client,
+    String? ua,
   ) async {
-    final ua = clientCfg['userAgent'] as String?;
-    final client = Map<String, dynamic>.from(clientCfg)..remove('userAgent');
-
     final body = {
       'videoId': videoId,
       'context': {
         'client': client,
-        'thirdParty': {
-          'embedUrl': 'https://www.youtube.com',
-        },
       },
       'playbackContext': {
         'contentPlaybackContext': {
           'html5Preference': 'HTML5_PREF_WANTS',
-          'signatureTimestamp': 20073,
         }
       },
       'contentCheckOk': true,
       'racyCheckOk': true,
     };
 
-    // For embedded TV client
-    if (client['clientName'] == 'TVHTML5_SIMPLY_EMBEDDED_PLAYER') {
-      body['context'] = {
-        'client': client,
-        'thirdParty': {'embedUrl': 'https://www.youtube.com'},
-      };
-    }
-
     final response = await _post('player', body, userAgent: ua);
-    final status = response['playabilityStatus']?['status'];
+    final status = response['playabilityStatus']?['status']?.toString();
     if (status != null && status != 'OK') {
-      final reason = response['playabilityStatus']?['reason'] ?? status;
-      throw Exception('Unplayable: $reason');
+      final reason =
+          response['playabilityStatus']?['reason']?.toString() ?? status;
+      throw Exception('Unplayable ($status): $reason');
     }
     return _parseVideoDetails(response, videoId);
   }
@@ -255,9 +223,9 @@ class InnerTubeClient {
     try {
       final response = await _post('next', {
         'videoId': videoId,
-        'context': _webContext,
-      });
-      return _parseRelated(response);
+        'context': {'client': _webClient},
+      }, userAgent: _webClient['userAgent'] as String);
+      return _parseVideosDeep(response);
     } catch (_) {
       return [];
     }
@@ -267,9 +235,9 @@ class InnerTubeClient {
     try {
       final response = await _post('next', {
         'videoId': videoId,
-        'context': _webContext,
-      });
-      return _parseComments(response);
+        'context': {'client': _webClient},
+      }, userAgent: _webClient['userAgent'] as String);
+      return _parseCommentsDeep(response);
     } catch (_) {
       return [];
     }
@@ -279,7 +247,7 @@ class InnerTubeClient {
     try {
       final uri = Uri.parse(
         'https://sponsor.ajay.app/api/skipSegments?videoID=$videoId'
-        '&categories=["sponsor","selfpromo","interaction","intro","outro","preview","music_offtopic","filler"]',
+        '&categories=%5B%22sponsor%22%2C%22selfpromo%22%2C%22interaction%22%2C%22intro%22%2C%22outro%22%2C%22preview%22%2C%22music_offtopic%22%2C%22filler%22%5D',
       );
       final res = await _http.get(uri).timeout(const Duration(seconds: 8));
       if (res.statusCode != 200) return [];
@@ -302,18 +270,22 @@ class InnerTubeClient {
       final uri = Uri.parse(
         'https://returnyoutubedislikeapi.com/votes?videoId=$videoId',
       );
-      final res = await _http.get(uri).timeout(const Duration(seconds: 6));
+      final res = await _http.get(uri, headers: {
+        'Accept': 'application/json',
+        'User-Agent': 'VibeTube/1.2',
+      }).timeout(const Duration(seconds: 6));
       if (res.statusCode != 200) return null;
       final data = jsonDecode(res.body) as Map<String, dynamic>;
-      return data['dislikes'] as int?;
+      return (data['dislikes'] as num?)?.toInt();
     } catch (_) {
       return null;
     }
   }
 
-  // ---------- Parsers ----------
+  // ---------------- Parsers ----------------
 
-  VideoDetails _parseVideoDetails(Map<String, dynamic> response, String videoId) {
+  VideoDetails _parseVideoDetails(
+      Map<String, dynamic> response, String videoId) {
     final vd = response['videoDetails'] as Map<String, dynamic>? ?? {};
     final sd = response['streamingData'] as Map<String, dynamic>? ?? {};
     final micro = response['microformat']?['playerMicroformatRenderer']
@@ -325,9 +297,10 @@ class InnerTubeClient {
     ];
 
     final thumbs = vd['thumbnail']?['thumbnails'] as List<dynamic>? ?? [];
-    final thumb = thumbs.isNotEmpty
+    var thumb = thumbs.isNotEmpty
         ? (thumbs.last['url']?.toString() ?? '')
         : 'https://i.ytimg.com/vi/$videoId/hqdefault.jpg';
+    if (thumb.startsWith('//')) thumb = 'https:$thumb';
 
     return VideoDetails(
       id: vd['videoId']?.toString() ?? videoId,
@@ -336,13 +309,14 @@ class InnerTubeClient {
       channelName: vd['author']?.toString() ?? '',
       channelId: vd['channelId']?.toString() ?? '',
       viewCount: int.tryParse(vd['viewCount']?.toString() ?? '0') ?? 0,
-      duration: Duration(seconds: int.tryParse(vd['lengthSeconds']?.toString() ?? '0') ?? 0),
-      thumbnailUrl: thumb.startsWith('//') ? 'https:$thumb' : thumb,
+      duration: Duration(
+          seconds: int.tryParse(vd['lengthSeconds']?.toString() ?? '0') ?? 0),
+      thumbnailUrl: thumb,
       publishedAt: micro?['publishDate']?.toString() ?? '',
       formats: _parseFormats(formats),
       hlsUrl: sd['hlsManifestUrl']?.toString(),
       dashUrl: sd['dashManifestUrl']?.toString(),
-      isLive: vd['isLiveContent'] == true,
+      isLive: vd['isLiveContent'] == true || vd['isLive'] == true,
     );
   }
 
@@ -350,120 +324,57 @@ class InnerTubeClient {
     final out = <VideoFormat>[];
     for (final f in formats) {
       if (f is! Map) continue;
-      // Prefer plain url; skip ciphered (no n-sig solver in pure dart easily)
-      String url = f['url']?.toString() ?? '';
-      if (url.isEmpty) continue; // skip signatureCipher formats
+      // Only plain URLs — skip ciphered streams
+      final url = f['url']?.toString() ?? '';
+      if (url.isEmpty) continue;
 
-      final mime = f['mimeType']?.toString() ?? '';
+      final mime = (f['mimeType']?.toString() ?? '').toLowerCase();
       final hasVideo = mime.contains('video');
-      final hasAudio = mime.contains('audio') ||
-          (f['audioQuality'] != null) ||
-          (hasVideo && f['audioChannels'] != null);
-      final codecs = mime.toLowerCase();
-      // Progressive/muxed: video mime that also lists audio codec (mp4a / opus)
-      final muxedLikely = hasVideo &&
-          (codecs.contains('mp4a') ||
-              codecs.contains('opus') ||
-              (f['audioQuality'] != null && f['width'] != null));
-      final isAudioOnly = codecs.startsWith('audio/') || (hasAudio && !hasVideo);
-      final isVideoOnly = hasVideo && !muxedLikely && !isAudioOnly;
+      final hasAudioCodec = mime.contains('mp4a') ||
+          mime.contains('opus') ||
+          mime.contains('mp4a.40') ||
+          f['audioQuality'] != null;
+      final isAudioOnly = mime.startsWith('audio/');
+      // Progressive muxed: video/* with audio codec listed
+      final isMuxed = hasVideo && hasAudioCodec && !isAudioOnly;
+      final isVideoOnly = hasVideo && !isMuxed && !isAudioOnly;
 
       out.add(VideoFormat(
         url: url,
-        quality: f['qualityLabel']?.toString() ?? f['quality']?.toString() ?? 'Unknown',
-        mimeType: mime,
+        quality: f['qualityLabel']?.toString() ??
+            f['quality']?.toString() ??
+            'Unknown',
+        mimeType: f['mimeType']?.toString() ?? '',
         width: f['width'] as int? ?? 0,
         height: f['height'] as int? ?? 0,
         bitrate: f['bitrate'] as int? ?? 0,
         itag: f['itag'] as int? ?? 0,
         isVideoOnly: isVideoOnly,
         isAudioOnly: isAudioOnly,
-        hasAudio: isAudioOnly || muxedLikely || f['audioQuality'] != null,
+        hasAudio: isAudioOnly || isMuxed || f['audioQuality'] != null,
         hasVideo: hasVideo,
       ));
     }
     return out;
   }
 
-  List<Video> _parseRichGrid(Map<String, dynamic> response) {
+  List<Video> _parseVideosDeep(Map<String, dynamic> response) {
     final videos = <Video>[];
     void walk(dynamic node) {
       if (node is Map) {
-        if (node['videoRenderer'] != null) {
-          final v = _extractVideo(node['videoRenderer']);
-          if (v != null) videos.add(v);
+        for (final key in [
+          'videoRenderer',
+          'compactVideoRenderer',
+          'gridVideoRenderer',
+          'playlistVideoRenderer',
+        ]) {
+          if (node[key] is Map) {
+            final v = _extractVideo(Map<String, dynamic>.from(node[key] as Map));
+            if (v != null) videos.add(v);
+          }
         }
-        if (node['compactVideoRenderer'] != null) {
-          videos.add(_extractCompact(node['compactVideoRenderer']));
-        }
-        if (node['gridVideoRenderer'] != null) {
-          final v = _extractVideo(node['gridVideoRenderer']);
-          if (v != null) videos.add(v);
-        }
-        if (node['richItemRenderer'] != null) {
+        if (node['richItemRenderer'] is Map) {
           walk(node['richItemRenderer']['content']);
-        }
-        for (final v in node.values) {
-          walk(v);
-        }
-      } else if (node is List) {
-        for (final i in node) {
-          walk(i);
-        }
-      }
-    }
-
-    walk(response['contents']);
-    // dedupe
-    final seen = <String>{};
-    return videos.where((v) => v.id.isNotEmpty && seen.add(v.id)).toList();
-  }
-
-  SearchResult _parseSearch(Map<String, dynamic> response) {
-    final videos = <Video>[];
-    String? continuation;
-
-    void walk(dynamic node) {
-      if (node is Map) {
-        if (node['videoRenderer'] != null) {
-          final v = _extractVideo(node['videoRenderer']);
-          if (v != null) videos.add(v);
-        }
-        if (node['continuationItemRenderer'] != null) {
-          continuation ??= node['continuationItemRenderer']['continuationEndpoint']
-              ?['continuationCommand']?['token'];
-        }
-        for (final v in node.values) {
-          walk(v);
-        }
-      } else if (node is List) {
-        for (final i in node) {
-          walk(i);
-        }
-      }
-    }
-
-    walk(response['contents'] ?? response['onResponseReceivedCommands']);
-    final seen = <String>{};
-    return SearchResult(
-      videos: videos.where((v) => v.id.isNotEmpty && seen.add(v.id)).toList(),
-      continuation: continuation,
-    );
-  }
-
-  List<Video> _parseRelated(Map<String, dynamic> response) {
-    final videos = <Video>[];
-    void walk(dynamic node) {
-      if (node is Map) {
-        if (node['compactVideoRenderer'] != null) {
-          videos.add(_extractCompact(node['compactVideoRenderer']));
-        }
-        if (node['lockupViewModel'] != null) {
-          // new UI - skip for now
-        }
-        if (node['videoRenderer'] != null) {
-          final v = _extractVideo(node['videoRenderer']);
-          if (v != null) videos.add(v);
         }
         for (final v in node.values) {
           walk(v);
@@ -480,19 +391,21 @@ class InnerTubeClient {
     return videos.where((v) => v.id.isNotEmpty && seen.add(v.id)).toList();
   }
 
-  List<Comment> _parseComments(Map<String, dynamic> response) {
+  List<Comment> _parseCommentsDeep(Map<String, dynamic> response) {
     final comments = <Comment>[];
     void walk(dynamic node) {
       if (node is Map) {
-        final cr = node['commentRenderer'] ??
-            node['commentThreadRenderer']?['comment']?['commentRenderer'];
+        Map? cr = node['commentRenderer'] as Map?;
+        cr ??= node['commentThreadRenderer']?['comment']?['commentRenderer']
+            as Map?;
         if (cr != null) {
           comments.add(Comment(
             id: cr['commentId']?.toString() ?? '',
             author: _text(cr['authorText']),
-            authorAvatar:
-                (cr['authorThumbnail']?['thumbnails'] as List?)?.last?['url']?.toString() ??
-                    '',
+            authorAvatar: (cr['authorThumbnail']?['thumbnails'] as List?)
+                    ?.last?['url']
+                    ?.toString() ??
+                '',
             text: _text(cr['contentText']),
             likeCount: _parseCount(_text(cr['voteCount'])),
             publishedAt: _text(cr['publishedTimeText']),
@@ -518,14 +431,19 @@ class InnerTubeClient {
     final thumbs = r['thumbnail']?['thumbnails'] as List<dynamic>? ?? [];
     var thumb = thumbs.isNotEmpty ? thumbs.last['url']?.toString() ?? '' : '';
     if (thumb.startsWith('//')) thumb = 'https:$thumb';
+    if (thumb.isEmpty) thumb = 'https://i.ytimg.com/vi/$id/hqdefault.jpg';
+
+    String channelName = _text(r['ownerText']);
+    if (channelName.isEmpty) channelName = _text(r['shortBylineText']);
+    if (channelName.isEmpty) channelName = _text(r['longBylineText']);
 
     String channelId = '';
     try {
-      channelId = r['ownerText']?['runs']?[0]?['navigationEndpoint']?['browseEndpoint']
-              ?['browseId']
+      channelId = r['ownerText']?['runs']?[0]?['navigationEndpoint']
+                  ?['browseEndpoint']?['browseId']
               ?.toString() ??
-          r['shortBylineText']?['runs']?[0]?['navigationEndpoint']?['browseEndpoint']
-              ?['browseId']
+          r['shortBylineText']?['runs']?[0]?['navigationEndpoint']
+                  ?['browseEndpoint']?['browseId']
               ?.toString() ??
           '';
     } catch (_) {}
@@ -535,42 +453,26 @@ class InnerTubeClient {
       final ch = r['channelThumbnailSupportedRenderers']
               ?['channelThumbnailWithLinkRenderer']?['thumbnail']?['thumbnails']
           as List?;
-      if (ch != null && ch.isNotEmpty) avatar = ch.last['url']?.toString() ?? '';
+      if (ch != null && ch.isNotEmpty) {
+        avatar = ch.last['url']?.toString() ?? '';
+      }
     } catch (_) {}
+
+    final viewsText = _text(r['viewCountText']).isNotEmpty
+        ? _text(r['viewCountText'])
+        : _text(r['shortViewCountText']);
 
     return Video(
       id: id,
       title: _text(r['title']),
-      thumbnailUrl: thumb.isEmpty ? 'https://i.ytimg.com/vi/$id/hqdefault.jpg' : thumb,
-      channelName: _text(r['ownerText']).isNotEmpty
-          ? _text(r['ownerText'])
-          : _text(r['shortBylineText']),
+      thumbnailUrl: thumb,
+      channelName: channelName,
       channelId: channelId,
       channelAvatar: avatar,
-      viewCount: _parseCount(_text(r['viewCountText']).isNotEmpty
-          ? _text(r['viewCountText'])
-          : _text(r['shortViewCountText'])),
+      viewCount: _parseCount(viewsText),
       duration: _parseDurationText(_text(r['lengthText'])),
       publishedAt: _text(r['publishedTimeText']),
       description: _text(r['descriptionSnippet']),
-    );
-  }
-
-  Video _extractCompact(Map<String, dynamic> r) {
-    final id = r['videoId']?.toString() ?? '';
-    final thumbs = r['thumbnail']?['thumbnails'] as List<dynamic>? ?? [];
-    var thumb = thumbs.isNotEmpty ? thumbs.last['url']?.toString() ?? '' : '';
-    if (thumb.startsWith('//')) thumb = 'https:$thumb';
-    return Video(
-      id: id,
-      title: _text(r['title']),
-      thumbnailUrl: thumb.isEmpty && id.isNotEmpty
-          ? 'https://i.ytimg.com/vi/$id/hqdefault.jpg'
-          : thumb,
-      channelName: _text(r['shortBylineText']),
-      viewCount: _parseCount(_text(r['viewCountText'])),
-      duration: _parseDurationText(_text(r['lengthText'])),
-      publishedAt: _text(r['publishedTimeText']),
     );
   }
 
@@ -590,18 +492,17 @@ class InnerTubeClient {
     if (text.isEmpty) return 0;
     final cleaned = text.replaceAll(',', '').trim();
     final m = RegExp(r'([\d.]+)\s*([KMBTkmbt])?').firstMatch(cleaned);
-    if (m == null) return int.tryParse(cleaned.replaceAll(RegExp(r'[^\d]'), '')) ?? 0;
+    if (m == null) {
+      return int.tryParse(cleaned.replaceAll(RegExp(r'[^\d]'), '')) ?? 0;
+    }
     final n = double.tryParse(m.group(1)!) ?? 0;
-    final u = (m.group(2) ?? '').toUpperCase();
-    switch (u) {
+    switch ((m.group(2) ?? '').toUpperCase()) {
       case 'K':
         return (n * 1e3).round();
       case 'M':
         return (n * 1e6).round();
       case 'B':
         return (n * 1e9).round();
-      case 'T':
-        return (n * 1e12).round();
       default:
         return n.round();
     }
@@ -619,7 +520,8 @@ class InnerTubeClient {
         );
       }
       if (parts.length == 2) {
-        return Duration(minutes: int.parse(parts[0]), seconds: int.parse(parts[1]));
+        return Duration(
+            minutes: int.parse(parts[0]), seconds: int.parse(parts[1]));
       }
     } catch (_) {}
     return Duration.zero;

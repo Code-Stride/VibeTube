@@ -4,7 +4,9 @@ plugins {
     id "dev.flutter.flutter-gradle-plugin"
 }
 
-def hasReleaseKeystore = file("keystore.jks").exists()
+def releaseStoreFile = file("vibetube-release.jks")
+def ciStoreFile = file("keystore.jks")
+def storeToUse = releaseStoreFile.exists() ? releaseStoreFile : (ciStoreFile.exists() ? ciStoreFile : null)
 
 android {
     namespace "com.blazenxt.vibetube"
@@ -15,27 +17,34 @@ android {
         applicationId "com.blazenxt.vibetube"
         minSdk 24
         targetSdk 36
-        versionCode 1
-        versionName "1.0.0"
+        versionCode 3
+        versionName "1.2.0"
         multiDexEnabled true
     }
 
     signingConfigs {
-        if (hasReleaseKeystore) {
-            release {
-                storeFile file("keystore.jks")
-                storePassword "android"
+        release {
+            if (storeToUse != null) {
+                storeFile storeToUse
+                storePassword "vibetube2026"
                 keyAlias "vibetube"
-                keyPassword "android"
+                keyPassword "vibetube2026"
             }
         }
     }
 
     buildTypes {
         release {
-            signingConfig hasReleaseKeystore ? signingConfigs.release : signingConfigs.debug
+            if (storeToUse != null) {
+                signingConfig signingConfigs.release
+            } else {
+                signingConfig signingConfigs.debug
+            }
             minifyEnabled false
             shrinkResources false
+        }
+        debug {
+            applicationIdSuffix ""
         }
     }
 
