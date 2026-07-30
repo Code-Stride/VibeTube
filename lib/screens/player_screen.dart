@@ -1334,6 +1334,26 @@ class _PlayerScreenState extends State<PlayerScreen> {
     );
   }
 
+
+  String _maxQualityLabel(VideoDetails? d) {
+    if (d == null) return '720p';
+    final hs = <int>[
+      ...d.hlsVariants.keys,
+      ...d.progressiveByHeight.keys,
+    ];
+    if (hs.isEmpty) {
+      return (d.hlsUrl != null && d.hlsUrl!.isNotEmpty) ? '1080p' : '360p';
+    }
+    hs.sort();
+    final h = hs.last;
+    if (h >= 2160) return '2160p';
+    if (h >= 1440) return '1440p';
+    if (h >= 1080) return '1080p';
+    if (h >= 720) return '720p';
+    if (h >= 480) return '480p';
+    return '${h}p';
+  }
+
   String _fmt(Duration d) {
     final h = d.inHours;
     final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
