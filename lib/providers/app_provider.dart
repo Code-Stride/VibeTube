@@ -171,9 +171,11 @@ class AppProvider extends ChangeNotifier {
     try {
       final result = await _client.search(query);
       searchResults = result.videos;
-      if (searchResults.isEmpty) error = 'No results';
+      // Empty results are not a hard error — UI shows empty state
+      error = null;
     } catch (e) {
       error = 'Search failed';
+      searchResults = [];
       debugPrint('search: $e');
     } finally {
       isLoading = false;
@@ -245,8 +247,9 @@ class AppProvider extends ChangeNotifier {
 
   /// Resolve a progressive URL for offline download.
   Future<String?> resolveDownloadUrl(String videoId) async {
-    if (currentVideo?.id == videoId && currentVideo?.bestMuxedUrl != null) {
-      return currentVideo!.bestMuxedUrl;
+    if (currentVideo?.id == videoId) {
+      final muxed = currentVideo?.bestMuxedUrl;
+      if (muxed != null && muxed.isNotEmpty) return muxed;
     }
     final d = await _client.getVideoDetails(videoId);
     return d.bestMuxedUrl ?? d.preferredPlayUrl;

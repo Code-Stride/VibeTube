@@ -59,6 +59,40 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool _resumed = false;
   bool _lastNativePlaying = false;
 
+  void _onMediaPlay() async {
+    final c = _controller;
+    if (c != null && c.value.isInitialized && !c.value.isPlaying) {
+      await c.play();
+      if (mounted) setState(() {});
+      await _syncNativePlayback(forceBg: true);
+    }
+  }
+
+  void _onMediaPause() async {
+    final c = _controller;
+    if (c != null && c.value.isInitialized && c.value.isPlaying) {
+      await c.pause();
+      if (mounted) setState(() {});
+      await _syncNativePlayback(forceBg: true);
+    }
+  }
+
+  void _onMediaStop() async {
+    final c = _controller;
+    if (c != null && c.value.isInitialized) {
+      await c.pause();
+    }
+    await NativePlayer.setPlaying(false);
+    await NativePlayer.stopBackground();
+    _bgActive = false;
+    if (mounted) setState(() {});
+  }
+
+  void _onPipChanged(bool inPip) {
+    if (!mounted) return;
+    setState(() => _inPip = inPip);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -79,36 +113,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
     await NativePlayer.setAutoPip(provider.isAutoPipEnabled);
     await NativePlayer.setPlaying(false);
     NativePlayer.ensureHandlers(
-      onPip: (inPip) {
-        if (!mounted) return;
-        setState(() => _inPip = inPip);
-      },
-      onMediaPlay: () async {
-        final c = _controller;
-        if (c != null && c.value.isInitialized && !c.value.isPlaying) {
-          await c.play();
-          if (mounted) setState(() {});
-          await _syncNativePlayback(forceBg: true);
-        }
-      },
-      onMediaPause: () async {
-        final c = _controller;
-        if (c != null && c.value.isInitialized && c.value.isPlaying) {
-          await c.pause();
-          if (mounted) setState(() {});
-          await _syncNativePlayback(forceBg: true);
-        }
-      },
-      onMediaStop: () async {
-        final c = _controller;
-        if (c != null && c.value.isInitialized) {
-          await c.pause();
-        }
-        await NativePlayer.setPlaying(false);
-        await NativePlayer.stopBackground();
-        _bgActive = false;
-        if (mounted) setState(() {});
-      },
+      onPip: _onPipChanged,
+      onMediaPlay: _onMediaPlay,
+      onMediaPause: _onMediaPause,
+      onMediaStop: _onMediaStop,
     );
 
     // Resume from mini player — same controller, no reload
@@ -118,17 +126,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
         mini.controller != null &&
         mini.controller!.value.isInitialized) {
       _resumed = true;
-      _controller = mini.controller;
+      final resumed = mini.controller!;
+      _controller = resumed;
       _activeUrl = mini.activeUrl;
       _quality = mini.quality;
       _speed = mini.speed;
       _ready = true;
       _isBuffering = false;
-      _duration = _controller!.value.duration;
-      _position = _controller!.value.position;
-      _controller!.removeListener(_onTick);
-      _controller!.addListener(_onTick);
-      mini.bindExisting(_controller!);
+      _duration = resumed.value.duration;
+      _position = resumed.value.position;
+      resumed.removeListener(_onTick);
+      resumed.addListener(_onTick);
+      mini.bindExisting(resumed);
       _startPosTimer();
       _armHide();
       if (mounted) setState(() {});
@@ -361,6 +370,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _duration = c.value.duration;
     });
     await c.play();
+    if (!mounted) return;
     await NativePlayer.setPlaying(true);
     final provider = context.read<AppProvider>();
     if (provider.isBackgroundPlayEnabled) {
@@ -376,6 +386,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       );
       _bgActive = true;
     }
+    if (!mounted) return;
     _armHide();
     _startPosTimer();
   }
@@ -606,6 +617,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
   void dispose() {
     _hideTimer?.cancel();
     _posTimer?.cancel();
+    NativePlayer.removeHandlers(
+      onPip: _onPipChanged,
+      onMediaPlay: _onMediaPlay,
+      onMediaPause: _onMediaPause,
+      onMediaStop: _onMediaStop,
+    );
     if (!_handedToMini) {
       _controller?.removeListener(_onTick);
       _controller?.dispose();
@@ -1619,9 +1636,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
                               );
                             }
                             await _startPlayback(d, quality: q);
-                            if (pos != null && _controller != null) {
-                              await _controller!.seekTo(pos);
-                              await _controller!.play();
+                            final liveCtrl = _controller;
+                            if (pos != null && liveCtrl != null) {
+                              await liveCtrl.seekTo(pos);
+                              await liveCtrl.play();
                             }
                           }
                         },

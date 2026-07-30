@@ -10,6 +10,17 @@ and this project roughly follows [Semantic Versioning](https://semver.org/).
 ### Planned
 - Further video quality selection polish
 
+## [1.4.2] - 2026-07-30
+
+### Fixed
+- MethodChannel handler fan-out (notification media buttons work with mini + full player)
+- Null-safe download URL resolution
+- MediaSession flags for hardware/Bluetooth media buttons
+- Android 13+ notification permission request
+- Mini-player listener double-attach while full player expanded
+- Search empty results no longer treated as hard error
+- Extra mounted guards after async play attach
+
 ## [1.4.1] - 2026-07-30
 
 ### Added
@@ -75,7 +86,8 @@ and this project roughly follows [Semantic Versioning](https://semver.org/).
 ### Added
 - Initial Flutter app + CI APK build
 
-[Unreleased]: https://github.com/Code-Stride/VibeTube/compare/v1.4.1...HEAD
+[Unreleased]: https://github.com/Code-Stride/VibeTube/compare/v1.4.2...HEAD
+[1.4.2]: https://github.com/Code-Stride/VibeTube/releases/tag/v1.4.2
 [1.4.1]: https://github.com/Code-Stride/VibeTube/releases/tag/v1.4.1
 [1.4.0]: https://github.com/Code-Stride/VibeTube/releases/tag/v1.4.0
 [1.3.3]: https://github.com/Code-Stride/VibeTube/releases/tag/v1.3.3

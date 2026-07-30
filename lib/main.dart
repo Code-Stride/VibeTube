@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'providers/app_provider.dart';
 import 'providers/mini_player_controller.dart';
 import 'screens/home_screen.dart';
@@ -14,6 +15,14 @@ void main() async {
   final provider = AppProvider();
   await provider.init();
   AppTheme.applySystemUi(provider.isDarkMode);
+
+  // Android 13+ media notification permission (best-effort)
+  try {
+    final status = await Permission.notification.status;
+    if (!status.isGranted) {
+      await Permission.notification.request();
+    }
+  } catch (_) {}
 
   runApp(VibeTubeApp(provider: provider));
 }

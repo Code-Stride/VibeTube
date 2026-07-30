@@ -286,7 +286,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
         title: Text(name, style: TextStyle(color: c.textPrimary)),
         value: val,
-        activeColor: color,
+        activeTrackColor: color,
         onChanged: (v) => p.setSbCategory(key, v),
       ),
     );

@@ -41,6 +41,11 @@ class PlaybackService : Service() {
     override fun onCreate() {
         super.onCreate()
         mediaSession = MediaSession(this, "VibeTubeSession").apply {
+            @Suppress("DEPRECATION")
+            setFlags(
+                MediaSession.FLAG_HANDLES_MEDIA_BUTTONS or
+                    MediaSession.FLAG_HANDLES_TRANSPORT_CONTROLS
+            )
             setCallback(object : MediaSession.Callback() {
                 override fun onPlay() {
                     playing = true

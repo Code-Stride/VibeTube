@@ -32,7 +32,14 @@ class MiniPlayerController extends ChangeNotifier {
   void setExpanded(bool v) {
     if (_expanded == v) return;
     _expanded = v;
-    if (v) _minimized = false;
+    if (v) {
+      _minimized = false;
+      // Full player owns ticks while expanded
+      controller?.removeListener(_tick);
+    } else if (controller != null) {
+      controller!.removeListener(_tick);
+      controller!.addListener(_tick);
+    }
     notifyListeners();
   }
 
@@ -69,23 +76,28 @@ class MiniPlayerController extends ChangeNotifier {
     controller!.removeListener(_tick);
     controller!.addListener(_tick);
     NativePlayer.ensureHandlers(
-      onMediaPlay: () async {
-        await play();
-      },
-      onMediaPause: () async {
-        await pause();
-      },
-      onMediaStop: () async {
-        await close();
-      },
+      onMediaPlay: _onMediaPlay,
+      onMediaPause: _onMediaPause,
+      onMediaStop: _onMediaStop,
     );
     _syncBackground();
     notifyListeners();
   }
 
   void _tick() {
-    // Throttle UI rebuilds lightly
     notifyListeners();
+  }
+
+  void _onMediaPlay() {
+    play();
+  }
+
+  void _onMediaPause() {
+    pause();
+  }
+
+  void _onMediaStop() {
+    close();
   }
 
   Future<void> togglePlay() async {
@@ -127,6 +139,11 @@ class MiniPlayerController extends ChangeNotifier {
 
   /// Close mini player completely and free decoder.
   Future<void> close() async {
+    NativePlayer.removeHandlers(
+      onMediaPlay: _onMediaPlay,
+      onMediaPause: _onMediaPause,
+      onMediaStop: _onMediaStop,
+    );
     final c = controller;
     controller = null;
     video = null;
@@ -162,10 +179,11 @@ class MiniPlayerController extends ChangeNotifier {
   /// After full player rebuilds with same session, re-bind.
   void bindExisting(VideoPlayerController ctrl) {
     if (!identical(controller, ctrl)) {
+      controller?.removeListener(_tick);
       controller = ctrl;
     }
+    // Expanded: do not double-listen; PlayerScreen drives UI
     controller?.removeListener(_tick);
-    controller?.addListener(_tick);
     _expanded = true;
     _minimized = false;
     notifyListeners();

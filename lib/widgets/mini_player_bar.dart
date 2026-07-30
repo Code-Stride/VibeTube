@@ -68,12 +68,12 @@ class MiniPlayerBar extends StatelessWidget {
                           child: Stack(
                             fit: StackFit.expand,
                             children: [
-                              if (mini.isReady)
+                              if (mini.isReady && ctrl != null)
                                 FittedBox(
                                   fit: BoxFit.cover,
                                   clipBehavior: Clip.hardEdge,
                                   child: SizedBox(
-                                    width: ctrl!.value.size.width > 0
+                                    width: ctrl.value.size.width > 0
                                         ? ctrl.value.size.width
                                         : 160,
                                     height: ctrl.value.size.height > 0

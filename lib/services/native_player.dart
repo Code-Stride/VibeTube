@@ -1,40 +1,80 @@
 import 'package:flutter/services.dart';
 
 /// Bridges to Android MainActivity for PiP + MediaSession background service.
+///
+/// Handlers are multiplexed so PlayerScreen and MiniPlayerController can both
+/// listen without overwriting each other (last-writer-wins bug).
 class NativePlayer {
   static const _ch = MethodChannel('com.blazenxt.vibetube/player');
-  static bool _handlerSet = false;
+  static bool _wired = false;
 
+  static final List<void Function(bool)> _pipListeners = [];
+  static final List<void Function()> _playListeners = [];
+  static final List<void Function()> _pauseListeners = [];
+  static final List<void Function()> _stopListeners = [];
+
+  static void _ensureChannelWired() {
+    if (_wired) return;
+    _wired = true;
+    _ch.setMethodCallHandler((call) async {
+      switch (call.method) {
+        case 'onPipChanged':
+          final v = call.arguments == true;
+          for (final l in List.of(_pipListeners)) {
+            l(v);
+          }
+          break;
+        case 'mediaPlay':
+          for (final l in List.of(_playListeners)) {
+            l();
+          }
+          break;
+        case 'mediaPause':
+          for (final l in List.of(_pauseListeners)) {
+            l();
+          }
+          break;
+        case 'mediaStop':
+          for (final l in List.of(_stopListeners)) {
+            l();
+          }
+          break;
+      }
+    });
+  }
+
+  /// Register listeners (safe to call multiple times from different owners).
   static void ensureHandlers({
     void Function(bool inPip)? onPip,
     void Function()? onMediaPlay,
     void Function()? onMediaPause,
     void Function()? onMediaStop,
   }) {
-    if (_handlerSet &&
-        onPip == null &&
-        onMediaPlay == null &&
-        onMediaPause == null &&
-        onMediaStop == null) {
-      return;
+    _ensureChannelWired();
+    if (onPip != null && !_pipListeners.contains(onPip)) {
+      _pipListeners.add(onPip);
     }
-    _handlerSet = true;
-    _ch.setMethodCallHandler((call) async {
-      switch (call.method) {
-        case 'onPipChanged':
-          onPip?.call(call.arguments == true);
-          break;
-        case 'mediaPlay':
-          onMediaPlay?.call();
-          break;
-        case 'mediaPause':
-          onMediaPause?.call();
-          break;
-        case 'mediaStop':
-          onMediaStop?.call();
-          break;
-      }
-    });
+    if (onMediaPlay != null && !_playListeners.contains(onMediaPlay)) {
+      _playListeners.add(onMediaPlay);
+    }
+    if (onMediaPause != null && !_pauseListeners.contains(onMediaPause)) {
+      _pauseListeners.add(onMediaPause);
+    }
+    if (onMediaStop != null && !_stopListeners.contains(onMediaStop)) {
+      _stopListeners.add(onMediaStop);
+    }
+  }
+
+  static void removeHandlers({
+    void Function(bool inPip)? onPip,
+    void Function()? onMediaPlay,
+    void Function()? onMediaPause,
+    void Function()? onMediaStop,
+  }) {
+    if (onPip != null) _pipListeners.remove(onPip);
+    if (onMediaPlay != null) _playListeners.remove(onMediaPlay);
+    if (onMediaPause != null) _pauseListeners.remove(onMediaPause);
+    if (onMediaStop != null) _stopListeners.remove(onMediaStop);
   }
 
   static Future<bool> isPipSupported() async {
@@ -45,7 +85,6 @@ class NativePlayer {
     }
   }
 
-  /// Enters PiP only if native side also believes playback is active.
   static Future<bool> enterPip() async {
     try {
       return await _ch.invokeMethod<bool>('enterPip') ?? false;
@@ -60,7 +99,6 @@ class NativePlayer {
     } catch (_) {}
   }
 
-  /// Tell native whether media is currently playing (gates auto-PiP).
   static Future<void> setPlaying(bool playing) async {
     try {
       await _ch.invokeMethod('setPlaying', {'playing': playing});
@@ -99,10 +137,5 @@ class NativePlayer {
     try {
       await _ch.invokeMethod('stopBackground');
     } catch (_) {}
-  }
-
-  @Deprecated('Use ensureHandlers')
-  static void listenPip(void Function(bool inPip) onChanged) {
-    ensureHandlers(onPip: onChanged);
   }
 }
