@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../providers/app_provider.dart';
 import '../utils/theme.dart';
 import '../widgets/video_card.dart';
+import '../widgets/update_dialog.dart';
 import 'search_screen.dart';
 import 'player_screen.dart';
 import 'library_screen.dart';
@@ -17,174 +18,260 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  int _currentIndex = 0;
-  
-  final List<Widget> _screens = [
-    const HomeFeed(),
-    const SearchScreen(),
-    const LibraryScreen(),
-    const DownloadsScreen(),
-    const SettingsScreen(),
-  ];
+  int _index = 0;
+  bool _updateShown = false;
 
   @override
   void initState() {
     super.initState();
-    // Load trending videos on start
-    Future.microtask(() => context.read<AppProvider>().loadTrending());
+    WidgetsBinding.instance.addPostFrameCallback((_) => _scheduleUpdateCheck());
+  }
+
+  Future<void> _scheduleUpdateCheck() async {
+    // Give network a moment; update check already started in provider.init
+    for (var i = 0; i < 10; i++) {
+      await Future.delayed(const Duration(milliseconds: 600));
+      if (!mounted || _updateShown) return;
+      final provider = context.read<AppProvider>();
+      final u = provider.pendingUpdate;
+      if (u != null && u.hasUpdate) {
+        _updateShown = true;
+        await UpdateDialog.show(
+          context,
+          info: u,
+          onLater: () {},
+          onSkip: () => provider.dismissUpdate(),
+        );
+        return;
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final pages = <Widget>[
+      const _HomeFeed(),
+      const SearchScreen(),
+      const LibraryScreen(),
+      const DownloadsScreen(),
+      const SettingsScreen(),
+    ];
+
     return Scaffold(
-      body: _screens[_currentIndex],
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _currentIndex,
-        onTap: (index) => setState(() => _currentIndex = index),
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
-          BottomNavigationBarItem(icon: Icon(Icons.search), label: 'Search'),
-          BottomNavigationBarItem(icon: Icon(Icons.library_books), label: 'Library'),
-          BottomNavigationBarItem(icon: Icon(Icons.download), label: 'Downloads'),
-          BottomNavigationBarItem(icon: Icon(Icons.settings), label: 'Settings'),
-        ],
+      body: IndexedStack(index: _index, children: pages),
+      bottomNavigationBar: Container(
+        decoration: const BoxDecoration(
+          border: Border(top: BorderSide(color: AppTheme.border, width: 0.6)),
+        ),
+        child: BottomNavigationBar(
+          currentIndex: _index,
+          onTap: (i) => setState(() => _index = i),
+          items: const [
+            BottomNavigationBarItem(
+                icon: Icon(Icons.home_outlined),
+                activeIcon: Icon(Icons.home),
+                label: 'Home'),
+            BottomNavigationBarItem(
+                icon: Icon(Icons.search), label: 'Search'),
+            BottomNavigationBarItem(
+                icon: Icon(Icons.video_library_outlined),
+                activeIcon: Icon(Icons.video_library),
+                label: 'Library'),
+            BottomNavigationBarItem(
+                icon: Icon(Icons.download_outlined),
+                activeIcon: Icon(Icons.download),
+                label: 'Downloads'),
+            BottomNavigationBarItem(
+                icon: Icon(Icons.settings_outlined),
+                activeIcon: Icon(Icons.settings),
+                label: 'Settings'),
+          ],
+        ),
       ),
     );
   }
 }
 
-class HomeFeed extends StatelessWidget {
-  const HomeFeed({super.key});
+class _HomeFeed extends StatefulWidget {
+  const _HomeFeed();
+
+  @override
+  State<_HomeFeed> createState() => _HomeFeedState();
+}
+
+class _HomeFeedState extends State<_HomeFeed> {
+  static const cats = [
+    'All',
+    'Music',
+    'Gaming',
+    'News',
+    'Sports',
+    'Movies',
+    'Live',
+    'Education',
+    'Technology',
+    'Comedy',
+  ];
 
   @override
   Widget build(BuildContext context) {
     return SafeArea(
       child: Column(
         children: [
-          // App Bar
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            color: AppTheme.surface,
+            padding: const EdgeInsets.fromLTRB(16, 10, 8, 10),
+            decoration: const BoxDecoration(
+              color: AppTheme.surface,
+              border: Border(bottom: BorderSide(color: AppTheme.border, width: 0.6)),
+            ),
             child: Row(
               children: [
-                // Logo
                 Container(
-                  width: 32,
-                  height: 32,
+                  width: 34,
+                  height: 34,
                   decoration: const BoxDecoration(
                     gradient: LinearGradient(
-                      colors: [AppTheme.primary, AppTheme.secondary],
+                      colors: [AppTheme.primary, Color(0xFFFF8A5B)],
                     ),
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(Icons.play_arrow, color: Colors.white, size: 20),
+                  child: const Icon(Icons.play_arrow_rounded,
+                      color: Colors.white, size: 22),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 10),
                 const Text(
                   'VibeTube',
                   style: TextStyle(
-                    color: AppTheme.primary,
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
+                    color: AppTheme.textPrimary,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.3,
+                  ),
+                ),
+                Container(
+                  margin: const EdgeInsets.only(left: 8),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primary.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: const Text(
+                    'PREMIUM',
+                    style: TextStyle(
+                      color: AppTheme.primary,
+                      fontSize: 9,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.6,
+                    ),
                   ),
                 ),
                 const Spacer(),
                 IconButton(
-                  icon: const Icon(Icons.search),
+                  icon: const Icon(Icons.search_rounded),
                   onPressed: () {
-                    // Navigate to search
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const SearchScreen(standalone: true)),
+                    );
                   },
                 ),
-                IconButton(
-                  icon: const Icon(Icons.notifications_outlined),
-                  onPressed: () {},
-                ),
               ],
             ),
           ),
-          
-          // Category chips
           SizedBox(
-            height: 50,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              children: [
-                _buildChip('All', true),
-                _buildChip('Music', false),
-                _buildChip('Gaming', false),
-                _buildChip('News', false),
-                _buildChip('Sports', false),
-                _buildChip('Entertainment', false),
-                _buildChip('Education', false),
-                _buildChip('Technology', false),
-              ],
-            ),
-          ),
-          
-          // Videos list
-          Expanded(
+            height: 48,
             child: Consumer<AppProvider>(
               builder: (context, provider, _) {
-                if (provider.isLoading) {
-                  return const Center(
-                    child: CircularProgressIndicator(color: AppTheme.primary),
-                  );
-                }
-                
-                if (provider.error != null) {
-                  return Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(Icons.error_outline, size: 48, color: AppTheme.textMuted),
-                        const SizedBox(height: 16),
-                        Text(provider.error!, style: const TextStyle(color: AppTheme.textSecondary)),
-                        const SizedBox(height: 16),
-                        ElevatedButton(
-                          onPressed: () => provider.loadTrending(),
-                          child: const Text('Retry'),
-                        ),
-                      ],
-                    ),
-                  );
-                }
-                
-                return ListView.builder(
-                  itemCount: provider.trendingVideos.length,
-                  itemBuilder: (context, index) {
-                    final video = provider.trendingVideos[index];
-                    return VideoCard(
-                      video: video,
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => PlayerScreen(videoId: video.id),
-                          ),
-                        );
-                      },
+                return ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  itemCount: cats.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 8),
+                  itemBuilder: (context, i) {
+                    final c = cats[i];
+                    final selected = provider.selectedCategory == c;
+                    return FilterChip(
+                      label: Text(c),
+                      selected: selected,
+                      onSelected: (_) => provider.setCategory(c),
+                      showCheckmark: false,
+                      selectedColor: AppTheme.primary,
+                      backgroundColor: AppTheme.surfaceLight,
+                      labelStyle: TextStyle(
+                        color: selected ? Colors.white : AppTheme.textPrimary,
+                        fontWeight:
+                            selected ? FontWeight.w700 : FontWeight.w500,
+                        fontSize: 13,
+                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      visualDensity: VisualDensity.compact,
                     );
                   },
                 );
               },
             ),
           ),
+          Expanded(
+            child: Consumer<AppProvider>(
+              builder: (context, provider, _) {
+                if (provider.isLoading && provider.trendingVideos.isEmpty) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (provider.error != null && provider.trendingVideos.isEmpty) {
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.wifi_off_rounded,
+                              size: 52, color: AppTheme.textMuted),
+                          const SizedBox(height: 12),
+                          Text(provider.error!,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                  color: AppTheme.textSecondary)),
+                          const SizedBox(height: 16),
+                          ElevatedButton.icon(
+                            onPressed: provider.loadTrending,
+                            icon: const Icon(Icons.refresh),
+                            label: const Text('Retry'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }
+                return RefreshIndicator(
+                  color: AppTheme.primary,
+                  onRefresh: provider.loadTrending,
+                  child: ListView.builder(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    itemCount: provider.trendingVideos.length,
+                    itemBuilder: (context, index) {
+                      final video = provider.trendingVideos[index];
+                      return VideoCard(
+                        video: video,
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => PlayerScreen(
+                                videoId: video.id,
+                                preview: video,
+                              ),
+                            ),
+                          );
+                        },
+                      );
+                    },
+                  ),
+                );
+              },
+            ),
+          ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildChip(String label, bool isSelected) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
-      child: Chip(
-        label: Text(label),
-        backgroundColor: isSelected ? AppTheme.primary : AppTheme.surfaceLight,
-        labelStyle: TextStyle(
-          color: isSelected ? Colors.white : AppTheme.textPrimary,
-          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-        ),
       ),
     );
   }

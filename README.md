@@ -1,17 +1,23 @@
-# vibetube
+# 🎬 VibeTube
 
-A new Flutter project.
+YouTube client with premium-style features — **ad-free streams**, **SponsorBlock**, **dislikes**, **downloads list**, **speed/quality**, and **auto update checks**.
 
-## Getting Started
+## Features
+- ▶️ Instant playback (HLS + progressive fallbacks)
+- 🚫 Ad-free InnerTube clients (iOS / Android)
+- ⏭️ SponsorBlock auto-skip
+- 👎 Return YouTube Dislike
+- 📚 History · Liked · Watch Later · Downloads
+- 🔄 In-app update popup (GitHub Releases)
+- 🎨 Modern OLED dark UI
 
-This project is a starting point for a Flutter application.
+## Build
+```bash
+flutter pub get
+flutter build apk --release
+```
 
-A few resources to get you started if this is your first Flutter project:
+## Install
+Grab the latest APK from [Releases](https://github.com/Code-Stride/VibeTube/releases).
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+Made with ❤️ by BlazeNXT

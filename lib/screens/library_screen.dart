@@ -1,5 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../models/video.dart';
+import '../providers/app_provider.dart';
 import '../utils/theme.dart';
+import '../widgets/video_card.dart';
+import 'player_screen.dart';
 
 class LibraryScreen extends StatelessWidget {
   const LibraryScreen({super.key});
@@ -7,134 +12,156 @@ class LibraryScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SafeArea(
-      child: Column(
-        children: [
-          // App Bar
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            color: AppTheme.surface,
-            child: Row(
-              children: [
-                const Icon(Icons.library_books, color: AppTheme.primary),
-                const SizedBox(width: 12),
-                const Text(
+      child: Consumer<AppProvider>(
+        builder: (context, provider, _) {
+          return Column(
+            children: [
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                color: AppTheme.surface,
+                child: const Text(
                   'Library',
-                  style: TextStyle(
-                    color: AppTheme.textPrimary,
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
                 ),
-              ],
-            ),
-          ),
-          
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                // History
-                _buildSection(
-                  icon: Icons.history,
-                  title: 'History',
-                  subtitle: 'Videos you\'ve watched',
-                  onTap: () {},
+              ),
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.all(16),
+                  children: [
+                    _section(
+                      context,
+                      icon: Icons.history,
+                      title: 'History',
+                      count: provider.history.length,
+                      videos: provider.history,
+                      onClear: provider.history.isEmpty
+                          ? null
+                          : () async {
+                              await provider.clearHistory();
+                            },
+                    ),
+                    const SizedBox(height: 18),
+                    _section(
+                      context,
+                      icon: Icons.watch_later_outlined,
+                      title: 'Watch Later',
+                      count: provider.watchLater.length,
+                      videos: provider.watchLater,
+                    ),
+                    const SizedBox(height: 18),
+                    _section(
+                      context,
+                      icon: Icons.thumb_up_outlined,
+                      title: 'Liked videos',
+                      count: provider.liked.length,
+                      videos: provider.liked,
+                    ),
+                    const SizedBox(height: 24),
+                    const Text(
+                      'Premium unlocked',
+                      style: TextStyle(
+                        color: AppTheme.primary,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    _feature(Icons.block, 'Ad-free playback'),
+                    _feature(Icons.skip_next, 'SponsorBlock auto-skip'),
+                    _feature(Icons.thumb_down, 'Return YouTube Dislike'),
+                    _feature(Icons.speed, 'Speed control up to 3x'),
+                    _feature(Icons.hd, 'Quality selection'),
+                    _feature(Icons.dark_mode, 'OLED dark theme'),
+                  ],
                 ),
-                const SizedBox(height: 12),
-                
-                // Playlists
-                _buildSection(
-                  icon: Icons.playlist_play,
-                  title: 'Playlists',
-                  subtitle: 'Your saved playlists',
-                  onTap: () {},
-                ),
-                const SizedBox(height: 12),
-                
-                // Watch Later
-                _buildSection(
-                  icon: Icons.watch_later,
-                  title: 'Watch Later',
-                  subtitle: 'Videos saved for later',
-                  onTap: () {},
-                ),
-                const SizedBox(height: 12),
-                
-                // Liked Videos
-                _buildSection(
-                  icon: Icons.thumb_up,
-                  title: 'Liked Videos',
-                  subtitle: 'Videos you\'ve liked',
-                  onTap: () {},
-                ),
-                const SizedBox(height: 24),
-                
-                // Premium Features section
-                const Text(
-                  'Premium Features',
-                  style: TextStyle(
-                    color: AppTheme.primary,
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                
-                _buildFeature(Icons.block, 'Ad-Free', 'No ads anywhere'),
-                _buildFeature(Icons.music_note, 'Background Play', 'Play with screen off'),
-                _buildFeature(Icons.picture_in_picture, 'PiP Mode', 'Picture in picture'),
-                _buildFeature(Icons.skip_next, 'SponsorBlock', 'Skip sponsors'),
-                _buildFeature(Icons.thumb_down, 'Return Dislike', 'See dislike counts'),
-              ],
-            ),
-          ),
-        ],
+              ),
+            ],
+          );
+        },
       ),
     );
   }
 
-  Widget _buildSection({
+  Widget _section(
+    BuildContext context, {
     required IconData icon,
     required String title,
-    required String subtitle,
-    required VoidCallback onTap,
+    required int count,
+    required List<Video> videos,
+    VoidCallback? onClear,
   }) {
-    return ListTile(
-      leading: Icon(icon, color: AppTheme.textPrimary, size: 28),
-      title: Text(title, style: const TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.w500)),
-      subtitle: Text(subtitle, style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
-      trailing: const Icon(Icons.chevron_right, color: AppTheme.textMuted),
-      onTap: onTap,
-      tileColor: AppTheme.surface,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(icon, size: 20, color: AppTheme.primary),
+            const SizedBox(width: 8),
+            Text(title,
+                style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+            const SizedBox(width: 6),
+            Text('($count)',
+                style: const TextStyle(color: AppTheme.textMuted, fontSize: 13)),
+            const Spacer(),
+            if (onClear != null)
+              TextButton(
+                onPressed: onClear,
+                child: const Text('Clear', style: TextStyle(fontSize: 12)),
+              ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        if (videos.isEmpty)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: AppTheme.surface,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              'Nothing here yet',
+              style: TextStyle(color: AppTheme.textMuted.withValues(alpha: 0.9)),
+            ),
+          )
+        else
+          ...videos.take(8).map((v) => VideoCard(
+                video: v,
+                compact: true,
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => PlayerScreen(videoId: v.id, preview: v),
+                    ),
+                  );
+                },
+              )),
+      ],
     );
   }
 
-  Widget _buildFeature(IconData icon, String title, String subtitle) {
+  Widget _feature(IconData icon, String title) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Row(
         children: [
           Container(
-            width: 40,
-            height: 40,
+            width: 36,
+            height: 36,
             decoration: BoxDecoration(
-              color: AppTheme.primary.withOpacity(0.2),
-              borderRadius: BorderRadius.circular(8),
+              color: AppTheme.primary.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(10),
             ),
-            child: Icon(icon, color: AppTheme.primary, size: 20),
+            child: Icon(icon, color: AppTheme.primary, size: 18),
           ),
           const SizedBox(width: 12),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: const TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.w500)),
-                Text(subtitle, style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
-              ],
-            ),
+            child: Text(title,
+                style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14)),
           ),
-          const Icon(Icons.check_circle, color: AppTheme.success, size: 20),
+          const Icon(Icons.check_circle, color: AppTheme.success, size: 18),
         ],
       ),
     );
