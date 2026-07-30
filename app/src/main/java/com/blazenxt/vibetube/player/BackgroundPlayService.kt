@@ -1,21 +1,9 @@
 package com.blazenxt.vibetube.player
 
-import android.app.Notification
-import android.app.PendingIntent
 import android.content.Intent
-import android.graphics.Bitmap
-import android.os.Bundle
-import androidx.core.app.NotificationCompat
-import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
-import androidx.media3.session.SessionCommand
-import androidx.media3.session.SessionResult
-import com.blazenxt.vibetube.R
-import com.blazenxt.vibetube.VibeTubeApp
-import com.blazenxt.vibetube.ui.MainActivity
-import com.google.common.util.concurrent.Futures
-import com.google.common.util.concurrent.ListenableFuture
 
 class BackgroundPlayService : MediaSessionService() {
 
@@ -26,7 +14,7 @@ class BackgroundPlayService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
         
-        val player = Player.Builder(this).build()
+        val player = ExoPlayer.Builder(this).build()
         
         mediaSession = MediaSession.Builder(this, player)
             .build()
