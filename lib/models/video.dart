@@ -133,7 +133,8 @@ class VideoFormat {
     this.hasVideo = false,
   });
 
-  bool get isMuxed => url.isNotEmpty && hasVideo && hasAudio && !isAudioOnly && !isVideoOnly;
+  bool get isMuxed =>
+      url.isNotEmpty && hasVideo && hasAudio && !isAudioOnly && !isVideoOnly;
 }
 
 class VideoDetails extends Video {
@@ -154,6 +155,7 @@ class VideoDetails extends Video {
     super.duration = Duration.zero,
     super.thumbnailUrl = '',
     super.publishedAt = '',
+    super.localPath = '',
     this.formats = const [],
     this.hlsUrl,
     this.dashUrl,
@@ -161,7 +163,7 @@ class VideoDetails extends Video {
     this.isLive = false,
   });
 
-  /// Best progressive (muxed audio+video) URL for instant play.
+  /// Best progressive (muxed audio+video) URL.
   String? get bestMuxedUrl {
     final muxed = formats.where((f) => f.isMuxed).toList()
       ..sort((a, b) => b.height.compareTo(a.height));
@@ -175,13 +177,12 @@ class VideoDetails extends Video {
     return null;
   }
 
-  /// Auto: prefer HLS (adaptive high quality). Explicit ladder uses progressive when available.
+  /// Auto: prefer HLS (adaptive high quality).
   String? get preferredPlayUrl {
     if (hlsUrl != null && hlsUrl!.isNotEmpty) return hlsUrl;
     return bestMuxedUrl;
   }
 
-  /// Progressive-only best URL (for downloads / fallback).
   String? get progressiveUrl => bestMuxedUrl;
 
   String? urlForQuality(String quality) {
@@ -196,21 +197,18 @@ class VideoDetails extends Video {
       if (audio.isNotEmpty) return audio.first.url;
       return preferredPlayUrl;
     }
-    // Specific height — try progressive muxed matching height, else HLS (player adaptive)
     final target = int.tryParse(q.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
     if (target > 0) {
       final muxed = formats.where((f) => f.isMuxed && f.url.isNotEmpty).toList();
-      // exact or nearest progressive
       final exact = muxed.where((f) => f.height == target).toList();
       if (exact.isNotEmpty) return exact.first.url;
       if (muxed.isNotEmpty) {
-        muxed.sort((a, b) => (a.height - target).abs().compareTo((b.height - target).abs()));
-        // Only use progressive if reasonably close (within 120p) otherwise HLS
+        muxed.sort((a, b) =>
+            (a.height - target).abs().compareTo((b.height - target).abs()));
         if ((muxed.first.height - target).abs() <= 120) {
           return muxed.first.url;
         }
       }
-      // High qualities (720+) almost always need HLS on mobile clients
       if (hlsUrl != null && hlsUrl!.isNotEmpty) return hlsUrl;
       return bestMuxedUrl;
     }
@@ -219,29 +217,42 @@ class VideoDetails extends Video {
 
   List<String> get availableQualities {
     final qs = <String>{};
-    // From progressive
     for (final f in formats.where((f) => f.isMuxed || (f.hasVideo && !f.isAudioOnly))) {
-      if (f.height >= 2160) qs.add('2160p');
-      else if (f.height >= 1440) qs.add('1440p');
-      else if (f.height >= 1080) qs.add('1080p');
-      else if (f.height >= 720) qs.add('720p');
-      else if (f.height >= 480) qs.add('480p');
-      else if (f.height >= 360) qs.add('360p');
-      else if (f.height >= 240) qs.add('240p');
-      else if (f.height >= 144) qs.add('144p');
+      if (f.height >= 2160) {
+        qs.add('2160p');
+      } else if (f.height >= 1440) {
+        qs.add('1440p');
+      } else if (f.height >= 1080) {
+        qs.add('1080p');
+      } else if (f.height >= 720) {
+        qs.add('720p');
+      } else if (f.height >= 480) {
+        qs.add('480p');
+      } else if (f.height >= 360) {
+        qs.add('360p');
+      } else if (f.height >= 240) {
+        qs.add('240p');
+      } else if (f.height >= 144) {
+        qs.add('144p');
+      }
     }
-    // HLS unlocks full ladder even when progressive is only 360p
     if (hlsUrl != null && hlsUrl!.isNotEmpty) {
-      qs.addAll(['144p', '240p', '360p', '480p', '720p', '1080p']);
-      // common extras
-      qs.add('1440p');
-      qs.add('2160p');
+      qs.addAll(['144p', '240p', '360p', '480p', '720p', '1080p', '1440p', '2160p']);
     }
-    final order = ['2160p', '1440p', '1080p', '720p', '480p', '360p', '240p', '144p'];
+    const order = [
+      '2160p',
+      '1440p',
+      '1080p',
+      '720p',
+      '480p',
+      '360p',
+      '240p',
+      '144p'
+    ];
     final list = order.where(qs.contains).toList();
     return ['Auto (HLS)', ...list, 'Audio Only'];
   }
-
+}
 
 class Comment {
   final String id;

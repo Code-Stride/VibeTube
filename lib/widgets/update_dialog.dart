@@ -24,7 +24,8 @@ class UpdateDialog extends StatelessWidget {
     return showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (_) => UpdateDialog(info: info, onLater: onLater, onSkip: onSkip),
+      builder: (_) =>
+          UpdateDialog(info: info, onLater: onLater, onSkip: onSkip),
     );
   }
 
@@ -45,13 +46,17 @@ class UpdateDialog extends StatelessWidget {
               ),
               shape: BoxShape.circle,
             ),
-            child: const Icon(Icons.system_update, color: Colors.white, size: 22),
+            child:
+                const Icon(Icons.system_update, color: Colors.white, size: 22),
           ),
           const SizedBox(width: 12),
-          const Expanded(
+          Expanded(
             child: Text(
               'Update Available',
-              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18),
+              style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 18,
+                  color: c.textPrimary),
             ),
           ),
         ],
@@ -73,22 +78,23 @@ class UpdateDialog extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Current',
-                          style: TextStyle(
-                              color: c.textMuted, fontSize: 11)),
+                      Text('Current',
+                          style: TextStyle(color: c.textMuted, fontSize: 11)),
                       Text(info.currentVersion,
-                          style: const TextStyle(fontWeight: FontWeight.w600)),
+                          style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              color: c.textPrimary)),
                     ],
                   ),
                 ),
-                const Icon(Icons.arrow_forward, color: AppTheme.primary, size: 18),
+                const Icon(Icons.arrow_forward,
+                    color: AppTheme.primary, size: 18),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      const Text('Latest',
-                          style: TextStyle(
-                              color: c.textMuted, fontSize: 11)),
+                      Text('Latest',
+                          style: TextStyle(color: c.textMuted, fontSize: 11)),
                       Text('v${info.latestVersion}',
                           style: const TextStyle(
                               fontWeight: FontWeight.w700,
@@ -100,8 +106,11 @@ class UpdateDialog extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 14),
-          const Text("What's new",
-              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+          Text("What's new",
+              style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                  color: c.textPrimary)),
           const SizedBox(height: 6),
           ConstrainedBox(
             constraints: const BoxConstraints(maxHeight: 140),
@@ -110,7 +119,7 @@ class UpdateDialog extends StatelessWidget {
                 info.releaseNotes.isEmpty
                     ? 'Bug fixes, performance improvements and new features.'
                     : info.releaseNotes,
-                style: const TextStyle(
+                style: TextStyle(
                     color: c.textSecondary, fontSize: 13, height: 1.4),
               ),
             ),
@@ -124,7 +133,7 @@ class UpdateDialog extends StatelessWidget {
             Navigator.pop(context);
             onLater();
           },
-          child: const Text('Later', style: TextStyle(color: c.textSecondary)),
+          child: Text('Later', style: TextStyle(color: c.textSecondary)),
         ),
         if (onSkip != null)
           TextButton(
@@ -132,7 +141,7 @@ class UpdateDialog extends StatelessWidget {
               Navigator.pop(context);
               onSkip!();
             },
-            child: const Text('Skip', style: TextStyle(color: c.textMuted)),
+            child: Text('Skip', style: TextStyle(color: c.textMuted)),
           ),
         ElevatedButton.icon(
           onPressed: () async {
