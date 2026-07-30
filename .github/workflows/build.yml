@@ -13,7 +13,7 @@ jobs:
   build:
     name: Build Flutter APK
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -21,13 +21,14 @@ jobs:
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
-          java-version: '21'
+          java-version: '17'
           distribution: 'temurin'
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
+          cache: true
 
       - name: Flutter Doctor
         run: flutter doctor -v
@@ -37,10 +38,15 @@ jobs:
 
       - name: Generate Keystore
         run: |
-          keytool -genkey -v -keystore android/app/keystore.jks -alias vibetube -keyalg RSA -keysize 2048 -validity 10000 -storepass android -keypass android -dname "CN=VibeTube, OU=BlazeNXT, O=BlazeNXT, L=India, ST=India, C=IN"
+          keytool -genkey -v \
+            -keystore android/app/keystore.jks \
+            -alias vibetube \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass android -keypass android \
+            -dname "CN=VibeTube, OU=BlazeNXT, O=BlazeNXT, L=India, ST=India, C=IN"
 
       - name: Build APK
-        run: flutter build apk --release
+        run: flutter build apk --release --verbose
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
@@ -54,7 +60,7 @@ jobs:
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -66,12 +72,12 @@ jobs:
           path: release/
 
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: release/*.apk
           body: |
             ## 🎬 VibeTube ${{ github.ref_name }}
-            
+
             ### ✨ Premium Features Unlocked
             - 🚫 Ad-Free Experience
             - 🎵 Background Playback
@@ -79,7 +85,7 @@ jobs:
             - ⬇️ Video Downloads
             - ⏭️ SponsorBlock Integration
             - 👎 Return YouTube Dislike
-            
+
             ### 📱 Built with Flutter
             *Made with ❤️ by BlazeNXT*
           draft: false
