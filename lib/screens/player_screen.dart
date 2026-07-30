@@ -57,6 +57,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool _pipSupported = false;
   bool _handedToMini = false;
   bool _resumed = false;
+  bool _lastNativePlaying = false;
 
   @override
   void initState() {
@@ -76,10 +77,39 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _liked = await provider.isLiked(widget.videoId);
     _pipSupported = await NativePlayer.isPipSupported();
     await NativePlayer.setAutoPip(provider.isAutoPipEnabled);
-    NativePlayer.listenPip((inPip) {
-      if (!mounted) return;
-      setState(() => _inPip = inPip);
-    });
+    await NativePlayer.setPlaying(false);
+    NativePlayer.ensureHandlers(
+      onPip: (inPip) {
+        if (!mounted) return;
+        setState(() => _inPip = inPip);
+      },
+      onMediaPlay: () async {
+        final c = _controller;
+        if (c != null && c.value.isInitialized && !c.value.isPlaying) {
+          await c.play();
+          if (mounted) setState(() {});
+          await _syncNativePlayback(forceBg: true);
+        }
+      },
+      onMediaPause: () async {
+        final c = _controller;
+        if (c != null && c.value.isInitialized && c.value.isPlaying) {
+          await c.pause();
+          if (mounted) setState(() {});
+          await _syncNativePlayback(forceBg: true);
+        }
+      },
+      onMediaStop: () async {
+        final c = _controller;
+        if (c != null && c.value.isInitialized) {
+          await c.pause();
+        }
+        await NativePlayer.setPlaying(false);
+        await NativePlayer.stopBackground();
+        _bgActive = false;
+        if (mounted) setState(() {});
+      },
+    );
 
     // Resume from mini player — same controller, no reload
     if (widget.resumeSession &&
@@ -139,7 +169,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   Future<void> _startPlayback(VideoDetails details, {String? quality}) async {
-    final q = quality ?? _quality;
+    final q = (details.isLive)
+        ? 'Auto (HLS)'
+        : (quality ?? _quality);
+    // Live streams require HLS / DASH — force Auto HLS path
+
 
     final candidates = <String>[];
     void add(String? u) {
@@ -148,7 +182,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
       }
     }
 
-    final isAuto = q.startsWith('Auto') || q == 'Best' || q == 'Auto (HLS)';
+    final isAuto = details.isLive ||
+        q.startsWith('Auto') ||
+        q == 'Best' ||
+        q == 'Auto (HLS)';
     final target = int.tryParse(q.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
 
     if (isAuto) {
@@ -324,12 +361,19 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _duration = c.value.duration;
     });
     await c.play();
+    await NativePlayer.setPlaying(true);
     final provider = context.read<AppProvider>();
     if (provider.isBackgroundPlayEnabled) {
       WakelockPlus.enable();
       final title = provider.currentVideo?.title ?? widget.preview?.title ?? 'VibeTube';
-      final artist = provider.currentVideo?.channelName ?? widget.preview?.channelName ?? 'Playing';
-      await NativePlayer.startBackground(title: title, artist: artist);
+      final artist = provider.currentVideo?.channelName ??
+          widget.preview?.channelName ??
+          'Playing';
+      await NativePlayer.startBackground(
+        title: title,
+        artist: artist,
+        playing: true,
+      );
       _bgActive = true;
     }
     _armHide();
@@ -343,8 +387,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (v.isBuffering != _isBuffering) {
       setState(() => _isBuffering = v.isBuffering);
     }
-    // SponsorBlock auto-skip
-    _maybeSkipSponsor(v.position);
+    final playing = v.isInitialized && v.isPlaying;
+    if (playing != _lastNativePlaying) {
+      _lastNativePlaying = playing;
+      NativePlayer.setPlaying(playing);
+    }
+    final live = context.read<AppProvider>().currentVideo?.isLive == true;
+    if (!live) {
+      _maybeSkipSponsor(v.position);
+    }
   }
 
   void _startPosTimer() {
@@ -425,7 +476,51 @@ class _PlayerScreenState extends State<PlayerScreen> {
       WakelockPlus.enable();
     }
     setState(() {});
+    await _syncNativePlayback(forceBg: true);
     _armHide();
+  }
+
+  Future<void> _syncNativePlayback({bool forceBg = false}) async {
+    final c = _controller;
+    final playing = c != null && c.value.isInitialized && c.value.isPlaying;
+    await NativePlayer.setPlaying(playing);
+    final provider = context.read<AppProvider>();
+    if (!provider.isBackgroundPlayEnabled) {
+      if (_bgActive) {
+        await NativePlayer.stopBackground();
+        _bgActive = false;
+      }
+      return;
+    }
+    final title = provider.currentVideo?.title ??
+        widget.preview?.title ??
+        'VibeTube';
+    final artist = provider.currentVideo?.channelName ??
+        widget.preview?.channelName ??
+        'Playing';
+    if (playing) {
+      if (_bgActive || forceBg) {
+        await NativePlayer.updateBackground(
+          title: title,
+          artist: artist,
+          playing: true,
+        );
+        _bgActive = true;
+      } else {
+        await NativePlayer.startBackground(
+          title: title,
+          artist: artist,
+          playing: true,
+        );
+        _bgActive = true;
+      }
+    } else if (_bgActive) {
+      await NativePlayer.updateBackground(
+        title: title,
+        artist: artist,
+        playing: false,
+      );
+    }
   }
 
   Future<void> _seekBy(int seconds) async {
@@ -493,6 +588,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _handedToMini = true;
     _controller = null;
 
+    final wasPlaying = c.value.isPlaying;
     mini.adopt(
       ctrl: c,
       video: v,
@@ -501,6 +597,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       quality: _quality,
       speed: _speed,
     );
+    await NativePlayer.setPlaying(wasPlaying);
 
     if (mounted) Navigator.of(context).pop();
   }
@@ -514,6 +611,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _controller?.dispose();
       _controller = null;
       WakelockPlus.disable();
+      NativePlayer.setPlaying(false);
       if (_bgActive) {
         NativePlayer.stopBackground();
         _bgActive = false;
@@ -599,9 +697,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Widget _buildPlayer({required bool fullscreen}) {
     final c = _controller;
     final playing = c?.value.isPlaying == true;
+    final providerMeta = context.read<AppProvider>().currentVideo;
+    final isShort = providerMeta?.isShort == true ||
+        widget.preview?.isShort == true;
     final aspect = (c != null && c.value.isInitialized && c.value.aspectRatio > 0)
         ? c.value.aspectRatio
-        : 16 / 9;
+        : (isShort ? 9 / 16 : 16 / 9);
 
     final player = GestureDetector(
       onTap: _toggleControls,
@@ -822,12 +923,25 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     ),
                     tooltip: 'Picture-in-Picture',
                     onPressed: () async {
+                      final playing = _controller?.value.isPlaying == true;
+                      if (!playing) {
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                  'PiP only works while the video is playing'),
+                            ),
+                          );
+                        }
+                        return;
+                      }
+                      await NativePlayer.setPlaying(true);
                       final ok = await NativePlayer.enterPip();
                       if (!ok && mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Text(_pipSupported
-                                ? 'PiP unavailable right now — try while playing'
+                                ? 'Could not enter PiP — try again while playing'
                                 : 'PiP not supported on this device'),
                           ),
                         );
@@ -941,6 +1055,46 @@ class _PlayerScreenState extends State<PlayerScreen> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
       children: [
+        if (video?.isLive == true || preview?.isLive == true)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFF0000),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: const Text('LIVE',
+                      style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 11)),
+                ),
+                const SizedBox(width: 8),
+                Text('Streaming live',
+                    style: TextStyle(
+                        color: AppTheme.textSecondary, fontSize: 12)),
+              ],
+            ),
+          ),
+        if (video?.isShort == true || preview?.isShort == true)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Row(
+              children: [
+                Icon(Icons.movie_filter_outlined,
+                    size: 16, color: AppTheme.primary),
+                const SizedBox(width: 6),
+                Text('Shorts',
+                    style: TextStyle(
+                        color: AppTheme.primary,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12)),
+              ],
+            ),
+          ),
         Text(
           title,
           style: const TextStyle(
@@ -1334,6 +1488,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   void _showQualitySheet() {
     final details = context.read<AppProvider>().currentVideo;
+    if (details?.isLive == true) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Live streams use adaptive HLS quality automatically')),
+      );
+      return;
+    }
     final qs = details?.availableQualities ??
         ['Auto (HLS)', '1080p', '720p', '480p', '360p', 'Audio Only'];
     final hasHls = details?.hlsUrl != null && details!.hlsUrl!.isNotEmpty;

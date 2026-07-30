@@ -10,6 +10,8 @@ class Video {
   final String publishedAt;
   final String description;
   final String localPath;
+  final bool isLive;
+  final bool isShort;
 
   const Video({
     required this.id,
@@ -23,6 +25,8 @@ class Video {
     this.publishedAt = '',
     this.description = '',
     this.localPath = '',
+    this.isLive = false,
+    this.isShort = false,
   });
 
   String get formattedViewCount {
@@ -61,6 +65,8 @@ class Video {
         'publishedAt': publishedAt,
         'description': description,
         'localPath': localPath,
+        'isLive': isLive,
+        'isShort': isShort,
       };
 
   factory Video.fromJson(Map<String, dynamic> j) => Video(
@@ -75,6 +81,8 @@ class Video {
         publishedAt: j['publishedAt'] ?? '',
         description: j['description'] ?? '',
         localPath: j['localPath'] ?? '',
+        isLive: j['isLive'] == true,
+        isShort: j['isShort'] == true,
       );
 
   Video copyWith({
@@ -89,6 +97,8 @@ class Video {
     String? publishedAt,
     String? description,
     String? localPath,
+    bool? isLive,
+    bool? isShort,
   }) {
     return Video(
       id: id ?? this.id,
@@ -102,6 +112,8 @@ class Video {
       publishedAt: publishedAt ?? this.publishedAt,
       description: description ?? this.description,
       localPath: localPath ?? this.localPath,
+      isLive: isLive ?? this.isLive,
+      isShort: isShort ?? this.isShort,
     );
   }
 }
@@ -142,7 +154,6 @@ class VideoDetails extends Video {
   final String? hlsUrl;
   final String? dashUrl;
   final int likeCount;
-  final bool isLive;
   /// height (e.g. 720) -> specific HLS media playlist URL (muxed A/V)
   final Map<int, String> hlsVariants;
   /// height -> progressive muxed mp4 when available
@@ -160,11 +171,12 @@ class VideoDetails extends Video {
     super.thumbnailUrl = '',
     super.publishedAt = '',
     super.localPath = '',
+    super.isLive = false,
+    super.isShort = false,
     this.formats = const [],
     this.hlsUrl,
     this.dashUrl,
     this.likeCount = 0,
-    this.isLive = false,
     this.hlsVariants = const {},
     this.progressiveByHeight = const {},
   });
@@ -331,11 +343,12 @@ class VideoDetails extends Video {
       thumbnailUrl: thumbnailUrl,
       publishedAt: publishedAt,
       localPath: localPath,
+      isLive: isLive,
+      isShort: isShort,
       formats: formats ?? this.formats,
       hlsUrl: hlsUrl ?? this.hlsUrl,
       dashUrl: dashUrl,
       likeCount: likeCount,
-      isLive: isLive,
       hlsVariants: hlsVariants ?? this.hlsVariants,
       progressiveByHeight: progressiveByHeight ?? this.progressiveByHeight,
     );

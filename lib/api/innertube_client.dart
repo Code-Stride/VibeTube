@@ -155,6 +155,8 @@ class InnerTubeClient {
         return isIn ? 'bollywood movie trailers' : 'movie trailers';
       case 'live':
         return 'live';
+      case 'shorts':
+        return '#shorts';
       case 'education':
         return isIn ? 'study with me india' : 'education';
       case 'technology':
@@ -176,7 +178,8 @@ class InnerTubeClient {
             'news india',
             'comedy india',
             'tech reviews',
-            'new songs 2026',
+            'youtube shorts india',
+            'live news india',
             'viral videos india',
           ]
         : <String>[
@@ -186,7 +189,8 @@ class InnerTubeClient {
             'news today',
             'sports',
             'comedy',
-            'technology',
+            'youtube shorts',
+            'live',
             'viral',
           ];
 
@@ -405,7 +409,8 @@ class InnerTubeClient {
       hlsUrl: hls,
       dashUrl: base.dashUrl ?? androidDetails?.dashUrl,
       likeCount: base.likeCount,
-      isLive: base.isLive || (androidDetails?.isLive ?? false),
+      isLive: base.isLive || (androidDetails?.isLive ?? false) || (iosDetails?.isLive ?? false),
+      isShort: base.isShort || (androidDetails?.isShort ?? false),
       hlsVariants: hlsVariants,
       progressiveByHeight: progressive,
     );
@@ -537,7 +542,13 @@ class InnerTubeClient {
       formats: _parseFormats(formats),
       hlsUrl: sd['hlsManifestUrl']?.toString(),
       dashUrl: sd['dashManifestUrl']?.toString(),
-      isLive: vd['isLiveContent'] == true || vd['isLive'] == true,
+      isLive: vd['isLiveContent'] == true ||
+          vd['isLive'] == true ||
+          (sd['hlsManifestUrl'] != null &&
+              (vd['isLiveContent'] == true || vd['lengthSeconds'] == '0')),
+      isShort: (int.tryParse(vd['lengthSeconds']?.toString() ?? '0') ?? 0) > 0 &&
+          (int.tryParse(vd['lengthSeconds']?.toString() ?? '0') ?? 0) <= 60 &&
+          (vd['title']?.toString().toLowerCase().contains('#shorts') == true),
     );
   }
 
@@ -683,6 +694,38 @@ class InnerTubeClient {
         ? _text(r['viewCountText'])
         : _text(r['shortViewCountText']);
 
+    final lengthText = _text(r['lengthText']);
+    final badges = r['badges'] as List? ?? const [];
+    var isLive = false;
+    for (final b in badges) {
+      final label = b is Map
+          ? (_text(b['metadataBadgeRenderer']?['label']) +
+              ' ' +
+              (b['metadataBadgeRenderer']?['style']?.toString() ?? ''))
+          : '';
+      if (label.toUpperCase().contains('LIVE')) isLive = true;
+    }
+    if (r['thumbnailOverlays'] is List) {
+      for (final o in r['thumbnailOverlays']) {
+        final s = o.toString().toUpperCase();
+        if (s.contains('LIVE')) isLive = true;
+      }
+    }
+    // Shorts: vertical reel / short duration with shorts nav
+    var isShort = false;
+    try {
+      final nav = r['navigationEndpoint']?.toString() ?? '';
+      if (nav.contains('reel') || nav.contains('shorts')) isShort = true;
+    } catch (_) {}
+    final dur = _parseDurationText(lengthText);
+    if (!isShort && dur > Duration.zero && dur.inSeconds > 0 && dur.inSeconds <= 60) {
+      // Heuristic only when explicitly shorts-ish thumbnails
+      if (thumb.contains('hq720') == false && (r['richThumbnail'] != null)) {
+        isShort = true;
+      }
+    }
+    if (lengthText.toLowerCase().contains('short')) isShort = true;
+
     return Video(
       id: id,
       title: _text(r['title']),
@@ -691,9 +734,11 @@ class InnerTubeClient {
       channelId: channelId,
       channelAvatar: avatar,
       viewCount: _parseCount(viewsText),
-      duration: _parseDurationText(_text(r['lengthText'])),
+      duration: isLive ? Duration.zero : dur,
       publishedAt: _text(r['publishedTimeText']),
       description: _text(r['descriptionSnippet']),
+      isLive: isLive,
+      isShort: isShort,
     );
   }
 

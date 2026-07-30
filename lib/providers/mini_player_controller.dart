@@ -68,6 +68,17 @@ class MiniPlayerController extends ChangeNotifier {
     _expanded = false;
     controller!.removeListener(_tick);
     controller!.addListener(_tick);
+    NativePlayer.ensureHandlers(
+      onMediaPlay: () async {
+        await play();
+      },
+      onMediaPause: () async {
+        await pause();
+      },
+      onMediaStop: () async {
+        await close();
+      },
+    );
     _syncBackground();
     notifyListeners();
   }
@@ -104,12 +115,14 @@ class MiniPlayerController extends ChangeNotifier {
   void _syncBackground() {
     final c = controller;
     final v = video;
-    if (c != null && c.value.isInitialized && c.value.isPlaying && v != null) {
-      NativePlayer.startBackground(
-        title: v.title,
-        artist: v.channelName.isEmpty ? 'VibeTube' : v.channelName,
-      );
-    }
+    if (c == null || !c.value.isInitialized || v == null) return;
+    final playing = c.value.isPlaying;
+    NativePlayer.setPlaying(playing);
+    NativePlayer.startBackground(
+      title: v.title,
+      artist: v.channelName.isEmpty ? 'VibeTube' : v.channelName,
+      playing: playing,
+    );
   }
 
   /// Close mini player completely and free decoder.
@@ -128,6 +141,7 @@ class MiniPlayerController extends ChangeNotifier {
         await c.dispose();
       } catch (_) {}
     }
+    await NativePlayer.setPlaying(false);
     await NativePlayer.stopBackground();
     notifyListeners();
   }

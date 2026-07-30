@@ -76,7 +76,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       icon: Icons.headphones,
                       title: 'Background play',
                       subtitle:
-                          'Continue audio when screen is off (notification)',
+                          'Lock screen / Bluetooth / notification media controls',
                       value: p.isBackgroundPlayEnabled,
                       onChanged: (_) => p.toggleBackgroundPlay(),
                     ),
@@ -85,7 +85,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       icon: Icons.picture_in_picture_alt,
                       title: 'Auto PiP',
                       subtitle: _pipOk
-                          ? 'Enter PiP when you press Home while playing'
+                          ? 'Home button PiP only while video is playing'
                           : 'PiP not supported on this device',
                       value: p.isAutoPipEnabled && _pipOk,
                       onChanged: !_pipOk ? null : (_) => p.toggleAutoPip(),

@@ -1,7 +1,7 @@
 name: vibetube
 description: VibeTube - YouTube Premium Features Unlocked
 publish_to: 'none'
-version: 1.4.0+8
+version: 1.4.1+9
 
 environment:
   sdk: '>=3.0.0 <4.0.0'

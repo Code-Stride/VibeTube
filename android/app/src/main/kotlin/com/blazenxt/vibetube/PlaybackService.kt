@@ -6,15 +6,66 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
+import android.media.MediaMetadata
+import android.media.session.MediaSession
+import android.media.session.PlaybackState
 import android.os.Build
 import android.os.IBinder
+import io.flutter.plugin.common.MethodChannel
 
+/**
+ * Foreground media service with MediaSession so the phone system
+ * (lock screen, Bluetooth, notification shade, Android Auto-ish) detects playback.
+ */
 class PlaybackService : Service() {
     companion object {
         const val ACTION_START = "vibetube.START"
         const val ACTION_STOP = "vibetube.STOP"
+        const val ACTION_UPDATE = "vibetube.UPDATE"
+        const val ACTION_PLAYING_STATE = "vibetube.PLAYING_STATE"
+        const val ACTION_PLAY = "vibetube.PLAY"
+        const val ACTION_PAUSE = "vibetube.PAUSE"
+        const val ACTION_TOGGLE = "vibetube.TOGGLE"
         const val CHANNEL_ID = "vibetube_playback"
         const val NOTIF_ID = 4401
+
+        @JvmField
+        var flutterChannel: MethodChannel? = null
+    }
+
+    private var mediaSession: MediaSession? = null
+    private var title: String = "VibeTube"
+    private var artist: String = "Playing"
+    private var playing: Boolean = true
+
+    override fun onCreate() {
+        super.onCreate()
+        mediaSession = MediaSession(this, "VibeTubeSession").apply {
+            setCallback(object : MediaSession.Callback() {
+                override fun onPlay() {
+                    playing = true
+                    pushState()
+                    notifyFlutter("mediaPlay")
+                    refreshNotification()
+                }
+
+                override fun onPause() {
+                    playing = false
+                    pushState()
+                    notifyFlutter("mediaPause")
+                    refreshNotification()
+                }
+
+                override fun onStop() {
+                    playing = false
+                    pushState()
+                    notifyFlutter("mediaStop")
+                    stopSelfSafe()
+                }
+            })
+            isActive = true
+        }
+        pushState()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -22,30 +73,93 @@ class PlaybackService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                    stopForeground(STOP_FOREGROUND_REMOVE)
-                } else {
-                    @Suppress("DEPRECATION")
-                    stopForeground(true)
-                }
-                stopSelf()
+                stopSelfSafe()
                 return START_NOT_STICKY
             }
-            else -> {
-                val title = intent?.getStringExtra("title") ?: "VibeTube"
-                val artist = intent?.getStringExtra("artist") ?: "Playing in background"
-                startForeground(NOTIF_ID, buildNotification(title, artist))
+            ACTION_PLAY -> {
+                playing = true
+                pushState()
+                notifyFlutter("mediaPlay")
+                refreshNotification()
+            }
+            ACTION_PAUSE -> {
+                playing = false
+                pushState()
+                notifyFlutter("mediaPause")
+                refreshNotification()
+            }
+            ACTION_TOGGLE -> {
+                playing = !playing
+                pushState()
+                notifyFlutter(if (playing) "mediaPlay" else "mediaPause")
+                refreshNotification()
+            }
+            ACTION_PLAYING_STATE -> {
+                playing = intent.getBooleanExtra("playing", playing)
+                pushState()
+                refreshNotification()
+            }
+            ACTION_UPDATE, ACTION_START, null -> {
+                title = intent?.getStringExtra("title") ?: title
+                artist = intent?.getStringExtra("artist") ?: artist
+                if (intent?.hasExtra("playing") == true) {
+                    playing = intent.getBooleanExtra("playing", true)
+                }
+                mediaSession?.setMetadata(
+                    MediaMetadata.Builder()
+                        .putString(MediaMetadata.METADATA_KEY_TITLE, title)
+                        .putString(MediaMetadata.METADATA_KEY_ARTIST, artist)
+                        .putString(MediaMetadata.METADATA_KEY_DISPLAY_TITLE, title)
+                        .putString(MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE, artist)
+                        .build()
+                )
+                pushState()
+                startForeground(NOTIF_ID, buildNotification())
             }
         }
         return START_STICKY
     }
 
-    private fun buildNotification(title: String, artist: String): Notification {
+    private fun pushState() {
+        val actions = PlaybackState.ACTION_PLAY or
+            PlaybackState.ACTION_PAUSE or
+            PlaybackState.ACTION_PLAY_PAUSE or
+            PlaybackState.ACTION_STOP
+        val state = if (playing) PlaybackState.STATE_PLAYING else PlaybackState.STATE_PAUSED
+        mediaSession?.setPlaybackState(
+            PlaybackState.Builder()
+                .setActions(actions)
+                .setState(state, PlaybackState.PLAYBACK_POSITION_UNKNOWN, if (playing) 1f else 0f)
+                .build()
+        )
+    }
+
+    private fun refreshNotification() {
+        val mgr = getSystemService(NotificationManager::class.java)
+        mgr?.notify(NOTIF_ID, buildNotification())
+    }
+
+    private fun buildNotification(): Notification {
         createChannel()
         val launch = packageManager.getLaunchIntentForPackage(packageName)
-        val flags = PendingIntent.FLAG_UPDATE_CURRENT or
+        val piFlags = PendingIntent.FLAG_UPDATE_CURRENT or
             (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0)
-        val pi = PendingIntent.getActivity(this, 0, launch, flags)
+        val contentPi = PendingIntent.getActivity(this, 0, launch, piFlags)
+
+        val playPauseAction = if (playing) ACTION_PAUSE else ACTION_PLAY
+        val playPauseIcon =
+            if (playing) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play
+        val playPauseLabel = if (playing) "Pause" else "Play"
+        val playPausePi = PendingIntent.getService(
+            this, 1,
+            Intent(this, PlaybackService::class.java).setAction(playPauseAction),
+            piFlags
+        )
+        val stopPi = PendingIntent.getService(
+            this, 2,
+            Intent(this, PlaybackService::class.java).setAction(ACTION_STOP),
+            piFlags
+        )
 
         val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL_ID)
@@ -53,15 +167,33 @@ class PlaybackService : Service() {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
         }
-        return builder
+
+        builder
             .setContentTitle(title)
             .setContentText(artist)
             .setSmallIcon(android.R.drawable.ic_media_play)
-            .setContentIntent(pi)
-            .setOngoing(true)
+            .setContentIntent(contentPi)
+            .setOngoing(playing)
             .setOnlyAlertOnce(true)
             .setCategory(Notification.CATEGORY_TRANSPORT)
-            .build()
+            .setVisibility(Notification.VISIBILITY_PUBLIC)
+            .addAction(Notification.Action.Builder(playPauseIcon, playPauseLabel, playPausePi).build())
+            .addAction(
+                Notification.Action.Builder(
+                    android.R.drawable.ic_menu_close_clear_cancel,
+                    "Stop",
+                    stopPi
+                ).build()
+            )
+
+        val session = mediaSession
+        if (session != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            builder.style = Notification.MediaStyle()
+                .setMediaSession(session.sessionToken)
+                .setShowActionsInCompactView(0, 1)
+        }
+
+        return builder.build()
     }
 
     private fun createChannel() {
@@ -69,12 +201,43 @@ class PlaybackService : Service() {
             val mgr = getSystemService(NotificationManager::class.java)
             val ch = NotificationChannel(
                 CHANNEL_ID,
-                "Playback",
+                "Media playback",
                 NotificationManager.IMPORTANCE_LOW
             )
-            ch.description = "Background playback"
+            ch.description = "VibeTube background & lock-screen controls"
             ch.setShowBadge(false)
+            ch.setSound(null, null)
             mgr?.createNotificationChannel(ch)
         }
+    }
+
+    private fun notifyFlutter(method: String) {
+        try {
+            flutterChannel?.invokeMethod(method, null)
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun stopSelfSafe() {
+        try {
+            mediaSession?.isActive = false
+        } catch (_: Exception) {
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        } else {
+            @Suppress("DEPRECATION")
+            stopForeground(true)
+        }
+        stopSelf()
+    }
+
+    override fun onDestroy() {
+        try {
+            mediaSession?.release()
+        } catch (_: Exception) {
+        }
+        mediaSession = null
+        super.onDestroy()
     }
 }

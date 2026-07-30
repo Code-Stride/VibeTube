@@ -34,7 +34,19 @@ class VideoCard extends StatelessWidget {
                 fit: StackFit.expand,
                 children: [
                   _thumb(video.thumbnailUrl, c.surfaceLight),
-                  if (video.formattedDuration.isNotEmpty)
+                  if (video.isLive)
+                    Positioned(
+                      left: 8,
+                      top: 8,
+                      child: _liveBadge(),
+                    )
+                  else if (video.isShort)
+                    Positioned(
+                      left: 8,
+                      top: 8,
+                      child: _shortBadge(),
+                    ),
+                  if (!video.isLive && video.formattedDuration.isNotEmpty)
                     Positioned(
                       right: 8,
                       bottom: 8,
@@ -111,7 +123,11 @@ class VideoCard extends StatelessWidget {
                   fit: StackFit.expand,
                   children: [
                     _thumb(video.thumbnailUrl, c.surfaceLight),
-                    if (video.formattedDuration.isNotEmpty)
+                    if (video.isLive)
+                      Positioned(left: 6, top: 6, child: _liveBadge())
+                    else if (video.isShort)
+                      Positioned(left: 6, top: 6, child: _shortBadge()),
+                    if (!video.isLive && video.formattedDuration.isNotEmpty)
                       Positioned(
                         right: 6,
                         bottom: 6,
@@ -195,6 +211,50 @@ class VideoCard extends StatelessWidget {
           fontSize: 11,
           fontWeight: FontWeight.w700,
         ),
+      ),
+    );
+  }
+
+  Widget _liveBadge() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFF0000),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: const Text(
+        'LIVE',
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: 10,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0.5,
+        ),
+      ),
+    );
+  }
+
+  Widget _shortBadge() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.8),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.vertical_align_center, size: 12, color: Colors.white),
+          SizedBox(width: 2),
+          Text(
+            'SHORTS',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 10,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
       ),
     );
   }

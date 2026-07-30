@@ -135,12 +135,13 @@ class _HomeFeed extends StatefulWidget {
 class _HomeFeedState extends State<_HomeFeed> {
   static const cats = [
     'All',
+    'Shorts',
     'Music',
     'Gaming',
     'News',
     'Sports',
-    'Movies',
     'Live',
+    'Movies',
     'Education',
     'Technology',
     'Comedy',
