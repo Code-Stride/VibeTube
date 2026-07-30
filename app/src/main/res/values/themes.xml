@@ -9,7 +9,6 @@
 
         <!-- Secondary -->
         <item name="colorSecondary">@color/secondary</item>
-        <item name="colorSecondaryDark">@color/secondary_dark</item>
         <item name="colorOnSecondary">@color/on_secondary</item>
 
         <!-- Background & Surface -->
@@ -78,18 +77,18 @@
     </style>
 
     <!-- Text Styles -->
-    <style name="VibeTube.Text.Title">
+    <style name="VibeTubeTextTitle">
         <item name="android:textSize">20sp</item>
         <item name="android:textStyle">bold</item>
         <item name="android:textColor">@color/text_primary</item>
     </style>
 
-    <style name="VibeTube.Text.Subtitle">
+    <style name="VibeTubeTextSubtitle">
         <item name="android:textSize">14sp</item>
         <item name="android:textColor">@color/text_secondary</item>
     </style>
 
-    <style name="VibeTube.Text.Caption">
+    <style name="VibeTubeTextCaption">
         <item name="android:textSize">12sp</item>
         <item name="android:textColor">@color/text_hint</item>
     </style>
