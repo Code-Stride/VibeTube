@@ -67,16 +67,28 @@ class InnerTubeClient {
         'Referer': 'https://www.youtube.com/',
       };
 
+  static const String _apiKey = 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8';
+
   Future<Map<String, dynamic>> _post(
     String endpoint,
     Map<String, dynamic> body, {
     String? userAgent,
+    Map<String, String>? extraHeaders,
   }) async {
-    final uri = Uri.parse('$_baseUrl/$endpoint?prettyPrint=false');
+    final uri = Uri.parse(
+      '$_baseUrl/$endpoint?prettyPrint=false&key=$_apiKey',
+    );
+    final headers = {
+      ..._headers(userAgent),
+      'X-YouTube-Client-Name': '1',
+      'X-YouTube-Client-Version':
+          (_webClient['clientVersion'] as String?) ?? '2.20250312.00.00',
+      if (extraHeaders != null) ...extraHeaders,
+    };
     final res = await _http
         .post(
           uri,
-          headers: _headers(userAgent),
+          headers: headers,
           body: jsonEncode(body),
         )
         .timeout(const Duration(seconds: 18));
@@ -88,44 +100,191 @@ class InnerTubeClient {
 
   // ---------------- Browse / Search ----------------
 
+  /// "All" feed. YouTube browse/home often returns empty without cookies,
+  /// so we build a rich feed from multiple working search queries + optional browse.
   Future<List<Video>> getTrending({String region = 'IN'}) async {
+    final client = {..._webClient, 'gl': region};
+
+    // 1) Try classic trending browse (may 400 / empty)
     try {
       final response = await _post('browse', {
         'browseId': 'FEtrending',
-        'context': {
-          'client': {..._webClient, 'gl': region},
-        },
+        'context': {'client': client},
+      }, userAgent: _webClient['userAgent'] as String);
+      final videos = _parseVideosDeep(response);
+      if (videos.length >= 8) return videos;
+    } catch (_) {}
+
+    // 2) Try home browse
+    try {
+      final home = await getHomeFeed(region: region);
+      if (home.length >= 8) return home;
+    } catch (_) {}
+
+    // 3) Reliable multi-search feed (always works)
+    return _buildDiscoverFeed(region: region);
+  }
+
+  Future<List<Video>> getHomeFeed({String region = 'IN'}) async {
+    final client = {..._webClient, 'gl': region};
+    try {
+      final response = await _post('browse', {
+        'browseId': 'FEwhat_to_watch',
+        'context': {'client': client},
       }, userAgent: _webClient['userAgent'] as String);
       final videos = _parseVideosDeep(response);
       if (videos.isNotEmpty) return videos;
     } catch (_) {}
-    return getHomeFeed(region: region);
+    return _buildDiscoverFeed(region: region);
   }
 
-  Future<List<Video>> getHomeFeed({String region = 'IN'}) async {
-    final response = await _post('browse', {
-      'browseId': 'FEwhat_to_watch',
-      'context': {
-        'client': {..._webClient, 'gl': region},
-      },
-    }, userAgent: _webClient['userAgent'] as String);
-    return _parseVideosDeep(response);
+  /// Category chip feed.
+  Future<List<Video>> getCategoryFeed(String category, {String region = 'IN'}) async {
+    final q = _categoryQuery(category, region);
+    final result = await search(q);
+    if (result.videos.isNotEmpty) return result.videos;
+    // fallback broader
+    final alt = await search(category);
+    return alt.videos;
+  }
+
+  String _categoryQuery(String category, String region) {
+    final c = category.trim().toLowerCase();
+    final isIn = region.toUpperCase() == 'IN';
+    switch (c) {
+      case 'all':
+        return isIn ? 'trending india' : 'trending';
+      case 'music':
+        return isIn ? 'bollywood songs' : 'music videos';
+      case 'gaming':
+        return isIn ? 'gaming india' : 'gaming';
+      case 'news':
+        return isIn ? 'news india today' : 'world news today';
+      case 'sports':
+        return isIn ? 'cricket highlights' : 'sports highlights';
+      case 'movies':
+        return isIn ? 'bollywood movie trailers' : 'movie trailers';
+      case 'live':
+        return 'live';
+      case 'education':
+        return isIn ? 'study with me india' : 'education';
+      case 'technology':
+        return isIn ? 'tech india' : 'technology';
+      case 'comedy':
+        return isIn ? 'indian comedy' : 'comedy';
+      default:
+        return category;
+    }
+  }
+
+  Future<List<Video>> _buildDiscoverFeed({String region = 'IN'}) async {
+    final isIn = region.toUpperCase() == 'IN';
+    final queries = isIn
+        ? <String>[
+            'trending india',
+            'bollywood songs',
+            'cricket',
+            'news india',
+            'comedy india',
+            'tech reviews',
+            'new songs 2026',
+            'viral videos india',
+          ]
+        : <String>[
+            'trending',
+            'music',
+            'gaming',
+            'news today',
+            'sports',
+            'comedy',
+            'technology',
+            'viral',
+          ];
+
+    final seen = <String>{};
+    final out = <Video>[];
+
+    // Parallel batches of 4 for speed
+    for (var i = 0; i < queries.length; i += 4) {
+      final batch = queries.sublist(i, (i + 4).clamp(0, queries.length));
+      final results = await Future.wait(
+        batch.map((q) async {
+          try {
+            final r = await search(q);
+            return r.videos;
+          } catch (_) {
+            return <Video>[];
+          }
+        }),
+      );
+      // Interleave so feed feels mixed, not one-topic blocks
+      final lists = results.where((l) => l.isNotEmpty).toList();
+      var idx = 0;
+      var added = true;
+      while (added) {
+        added = false;
+        for (final list in lists) {
+          if (idx < list.length) {
+            final v = list[idx];
+            if (v.id.isNotEmpty && seen.add(v.id)) {
+              out.add(v);
+              added = true;
+            }
+          }
+        }
+        idx++;
+      }
+      if (out.length >= 60) break;
+    }
+    return out;
   }
 
   Future<SearchResult> search(String query, {String? continuation}) async {
+    final client = Map<String, dynamic>.from(_webClient);
     final body = <String, dynamic>{
       'query': query,
-      'context': {'client': _webClient},
-      'params': 'EgIQAQ%3D%3D',
+      'context': {'client': client},
+      'params': 'EgIQAQ%3D%3D', // videos only
     };
     if (continuation != null) body['continuation'] = continuation;
-    final response = await _post(
-      'search',
-      body,
-      userAgent: _webClient['userAgent'] as String,
-    );
-    final videos = _parseVideosDeep(response);
-    return SearchResult(videos: videos, continuation: null);
+
+    // WEB search first
+    try {
+      final response = await _post(
+        'search',
+        body,
+        userAgent: _webClient['userAgent'] as String,
+      );
+      final videos = _parseVideosDeep(response);
+      if (videos.isNotEmpty) {
+        return SearchResult(videos: videos, continuation: null);
+      }
+    } catch (_) {}
+
+    // ANDROID search fallback (compactVideoRenderer)
+    try {
+      final androidClient = {
+        'clientName': 'ANDROID',
+        'clientVersion': '20.10.38',
+        'androidSdkVersion': 34,
+        'hl': client['hl'] ?? 'en',
+        'gl': client['gl'] ?? 'IN',
+      };
+      final response = await _post(
+        'search',
+        {
+          'query': query,
+          'context': {'client': androidClient},
+          'params': 'EgIQAQ%3D%3D',
+        },
+        userAgent:
+            'com.google.android.youtube/20.10.38 (Linux; U; Android 14) gzip',
+      );
+      final videos = _parseVideosDeep(response);
+      return SearchResult(videos: videos, continuation: null);
+    } catch (e) {
+      throw Exception('Search failed: $e');
+    }
   }
 
   /// Fetch playable details.

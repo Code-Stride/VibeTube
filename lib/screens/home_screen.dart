@@ -215,8 +215,23 @@ class _HomeFeedState extends State<_HomeFeed> {
           Expanded(
             child: Consumer<AppProvider>(
               builder: (context, provider, _) {
+                final c = VibeColors.of(context);
                 if (provider.isLoading && provider.trendingVideos.isEmpty) {
-                  return const Center(child: CircularProgressIndicator());
+                  return Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const CircularProgressIndicator(),
+                        const SizedBox(height: 16),
+                        Text(
+                          provider.selectedCategory == 'All'
+                              ? 'Loading feed…'
+                              : 'Loading ${provider.selectedCategory}…',
+                          style: TextStyle(color: c.textSecondary),
+                        ),
+                      ],
+                    ),
+                  );
                 }
                 if (provider.error != null && provider.trendingVideos.isEmpty) {
                   return Center(
@@ -225,13 +240,12 @@ class _HomeFeedState extends State<_HomeFeed> {
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Icon(Icons.wifi_off_rounded,
-                              size: 52, color: AppTheme.textMuted),
+                          Icon(Icons.wifi_off_rounded,
+                              size: 52, color: c.textMuted),
                           const SizedBox(height: 12),
                           Text(provider.error!,
                               textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                  color: AppTheme.textSecondary)),
+                              style: TextStyle(color: c.textSecondary)),
                           const SizedBox(height: 16),
                           ElevatedButton.icon(
                             onPressed: provider.loadTrending,
@@ -243,29 +257,67 @@ class _HomeFeedState extends State<_HomeFeed> {
                     ),
                   );
                 }
+                if (provider.trendingVideos.isEmpty) {
+                  return Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.video_library_outlined,
+                            size: 52, color: c.textMuted),
+                        const SizedBox(height: 12),
+                        Text('Nothing here yet',
+                            style: TextStyle(color: c.textPrimary, fontWeight: FontWeight.w700)),
+                        const SizedBox(height: 8),
+                        ElevatedButton(
+                          onPressed: provider.loadTrending,
+                          child: const Text('Refresh'),
+                        ),
+                      ],
+                    ),
+                  );
+                }
                 return RefreshIndicator(
                   color: AppTheme.primary,
                   onRefresh: provider.loadTrending,
-                  child: ListView.builder(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    itemCount: provider.trendingVideos.length,
-                    itemBuilder: (context, index) {
-                      final video = provider.trendingVideos[index];
-                      return VideoCard(
-                        video: video,
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => PlayerScreen(
-                                videoId: video.id,
-                                preview: video,
-                              ),
-                            ),
+                  child: Stack(
+                    children: [
+                      ListView.builder(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        itemCount: provider.trendingVideos.length +
+                            (provider.isLoading ? 1 : 0),
+                        itemBuilder: (context, index) {
+                          if (index >= provider.trendingVideos.length) {
+                            return const Padding(
+                              padding: EdgeInsets.all(24),
+                              child: Center(
+                                  child: CircularProgressIndicator(strokeWidth: 2)),
+                            );
+                          }
+                          final video = provider.trendingVideos[index];
+                          return VideoCard(
+                            video: video,
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => PlayerScreen(
+                                    videoId: video.id,
+                                    preview: video,
+                                  ),
+                                ),
+                              );
+                            },
                           );
                         },
-                      );
-                    },
+                      ),
+                      if (provider.isLoading && provider.trendingVideos.isNotEmpty)
+                        const Positioned(
+                          top: 0,
+                          left: 0,
+                          right: 0,
+                          child: LinearProgressIndicator(minHeight: 2),
+                        ),
+                    ],
                   ),
                 );
               },

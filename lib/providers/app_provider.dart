@@ -130,18 +130,15 @@ class AppProvider extends ChangeNotifier {
     try {
       if (selectedCategory == 'All') {
         trendingVideos = await _client.getTrending(region: region);
-        if (trendingVideos.isEmpty) {
-          trendingVideos = await _client.getHomeFeed(region: region);
-        }
       } else {
-        final r = await _client.search(selectedCategory);
-        trendingVideos = r.videos;
+        trendingVideos =
+            await _client.getCategoryFeed(selectedCategory, region: region);
       }
       if (trendingVideos.isEmpty) {
-        error = 'No videos found. Check internet & try again.';
+        error = 'No videos found. Check internet & pull to retry.';
       }
     } catch (e) {
-      error = 'Failed to load feed. Pull to retry.';
+      error = 'Failed to load feed. Pull to retry.\n$e';
       debugPrint('loadTrending: $e');
     } finally {
       isLoading = false;
@@ -150,7 +147,13 @@ class AppProvider extends ChangeNotifier {
   }
 
   Future<void> setCategory(String cat) async {
+    if (selectedCategory == cat) {
+      await loadTrending();
+      return;
+    }
     selectedCategory = cat;
+    trendingVideos = [];
+    error = null;
     notifyListeners();
     await loadTrending();
   }
