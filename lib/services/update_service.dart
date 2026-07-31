@@ -37,7 +37,8 @@ class UpdateService {
       if (!force && dismissed == tag) return null;
 
       final hasUpdate = _isNewer(tag, current);
-      if (!hasUpdate && !force) return null;
+      // NEVER show update popup when app is already on latest version
+      if (!hasUpdate) return null;
 
       String apkUrl = data['html_url']?.toString() ??
           'https://github.com/$repoOwner/$repoName/releases/latest';
