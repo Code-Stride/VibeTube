@@ -15,7 +15,6 @@ import '../widgets/video_card.dart';
 import '../widgets/caption_overlay.dart';
 import '../services/native_player.dart';
 import '../services/audio_helper.dart';
-import '../services/piped_service.dart';
 import '../providers/mini_player_controller.dart';
 
 class PlayerScreen extends StatefulWidget {
@@ -361,19 +360,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
 
     if (candidates.isEmpty) {
-      // Try Piped API as fallback
-      debugPrint('No direct URLs, trying Piped API fallback…');
-      try {
-        final piped = await PipedService.getStreams(widget.videoId);
-        if (piped != null && piped.bestStreamUrl != null && mounted) {
-          debugPrint('Piped fallback found: ${piped.bestQuality}');
-          await _attachController(piped.bestStreamUrl!, resumeAt: resumeAt);
-          if (_ready) return;
-        }
-      } catch (e) {
-        debugPrint('Piped fallback failed: $e');
-      }
-
       if (!mounted) return;
       final lockFailed = !isAuto && q != 'Audio Only' && target > 0;
       setState(() {
@@ -419,19 +405,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
         debugPrint('candidate failed: $e');
       }
     }
-    // All direct URLs failed — try Piped API
-    debugPrint('All candidates failed, trying Piped API…');
-    try {
-      final piped = await PipedService.getStreams(widget.videoId);
-      if (piped != null && piped.bestStreamUrl != null && mounted) {
-        debugPrint('Piped fallback: ${piped.bestQuality}');
-        await _attachController(piped.bestStreamUrl!, resumeAt: resumeAt);
-        if (_ready) return;
-      }
-    } catch (e) {
-      debugPrint('Piped fallback failed: $e');
-    }
-
     if (mounted) {
       setState(() {
         _isBuffering = false;
@@ -984,7 +957,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     final player = GestureDetector(
       onTap: _toggleControls,
-      behavior: HitTestBehavior.translucent,
       onDoubleTapDown: (d) {
         final w = MediaQuery.sizeOf(context).width;
         if (d.localPosition.dx < w / 2) {
@@ -998,12 +970,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
         child: Stack(
           alignment: Alignment.center,
           children: [
-            // Video surface wrapped in its own tap detector
             if (_ready && c != null)
-              GestureDetector(
-                onTap: _toggleControls,
-                child: AspectRatio(aspectRatio: aspect, child: VideoPlayer(c)),
-              )
+              AspectRatio(aspectRatio: aspect, child: VideoPlayer(c))
             else
               AspectRatio(
                 aspectRatio: 16 / 9,
@@ -1023,13 +991,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
               ),
             if (_isBuffering || (!_ready && context.watch<AppProvider>().isPlayerLoading))
               const CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
-            // Controls overlay - wrapped to absorb taps so they don't bubble to parent GestureDetector
-            if (_showControls)
-              GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () {}, // Absorb tap — child buttons handle their own taps
-                child: _controlsOverlay(playing, fullscreen),
-              ),
+            // Controls overlay - must be direct child of Stack (Positioned.fill)
+            if (_showControls) _controlsOverlay(playing, fullscreen),
             if (_sponsorToast)
               Positioned(
                 bottom: fullscreen ? 72 : 56,

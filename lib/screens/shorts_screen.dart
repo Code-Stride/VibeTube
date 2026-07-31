@@ -8,7 +8,6 @@ import '../providers/app_provider.dart';
 import '../utils/theme.dart';
 import '../utils/share_links.dart';
 import '../models/video.dart';
-import '../services/piped_service.dart';
 import 'player_screen.dart';
 
 /// YouTube-style vertical swipeable Shorts with inline video playback.
@@ -121,19 +120,33 @@ class _ShortPlayerState extends State<_ShortPlayer> {
 
   Future<void> _initPlayer() async {
     try {
-      // Use Piped API for reliable direct URLs
-      final piped = await PipedService.getStreams(widget.video.id);
-      if (!mounted || piped == null || piped.bestStreamUrl == null) return;
+      final provider = context.read<AppProvider>();
+      final details = await provider.client.getVideoDetails(widget.video.id);
+      if (!mounted) return;
 
-      final url = piped.bestStreamUrl!;
+      // Find best playable URL
+      String? playUrl;
+      if (details.hlsUrl != null && details.hlsUrl!.isNotEmpty) {
+        playUrl = details.hlsUrl;
+      } else if (details.hlsVariants.isNotEmpty) {
+        final sorted = details.hlsVariants.keys.toList()..sort();
+        playUrl = details.hlsVariants[sorted.first];
+      } else if (details.bestMuxedUrl != null) {
+        playUrl = details.bestMuxedUrl;
+      } else if (details.preferredPlayUrl != null) {
+        playUrl = details.preferredPlayUrl;
+      }
+
+      if (playUrl == null || playUrl.isEmpty || !mounted) return;
+
+      final isHls = playUrl.contains('m3u8');
       _controller = VideoPlayerController.networkUrl(
-        Uri.parse(url),
-        httpHeaders: {
-          'User-Agent': 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36',
-          'Accept': '*/*',
-        },
+        Uri.parse(playUrl),
+        httpHeaders: isHls
+            ? {'User-Agent': 'com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)', 'Accept': '*/*'}
+            : {'User-Agent': 'com.google.android.youtube/20.10.38 (Linux; U; Android 14) gzip', 'Referer': 'https://www.youtube.com/'},
       );
-      await _controller!.initialize().timeout(const Duration(seconds: 20));
+      await _controller!.initialize().timeout(const Duration(seconds: 25));
       if (!mounted) {
         _controller?.dispose();
         return;
