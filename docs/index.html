@@ -4,10 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>VibeTube — Free YouTube Client with Premium Features</title>
-  <meta name="description" content="VibeTube is a free open-source Android YouTube client: ad-free playback, mini player, PiP, background audio, SponsorBlock, Live & Shorts. Download the APK." />
+  <meta name="description" content="VibeTube is a free open-source Android YouTube client: ad-free playback, mini player, PiP, background audio, SponsorBlock, Live and Shorts. Download the APK." />
   <meta name="theme-color" content="#0A0A0B" />
   <meta property="og:title" content="VibeTube — Premium YouTube Features, Free" />
-  <meta property="og:description" content="Ad-free · Mini player · PiP · Background play · SponsorBlock · Live & Shorts. Open source Flutter app for Android." />
+  <meta property="og:description" content="Ad-free. Mini player. PiP. Background play. SponsorBlock. Live and Shorts. Open source Flutter app for Android." />
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://code-stride.github.io/VibeTube/" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -16,7 +16,6 @@
   <style>
     :root {
       --bg: #070708;
-      --bg2: #0c0c0e;
       --surface: #141416;
       --surface2: #1c1c20;
       --border: rgba(255,255,255,.08);
@@ -43,10 +42,25 @@
       overflow-x: hidden;
     }
     a { color: inherit; text-decoration: none; }
-    img { max-width: 100%; display: block; }
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: .88em;
+      color: #ffb4c0;
+    }
     .wrap { width: min(1120px, calc(100% - 40px)); margin-inline: auto; }
 
-    /* ambient background */
+    .icon {
+      width: 1.15em; height: 1.15em;
+      display: inline-block; vertical-align: -0.15em;
+      fill: none; stroke: currentColor; stroke-width: 2;
+      stroke-linecap: round; stroke-linejoin: round;
+      flex: 0 0 auto;
+    }
+    .icon-fill { fill: currentColor; stroke: none; }
+    .icon-sm { width: 1em; height: 1em; }
+    .icon-md { width: 1.25em; height: 1.25em; }
+    .icon-lg { width: 1.5em; height: 1.5em; }
+
     .bg-glow {
       position: fixed; inset: 0; pointer-events: none; z-index: -1;
       background:
@@ -64,7 +78,6 @@
       mask-image: radial-gradient(ellipse at center, black 20%, transparent 75%);
     }
 
-    /* nav */
     .nav {
       position: sticky; top: 0; z-index: 50;
       height: var(--nav-h);
@@ -79,8 +92,9 @@
       width: 36px; height: 36px; border-radius: 12px;
       background: var(--grad); display: grid; place-items: center;
       box-shadow: 0 8px 24px rgba(255,59,92,.35);
+      color: #fff;
     }
-    .brand-mark svg { width: 18px; height: 18px; fill: #fff; }
+    .brand-mark .icon { width: 18px; height: 18px; }
     .nav-links { display: flex; gap: 8px; align-items: center; }
     .nav-links a {
       color: var(--muted); font-size: .9rem; font-weight: 600;
@@ -89,13 +103,13 @@
     .nav-links a:hover { color: var(--text); background: rgba(255,255,255,.04); }
     .nav-cta { display: flex; gap: 10px; align-items: center; }
 
-    /* buttons */
     .btn {
       display: inline-flex; align-items: center; justify-content: center; gap: 8px;
       border: 0; border-radius: 999px; font-weight: 700; font-size: .95rem;
       padding: 12px 20px; cursor: pointer; transition: transform .2s, box-shadow .2s, background .2s;
       white-space: nowrap;
     }
+    .btn .icon { width: 1.1em; height: 1.1em; }
     .btn:active { transform: translateY(1px) scale(.99); }
     .btn-primary {
       background: var(--grad); color: #fff;
@@ -109,9 +123,7 @@
     .btn-ghost:hover { background: rgba(255,255,255,.08); }
     .btn-lg { padding: 16px 26px; font-size: 1.02rem; }
     .btn-sm { padding: 9px 14px; font-size: .85rem; }
-    .btn[disabled] { opacity: .55; pointer-events: none; }
 
-    /* hero */
     .hero { padding: 48px 0 72px; }
     .hero-grid {
       display: grid; grid-template-columns: 1.15fr .85fr; gap: 48px; align-items: center;
@@ -143,7 +155,6 @@
     .meta-row strong { color: var(--text); font-weight: 800; }
     .meta-row span.sep { opacity: .35; }
 
-    /* phone */
     .phone-stage { position: relative; display: grid; place-items: center; min-height: 520px; }
     .phone-glow {
       position: absolute; width: 280px; height: 280px; border-radius: 50%;
@@ -181,9 +192,7 @@
       padding: 5px 10px; border-radius: 999px; background: var(--surface2); color: var(--muted);
     }
     .chip.on { background: var(--primary); color: #fff; }
-    .vid {
-      margin: 0 0 10px; border-bottom: 1px solid rgba(255,255,255,.05);
-    }
+    .vid { margin: 0 0 10px; border-bottom: 1px solid rgba(255,255,255,.05); }
     .vid-thumb {
       height: 118px; background:
         linear-gradient(135deg, rgba(255,59,92,.25), rgba(34,211,238,.15)),
@@ -193,9 +202,9 @@
     .vid-thumb .play {
       width: 42px; height: 42px; border-radius: 50%;
       background: rgba(255,59,92,.9); display: grid; place-items: center;
-      box-shadow: 0 8px 20px rgba(255,59,92,.4);
+      box-shadow: 0 8px 20px rgba(255,59,92,.4); color: #fff;
     }
-    .vid-thumb .play svg { width: 16px; height: 16px; fill: #fff; margin-left: 2px; }
+    .vid-thumb .play .icon { width: 16px; height: 16px; margin-left: 2px; }
     .vid-thumb .dur {
       position: absolute; right: 8px; bottom: 8px;
       background: rgba(0,0,0,.8); font-size: .65rem; font-weight: 700;
@@ -218,6 +227,7 @@
       background: rgba(0,212,0,.9); color: #041204; font-size: .68rem; font-weight: 800;
       padding: 6px 10px; border-radius: 8px;
     }
+    .sb .icon { width: 12px; height: 12px; }
     .mini-bar {
       position: absolute; left: 8px; right: 8px; bottom: 52px;
       background: rgba(20,20,22,.96); border: 1px solid rgba(255,255,255,.08);
@@ -234,6 +244,8 @@
     .mini-bar .txt { flex: 1; min-width: 0; }
     .mini-bar .txt strong { display: block; font-size: .68rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .mini-bar .txt span { font-size: .6rem; color: var(--faint); }
+    .mini-bar .pause-ico { color: var(--text); display: grid; place-items: center; }
+    .mini-bar .pause-ico .icon { width: 16px; height: 16px; }
     .nav-bottom {
       position: absolute; left: 0; right: 0; bottom: 0; height: 48px;
       background: #121214; border-top: 1px solid rgba(255,255,255,.06);
@@ -242,7 +254,6 @@
     }
     .nav-bottom div.on { color: var(--primary); }
 
-    /* sections */
     section { padding: 80px 0; }
     .sec-head { text-align: center; margin-bottom: 40px; }
     .sec-kicker {
@@ -255,9 +266,7 @@
     }
     .sec-head p { color: var(--muted); max-width: 36rem; margin-inline: auto; }
 
-    .features {
-      display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;
-    }
+    .features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
     .card {
       background: linear-gradient(180deg, rgba(255,255,255,.03), transparent 40%), var(--surface);
       border: 1px solid var(--border); border-radius: var(--radius);
@@ -270,13 +279,16 @@
     }
     .ico {
       width: 44px; height: 44px; border-radius: 14px; display: grid; place-items: center;
-      font-size: 1.25rem; margin-bottom: 14px; background: var(--grad-soft);
-      border: 1px solid rgba(255,255,255,.06);
+      margin-bottom: 14px; background: var(--grad-soft);
+      border: 1px solid rgba(255,255,255,.06); color: #ffb4c0;
     }
+    .ico .icon { width: 22px; height: 22px; }
+    .ico.cyan { color: var(--cyan); }
+    .ico.green { color: var(--green); }
+    .ico.warn { color: #fbbf24; }
     .card h3 { font-size: 1.05rem; font-weight: 800; margin-bottom: 6px; letter-spacing: -.02em; }
     .card p { color: var(--muted); font-size: .9rem; }
 
-    /* steps */
     .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
     .step {
       position: relative; padding: 24px; border-radius: var(--radius);
@@ -289,7 +301,6 @@
     .step h3 { font-size: 1.05rem; margin-bottom: 6px; font-weight: 800; }
     .step p { color: var(--muted); font-size: .9rem; }
 
-    /* compare */
     .compare {
       overflow: hidden; border-radius: 24px; border: 1px solid var(--border);
       background: var(--surface);
@@ -300,11 +311,11 @@
     td:nth-child(2), th:nth-child(2),
     td:nth-child(3), th:nth-child(3) { text-align: center; width: 22%; }
     tr:last-child td { border-bottom: 0; }
-    .yes { color: var(--green); font-weight: 800; }
-    .no { color: #52525b; }
+    .yes { color: var(--green); font-weight: 800; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+    .no { color: #52525b; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
     .hl { color: var(--primary); font-weight: 800; }
+    .yes .icon, .no .icon { width: 16px; height: 16px; }
 
-    /* download panel */
     .dl-panel {
       display: grid; grid-template-columns: 1.2fr .8fr; gap: 28px;
       padding: 36px; border-radius: 28px;
@@ -325,14 +336,12 @@
     .release-box .row { display: flex; justify-content: space-between; gap: 12px; font-size: .9rem; }
     .release-box .label { color: var(--faint); font-weight: 600; }
     .release-box .value { font-weight: 800; text-align: right; word-break: break-all; }
-    .checks { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
+    .checks { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; list-style: none; }
     .checks li {
-      list-style: none; display: flex; gap: 8px; align-items: flex-start;
+      display: flex; gap: 8px; align-items: flex-start;
       color: var(--muted); font-size: .88rem; font-weight: 600;
     }
-    .checks li::before {
-      content: "✓"; color: var(--green); font-weight: 900; flex: 0 0 auto;
-    }
+    .checks li .icon { color: var(--green); width: 16px; height: 16px; margin-top: 2px; }
     .side-card {
       background: rgba(0,0,0,.25); border: 1px solid var(--border);
       border-radius: 22px; padding: 22px; height: 100%;
@@ -341,7 +350,7 @@
     .apk-orb {
       width: 120px; height: 120px; border-radius: 32px; position: relative;
       background: var(--grad); display: grid; place-items: center; margin-bottom: 18px;
-      box-shadow: 0 20px 50px rgba(255,59,92,.4);
+      box-shadow: 0 20px 50px rgba(255,59,92,.4); color: #fff;
     }
     .apk-orb::after {
       content: ""; position: absolute; inset: -14px; border-radius: 40px;
@@ -351,15 +360,16 @@
       0% { transform: scale(.92); opacity: .8; }
       100% { transform: scale(1.12); opacity: 0; }
     }
-    .apk-orb svg { width: 48px; height: 48px; fill: #fff; }
+    .apk-orb .icon { width: 48px; height: 48px; }
     .side-card h3 { font-size: 1.15rem; font-weight: 800; margin-bottom: 6px; }
     .side-card p { color: var(--muted); font-size: .9rem; margin-bottom: 16px; }
     .warn {
       margin-top: 14px; padding: 12px 14px; border-radius: 12px; font-size: .82rem;
       background: rgba(251,191,36,.08); border: 1px solid rgba(251,191,36,.2); color: #fbbf24; text-align: left;
+      display: flex; gap: 10px; align-items: flex-start;
     }
+    .warn .icon { width: 18px; height: 18px; flex: 0 0 auto; margin-top: 1px; }
 
-    /* faq */
     .faq { display: grid; gap: 10px; max-width: 760px; margin-inline: auto; }
     details.faq-item {
       background: var(--surface); border: 1px solid var(--border);
@@ -370,24 +380,28 @@
       display: flex; justify-content: space-between; gap: 12px; align-items: center;
     }
     details.faq-item summary::-webkit-details-marker { display: none; }
-    details.faq-item summary::after { content: "+"; color: var(--primary); font-size: 1.2rem; font-weight: 700; }
-    details.faq-item[open] summary::after { content: "–"; }
+    details.faq-item summary .chev {
+      color: var(--primary); transition: transform .2s;
+      display: grid; place-items: center;
+    }
+    details.faq-item summary .chev .icon { width: 18px; height: 18px; }
+    details.faq-item[open] summary .chev { transform: rotate(45deg); }
     details.faq-item p { color: var(--muted); font-size: .92rem; padding: 0 0 14px; }
+    details.faq-item a { color: var(--primary2); font-weight: 700; }
 
-    /* footer */
     footer {
       border-top: 1px solid var(--border); padding: 36px 0 48px; margin-top: 20px;
     }
     .foot {
       display: flex; flex-wrap: wrap; gap: 16px; justify-content: space-between; align-items: center;
     }
-    .foot p { color: var(--faint); font-size: .88rem; }
+    .foot p { color: var(--faint); font-size: .88rem; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
     .foot a { color: var(--primary2); font-weight: 700; }
+    .foot .icon-heart { width: 14px; height: 14px; color: var(--primary); fill: currentColor; stroke: none; }
     .foot-links { display: flex; flex-wrap: wrap; gap: 14px; }
     .foot-links a { color: var(--muted); font-size: .88rem; font-weight: 600; }
     .foot-links a:hover { color: var(--text); }
 
-    /* floating */
     .float-dl {
       position: fixed; right: 18px; bottom: 18px; z-index: 40;
       display: none; align-items: center; gap: 8px;
@@ -396,15 +410,16 @@
       box-shadow: 0 12px 40px rgba(255,59,92,.45);
       transition: .2s transform, .2s opacity;
     }
+    .float-dl .icon { width: 18px; height: 18px; }
     .float-dl.show { display: inline-flex; }
     .float-dl:hover { transform: translateY(-3px); }
 
-    /* mobile menu */
     .menu-btn {
       display: none; width: 42px; height: 42px; border-radius: 12px;
       border: 1px solid var(--border); background: rgba(255,255,255,.04);
-      color: var(--text); font-size: 1.2rem; cursor: pointer;
+      color: var(--text); cursor: pointer; place-items: center;
     }
+    .menu-btn .icon { width: 20px; height: 20px; }
 
     @media (max-width: 900px) {
       .hero-grid, .dl-panel, .features, .steps { grid-template-columns: 1fr; }
@@ -412,7 +427,7 @@
       .phone { width: min(260px, 70vw); }
       .phone-screen { min-height: 460px; }
       .nav-links { display: none; }
-      .menu-btn { display: grid; place-items: center; }
+      .menu-btn { display: grid; }
       .nav-links.open {
         display: flex; flex-direction: column; position: absolute;
         top: var(--nav-h); left: 0; right: 0; padding: 12px 20px 18px;
@@ -424,6 +439,30 @@
   </style>
 </head>
 <body>
+  <!-- SVG sprite -->
+  <svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+    <symbol id="i-play" viewBox="0 0 24 24"><polygon class="icon-fill" points="8,5 19,12 8,19"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12"/><path d="m7 11 5 5 5-5"/><path d="M5 21h14"/></symbol>
+    <symbol id="i-github" viewBox="0 0 24 24"><path class="icon-fill" d="M12 .5C5.73.5.5 5.73.5 12c0 5.08 3.29 9.39 7.86 10.91.58.1.79-.25.79-.56 0-.28-.01-1.02-.02-2-3.2.7-3.88-1.54-3.88-1.54-.53-1.34-1.28-1.7-1.28-1.7-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.23-1.28-5.23-5.68 0-1.25.45-2.28 1.18-3.08-.12-.29-.51-1.46.11-3.04 0 0 .97-.31 3.18 1.18a11.1 11.1 0 0 1 2.9-.39c.98 0 1.97.13 2.9.39 2.2-1.49 3.17-1.18 3.17-1.18.62 1.58.23 2.75.12 3.04.74.8 1.18 1.83 1.18 3.08 0 4.41-2.69 5.39-5.25 5.67.41.36.78 1.06.78 2.14 0 1.55-.01 2.8-.01 3.18 0 .31.21.67.8.56A10.52 10.52 0 0 0 23.5 12C23.5 5.73 18.27.5 12 .5z"/></symbol>
+    <symbol id="i-ban" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M5.5 5.5 18.5 18.5"/></symbol>
+    <symbol id="i-panel" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M3 18h7v2H3z"/><path d="M8 18v2"/></symbol>
+    <symbol id="i-pip" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="14" rx="2"/><rect x="12" y="11" width="8" height="6" rx="1"/></symbol>
+    <symbol id="i-headphones" viewBox="0 0 24 24"><path d="M3 14v-2a9 9 0 0 1 18 0v2"/><rect x="2" y="14" width="4" height="7" rx="1"/><rect x="18" y="14" width="4" height="7" rx="1"/></symbol>
+    <symbol id="i-skip" viewBox="0 0 24 24"><path d="M5 5v14l9-7-9-7z"/><path d="M19 5v14"/></symbol>
+    <symbol id="i-thumbs-down" viewBox="0 0 24 24"><path d="M17 14V3H7l-3 8v3h7l-1 7 7-9z"/><path d="M17 3h3v11h-3"/></symbol>
+    <symbol id="i-live" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M5.5 5.5a9.5 9.5 0 0 0 0 13"/><path d="M18.5 5.5a9.5 9.5 0 0 1 0 13"/><path d="M8.5 8.5a5 5 0 0 0 0 7"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/></symbol>
+    <symbol id="i-zap" viewBox="0 0 24 24"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z"/></symbol>
+    <symbol id="i-palette" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18h1.5a2.5 2.5 0 0 0 0-5H13a2 2 0 0 1-2-2 2 2 0 0 1 2-2h3a5 5 0 0 0 0-10H12z"/><circle cx="7.5" cy="11" r="1.2" class="icon-fill"/><circle cx="10" cy="7.5" r="1.2" class="icon-fill"/><circle cx="14.5" cy="7.5" r="1.2" class="icon-fill"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 5 5L20 7"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6 18 18"/><path d="M18 6 6 18"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14" rx="1" class="icon-fill"/><rect x="14" y="5" width="4" height="14" rx="1" class="icon-fill"/></symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></symbol>
+    <symbol id="i-heart" viewBox="0 0 24 24"><path class="icon-fill" d="M12 21s-6.7-4.3-9.3-8.1C.7 10.2 1.1 6.8 3.6 5.1 5.5 3.8 8 4 9.7 5.6L12 8l2.3-2.4C16 4 18.5 3.8 20.4 5.1c2.5 1.7 2.9 5.1 1 7.8C18.7 16.7 12 21 12 21z"/></symbol>
+    <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 4h6v6"/><path d="M10 14 20 4"/><path d="M20 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h5"/></symbol>
+  </svg>
+
   <div class="bg-glow"></div>
   <div class="grid-fx"></div>
 
@@ -431,7 +470,7 @@
     <div class="wrap nav-inner">
       <a class="brand" href="#">
         <span class="brand-mark" aria-hidden="true">
-          <svg viewBox="0 0 24 24"><polygon points="8,5 19,12 8,19"/></svg>
+          <svg class="icon icon-fill" viewBox="0 0 24 24"><use href="#i-play"/></svg>
         </span>
         VibeTube
       </a>
@@ -444,8 +483,13 @@
         <a href="https://github.com/Code-Stride/VibeTube" target="_blank" rel="noopener">GitHub</a>
       </nav>
       <div class="nav-cta">
-        <a class="btn btn-primary btn-sm js-apk-download" href="https://github.com/Code-Stride/VibeTube/releases/latest">⬇ Get APK</a>
-        <button class="menu-btn" id="menuBtn" aria-label="Menu">☰</button>
+        <a class="btn btn-primary btn-sm js-apk-download" href="https://github.com/Code-Stride/VibeTube/releases/latest">
+          <svg class="icon" viewBox="0 0 24 24"><use href="#i-download"/></svg>
+          Get APK
+        </a>
+        <button class="menu-btn" id="menuBtn" aria-label="Menu" type="button">
+          <svg class="icon" viewBox="0 0 24 24"><use href="#i-menu"/></svg>
+        </button>
       </div>
     </div>
   </header>
@@ -458,14 +502,18 @@
           <h1>YouTube, unlocked.<br /><span class="grad">No premium required.</span></h1>
           <p class="hero-lead">
             VibeTube is a Flutter YouTube client with mini player, PiP, background media controls,
-            SponsorBlock, Live &amp; Shorts — built for people who want power features without a subscription.
+            SponsorBlock, Live and Shorts — built for people who want power features without a subscription.
           </p>
           <div class="hero-actions">
             <a class="btn btn-primary btn-lg js-apk-download" id="heroDl" href="https://github.com/Code-Stride/VibeTube/releases/latest">
-              ⬇ Download APK
+              <svg class="icon" viewBox="0 0 24 24"><use href="#i-download"/></svg>
+              Download APK
               <span id="heroVer" style="opacity:.85;font-weight:700;font-size:.85em"></span>
             </a>
-            <a class="btn btn-ghost btn-lg" href="https://github.com/Code-Stride/VibeTube" target="_blank" rel="noopener">View source</a>
+            <a class="btn btn-ghost btn-lg" href="https://github.com/Code-Stride/VibeTube" target="_blank" rel="noopener">
+              <svg class="icon icon-fill" viewBox="0 0 24 24" style="width:1.15em;height:1.15em"><use href="#i-github"/></svg>
+              View source
+            </a>
           </div>
           <div class="meta-row">
             <span><strong id="statVersion">…</strong> latest</span>
@@ -496,7 +544,7 @@
               <div class="vid">
                 <div class="vid-thumb">
                   <span class="live">LIVE</span>
-                  <div class="play"><svg viewBox="0 0 24 24"><polygon points="8,5 19,12 8,19"/></svg></div>
+                  <div class="play"><svg class="icon icon-fill" viewBox="0 0 24 24"><use href="#i-play"/></svg></div>
                   <span class="dur">LIVE</span>
                 </div>
                 <div class="vid-meta">
@@ -509,7 +557,7 @@
               </div>
               <div class="vid">
                 <div class="vid-thumb" style="height:90px">
-                  <div class="play" style="width:36px;height:36px"><svg viewBox="0 0 24 24"><polygon points="8,5 19,12 8,19"/></svg></div>
+                  <div class="play" style="width:36px;height:36px"><svg class="icon icon-fill" viewBox="0 0 24 24"><use href="#i-play"/></svg></div>
                   <span class="dur">12:48</span>
                 </div>
                 <div class="vid-meta">
@@ -519,7 +567,10 @@
                     <p>1.2M views · 2 days ago</p>
                   </div>
                 </div>
-                <div class="sb">⏭ Sponsor skipped</div>
+                <div class="sb">
+                  <svg class="icon" viewBox="0 0 24 24"><use href="#i-skip"/></svg>
+                  Sponsor skipped
+                </div>
               </div>
               <div class="mini-bar">
                 <div class="prog"><i></i></div>
@@ -529,7 +580,7 @@
                     <strong>Now playing in mini player</strong>
                     <span>Tap to expand · swipe to close</span>
                   </div>
-                  ❚❚
+                  <span class="pause-ico"><svg class="icon icon-fill" viewBox="0 0 24 24"><use href="#i-pause"/></svg></span>
                 </div>
               </div>
               <div class="nav-bottom">
@@ -553,15 +604,51 @@
           <p>Premium-style controls without the premium bill — open source and free forever.</p>
         </div>
         <div class="features">
-          <article class="card"><div class="ico">🚫</div><h3>Ad-free streams</h3><p>Watch without in-stream ads via InnerTube clients — cleaner sessions, fewer interruptions.</p></article>
-          <article class="card"><div class="ico">📺</div><h3>YouTube-style mini player</h3><p>Press Back and keep watching in a bottom bar above navigation. Tap to expand anytime.</p></article>
-          <article class="card"><div class="ico">🖼️</div><h3>Picture-in-Picture</h3><p>System PiP while a video is playing — multitask without losing your place.</p></article>
-          <article class="card"><div class="ico">🎧</div><h3>Background play</h3><p>Screen-off audio with MediaSession: lock screen, notification shade, and Bluetooth controls.</p></article>
-          <article class="card"><div class="ico">⏭️</div><h3>SponsorBlock</h3><p>Auto-skip sponsors, intros, outros and more — categories you can toggle in Settings.</p></article>
-          <article class="card"><div class="ico">👎</div><h3>Return YouTube Dislike</h3><p>See community dislike counts again when the API has data for a video.</p></article>
-          <article class="card"><div class="ico">🔴</div><h3>Live &amp; Shorts</h3><p>Live HLS playback and a dedicated Shorts shelf with badges and vertical-friendly player.</p></article>
-          <article class="card"><div class="ico">⚡</div><h3>Speed &amp; player tools</h3><p>0.25×–3× speed, mute, loop, ±10s, next, like, save, share, download, audio-only mode.</p></article>
-          <article class="card"><div class="ico">🎨</div><h3>Dark &amp; light themes</h3><p>Full Material themes that follow your preference — not a half-broken toggle.</p></article>
+          <article class="card">
+            <div class="ico"><svg class="icon" viewBox="0 0 24 24"><use href="#i-ban"/></svg></div>
+            <h3>Ad-free streams</h3>
+            <p>Watch without in-stream ads via InnerTube clients — cleaner sessions, fewer interruptions.</p>
+          </article>
+          <article class="card">
+            <div class="ico cyan"><svg class="icon" viewBox="0 0 24 24"><use href="#i-panel"/></svg></div>
+            <h3>YouTube-style mini player</h3>
+            <p>Press Back and keep watching in a bottom bar above navigation. Tap to expand anytime.</p>
+          </article>
+          <article class="card">
+            <div class="ico"><svg class="icon" viewBox="0 0 24 24"><use href="#i-pip"/></svg></div>
+            <h3>Picture-in-Picture</h3>
+            <p>System PiP while a video is playing — multitask without losing your place.</p>
+          </article>
+          <article class="card">
+            <div class="ico cyan"><svg class="icon" viewBox="0 0 24 24"><use href="#i-headphones"/></svg></div>
+            <h3>Background play</h3>
+            <p>Screen-off audio with MediaSession: lock screen, notification shade, and Bluetooth controls.</p>
+          </article>
+          <article class="card">
+            <div class="ico green"><svg class="icon" viewBox="0 0 24 24"><use href="#i-skip"/></svg></div>
+            <h3>SponsorBlock</h3>
+            <p>Auto-skip sponsors, intros, outros and more — categories you can toggle in Settings.</p>
+          </article>
+          <article class="card">
+            <div class="ico warn"><svg class="icon" viewBox="0 0 24 24"><use href="#i-thumbs-down"/></svg></div>
+            <h3>Return YouTube Dislike</h3>
+            <p>See community dislike counts again when the API has data for a video.</p>
+          </article>
+          <article class="card">
+            <div class="ico"><svg class="icon" viewBox="0 0 24 24"><use href="#i-live"/></svg></div>
+            <h3>Live and Shorts</h3>
+            <p>Live HLS playback and a dedicated Shorts shelf with badges and vertical-friendly player.</p>
+          </article>
+          <article class="card">
+            <div class="ico warn"><svg class="icon" viewBox="0 0 24 24"><use href="#i-zap"/></svg></div>
+            <h3>Speed and player tools</h3>
+            <p>0.25×–3× speed, mute, loop, ±10s, next, like, save, share, download, audio-only mode.</p>
+          </article>
+          <article class="card">
+            <div class="ico cyan"><svg class="icon" viewBox="0 0 24 24"><use href="#i-palette"/></svg></div>
+            <h3>Dark and light themes</h3>
+            <p>Full Material themes that follow your preference — not a half-broken toggle.</p>
+          </article>
         </div>
       </div>
     </section>
@@ -577,7 +664,7 @@
           <div class="step">
             <div class="step-num">1</div>
             <h3>Download the APK</h3>
-            <p>Grab the latest build from this page or GitHub Releases. File name looks like <code style="color:#ffb4c0">VibeTube-vX.Y.Z-release.apk</code>.</p>
+            <p>Grab the latest build from this page or GitHub Releases. File name looks like <code>VibeTube-vX.Y.Z-release.apk</code>.</p>
           </div>
           <div class="step">
             <div class="step-num">2</div>
@@ -586,7 +673,7 @@
           </div>
           <div class="step">
             <div class="step-num">3</div>
-            <h3>Open &amp; enjoy</h3>
+            <h3>Open and enjoy</h3>
             <p>Launch VibeTube, play a video, try Back for mini player, and lock the phone with background play on.</p>
           </div>
         </div>
@@ -610,13 +697,41 @@
               </tr>
             </thead>
             <tbody>
-              <tr><td>Ad-free playback</td><td class="no">Paid Premium</td><td class="yes">Included</td></tr>
-              <tr><td>Background audio</td><td class="no">Paid Premium</td><td class="yes">Included</td></tr>
-              <tr><td>Mini player after Back</td><td class="yes">Yes</td><td class="yes">Yes</td></tr>
-              <tr><td>SponsorBlock skip</td><td class="no">No</td><td class="yes">Yes</td></tr>
-              <tr><td>Return dislike counts</td><td class="no">Hidden</td><td class="yes">Yes</td></tr>
-              <tr><td>Open source</td><td class="no">No</td><td class="hl">GPL-3.0</td></tr>
-              <tr><td>Price</td><td class="no">Subscription</td><td class="yes">Free</td></tr>
+              <tr>
+                <td>Ad-free playback</td>
+                <td class="no"><svg class="icon" viewBox="0 0 24 24"><use href="#i-x"/></svg> Paid Premium</td>
+                <td class="yes"><svg class="icon" viewBox="0 0 24 24"><use href="#i-check"/></svg> Included</td>
+              </tr>
+              <tr>
+                <td>Background audio</td>
+                <td class="no"><svg class="icon" viewBox="0 0 24 24"><use href="#i-x"/></svg> Paid Premium</td>
+                <td class="yes"><svg class="icon" viewBox="0 0 24 24"><use href="#i-check"/></svg> Included</td>
+              </tr>
+              <tr>
+                <td>Mini player after Back</td>
+                <td class="yes"><svg class="icon" viewBox="0 0 24 24"><use href="#i-check"/></svg> Yes</td>
+                <td class="yes"><svg class="icon" viewBox="0 0 24 24"><use href="#i-check"/></svg> Yes</td>
+              </tr>
+              <tr>
+                <td>SponsorBlock skip</td>
+                <td class="no"><svg class="icon" viewBox="0 0 24 24"><use href="#i-x"/></svg> No</td>
+                <td class="yes"><svg class="icon" viewBox="0 0 24 24"><use href="#i-check"/></svg> Yes</td>
+              </tr>
+              <tr>
+                <td>Return dislike counts</td>
+                <td class="no"><svg class="icon" viewBox="0 0 24 24"><use href="#i-x"/></svg> Hidden</td>
+                <td class="yes"><svg class="icon" viewBox="0 0 24 24"><use href="#i-check"/></svg> Yes</td>
+              </tr>
+              <tr>
+                <td>Open source</td>
+                <td class="no"><svg class="icon" viewBox="0 0 24 24"><use href="#i-x"/></svg> No</td>
+                <td class="hl">GPL-3.0</td>
+              </tr>
+              <tr>
+                <td>Price</td>
+                <td class="no"><svg class="icon" viewBox="0 0 24 24"><use href="#i-x"/></svg> Subscription</td>
+                <td class="yes"><svg class="icon" viewBox="0 0 24 24"><use href="#i-check"/></svg> Free</td>
+              </tr>
             </tbody>
           </table>
         </div>
@@ -639,30 +754,40 @@
             </div>
 
             <div class="dl-actions">
-              <a class="btn btn-primary btn-lg js-apk-download" id="mainDl" href="https://github.com/Code-Stride/VibeTube/releases/latest">⬇ Download APK</a>
+              <a class="btn btn-primary btn-lg js-apk-download" id="mainDl" href="https://github.com/Code-Stride/VibeTube/releases/latest">
+                <svg class="icon" viewBox="0 0 24 24"><use href="#i-download"/></svg>
+                Download APK
+              </a>
               <a class="btn btn-ghost btn-lg" href="https://github.com/Code-Stride/VibeTube/releases" target="_blank" rel="noopener">All releases</a>
-              <a class="btn btn-ghost btn-lg" href="https://github.com/Code-Stride/VibeTube" target="_blank" rel="noopener">Source code</a>
+              <a class="btn btn-ghost btn-lg" href="https://github.com/Code-Stride/VibeTube" target="_blank" rel="noopener">
+                <svg class="icon icon-fill" viewBox="0 0 24 24" style="width:1.1em;height:1.1em"><use href="#i-github"/></svg>
+                Source code
+              </a>
             </div>
 
             <ul class="checks">
-              <li>Android 7.0+ (API 24)</li>
-              <li>Open source · GPL-3.0</li>
-              <li>No Google account required to browse</li>
-              <li>In-app update checks via GitHub</li>
+              <li><svg class="icon" viewBox="0 0 24 24"><use href="#i-check"/></svg> Android 7.0+ (API 24)</li>
+              <li><svg class="icon" viewBox="0 0 24 24"><use href="#i-check"/></svg> Open source · GPL-3.0</li>
+              <li><svg class="icon" viewBox="0 0 24 24"><use href="#i-check"/></svg> No Google account required to browse</li>
+              <li><svg class="icon" viewBox="0 0 24 24"><use href="#i-check"/></svg> In-app update checks via GitHub</li>
             </ul>
 
             <div class="warn">
-              <strong>Package conflict?</strong> Uninstall any older VibeTube first. From v1.2.0 onward, CI uses a stable signing key so upgrades should install over previous v1.2+ builds.
+              <svg class="icon" viewBox="0 0 24 24"><use href="#i-alert"/></svg>
+              <div><strong>Package conflict?</strong> Uninstall any older VibeTube first. From v1.2.0 onward, CI uses a stable signing key so upgrades should install over previous v1.2+ builds.</div>
             </div>
           </div>
 
           <aside class="side-card">
             <div class="apk-orb" aria-hidden="true">
-              <svg viewBox="0 0 24 24"><polygon points="8,5 19,12 8,19"/></svg>
+              <svg class="icon icon-fill" viewBox="0 0 24 24"><use href="#i-play"/></svg>
             </div>
             <h3>Ready to install</h3>
             <p>One APK. Free updates from GitHub Releases.</p>
-            <a class="btn btn-primary js-apk-download" href="https://github.com/Code-Stride/VibeTube/releases/latest">Get VibeTube</a>
+            <a class="btn btn-primary js-apk-download" href="https://github.com/Code-Stride/VibeTube/releases/latest">
+              <svg class="icon" viewBox="0 0 24 24"><use href="#i-download"/></svg>
+              Get VibeTube
+            </a>
             <p style="margin-top:16px;font-size:.8rem;color:var(--faint)">Built with Flutter · InnerTube clients</p>
           </aside>
         </div>
@@ -677,24 +802,24 @@
         </div>
         <div class="faq">
           <details class="faq-item">
-            <summary>Is VibeTube free?</summary>
+            <summary>Is VibeTube free? <span class="chev"><svg class="icon" viewBox="0 0 24 24"><use href="#i-plus"/></svg></span></summary>
             <p>Yes. The app is free and open source under the GNU GPL v3.0. Download APKs from the official GitHub Releases page.</p>
           </details>
           <details class="faq-item">
-            <summary>Is this affiliated with YouTube or Google?</summary>
+            <summary>Is this affiliated with YouTube or Google? <span class="chev"><svg class="icon" viewBox="0 0 24 24"><use href="#i-plus"/></svg></span></summary>
             <p>No. VibeTube is an unofficial third-party client. “YouTube” is a trademark of Google LLC. Use the app responsibly and in line with applicable terms and laws.</p>
           </details>
           <details class="faq-item">
-            <summary>Background play doesn’t work — what should I try?</summary>
+            <summary>Background play doesn’t work — what should I try? <span class="chev"><svg class="icon" viewBox="0 0 24 24"><use href="#i-plus"/></svg></span></summary>
             <p>Enable <strong>Background play</strong> in Settings, start a video, then lock the phone. Allow notifications if Android asks. Some OEMs aggressively kill background apps — exclude VibeTube from battery optimizations.</p>
           </details>
           <details class="faq-item">
-            <summary>Where do I report bugs?</summary>
-            <p>Open an issue on <a href="https://github.com/Code-Stride/VibeTube/issues" style="color:var(--primary2)">GitHub Issues</a>. For security-sensitive reports, see SECURITY.md in the repo.</p>
+            <summary>Where do I report bugs? <span class="chev"><svg class="icon" viewBox="0 0 24 24"><use href="#i-plus"/></svg></span></summary>
+            <p>Open an issue on <a href="https://github.com/Code-Stride/VibeTube/issues" target="_blank" rel="noopener">GitHub Issues</a>. For security-sensitive reports, see SECURITY.md in the repo.</p>
           </details>
           <details class="faq-item">
-            <summary>Can I build it myself?</summary>
-            <p>Yes — clone the repo, run <code style="color:#ffb4c0">flutter pub get</code> and <code style="color:#ffb4c0">flutter build apk --release</code>. See docs/BUILD.md for signing notes.</p>
+            <summary>Can I build it myself? <span class="chev"><svg class="icon" viewBox="0 0 24 24"><use href="#i-plus"/></svg></span></summary>
+            <p>Yes — clone the repo, run <code>flutter pub get</code> and <code>flutter build apk --release</code>. See docs/BUILD.md for signing notes.</p>
           </details>
         </div>
       </div>
@@ -703,7 +828,13 @@
 
   <footer>
     <div class="wrap foot">
-      <p>© <span id="year">2026</span> VibeTube · Made with ❤️ by <a href="https://github.com/blazenxt" target="_blank" rel="noopener">BlazeNXT</a> / <a href="https://github.com/Code-Stride" target="_blank" rel="noopener">Code-Stride</a></p>
+      <p>
+        © <span id="year">2026</span> VibeTube · Made with
+        <svg class="icon icon-heart" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-heart"/></svg>
+        by <a href="https://github.com/blazenxt" target="_blank" rel="noopener">BlazeNXT</a>
+        /
+        <a href="https://github.com/Code-Stride" target="_blank" rel="noopener">Code-Stride</a>
+      </p>
       <div class="foot-links">
         <a href="https://github.com/Code-Stride/VibeTube/blob/main/LICENSE" target="_blank" rel="noopener">GPL-3.0</a>
         <a href="https://github.com/Code-Stride/VibeTube/blob/main/CHANGELOG.md" target="_blank" rel="noopener">Changelog</a>
@@ -713,7 +844,10 @@
     </div>
   </footer>
 
-  <a class="float-dl js-apk-download" id="floatDl" href="https://github.com/Code-Stride/VibeTube/releases/latest">⬇ Download APK</a>
+  <a class="float-dl js-apk-download" id="floatDl" href="https://github.com/Code-Stride/VibeTube/releases/latest">
+    <svg class="icon" viewBox="0 0 24 24"><use href="#i-download"/></svg>
+    Download APK
+  </a>
 
   <script>
     document.getElementById('year').textContent = new Date().getFullYear();
@@ -752,7 +886,6 @@
         const releases = await res.json();
         if (!Array.isArray(releases) || !releases.length) return;
 
-        // Prefer newest release that actually has an APK
         let release = null, apk = null;
         for (const r of releases) {
           const asset = (r.assets || []).find(a => /\.apk$/i.test(a.name));
@@ -774,7 +907,6 @@
         set('statSize', fmtBytes(apk.size));
         set('heroVer', release.tag_name ? '(' + release.tag_name + ')' : '');
 
-        // Sum download counts across recent release assets
         let total = 0;
         for (const r of releases) {
           for (const a of (r.assets || [])) total += a.download_count || 0;
