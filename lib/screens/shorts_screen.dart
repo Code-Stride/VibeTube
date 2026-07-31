@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../providers/app_provider.dart';
@@ -38,7 +37,6 @@ class _ShortsScreenState extends State<ShortsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final c = VibeColors.of(context);
     return Scaffold(
       backgroundColor: Colors.black,
       body: Consumer<AppProvider>(

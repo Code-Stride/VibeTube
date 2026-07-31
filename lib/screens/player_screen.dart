@@ -15,7 +15,6 @@ import '../widgets/video_card.dart';
 import '../widgets/caption_overlay.dart';
 import '../services/native_player.dart';
 import '../services/audio_helper.dart';
-import '../services/caption_service.dart';
 import '../providers/mini_player_controller.dart';
 
 class PlayerScreen extends StatefulWidget {
