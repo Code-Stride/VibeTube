@@ -64,6 +64,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool _lastNativePlaying = false;
   bool _looping = false;
   bool _muted = false;
+  /// True when playback was paused by the OS (call, other app) rather than by
+  /// the user, so we know whether resuming automatically is appropriate.
+  bool _pausedByInterruption = false;
+  /// Pre-duck volume, restored when the interruption ends.
+  double _preDuckVolume = 1.0;
   bool _watchLater = false;
   String? _toastMsg;
   Timer? _toastTimer;
@@ -96,6 +101,56 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _bgActive = false;
     if (mounted) setState(() {});
   }
+
+  /// Headphones pulled out / Bluetooth dropped: pause, like every other
+  /// media app, instead of switching to the loudspeaker.
+  void _onBecomingNoisy() {
+    final c = _controller;
+    if (c == null || !c.value.isInitialized || !c.value.isPlaying) return;
+    c.pause();
+    _pausedByInterruption = false; // user-visible pause; don't auto-resume
+    if (mounted) setState(() {});
+    _syncNativePlayback(forceBg: true);
+  }
+
+  /// Call or another media app took audio focus.
+  void _onShouldPause(bool permanent) {
+    final c = _controller;
+    if (c == null || !c.value.isInitialized || !c.value.isPlaying) return;
+    c.pause();
+    _pausedByInterruption = !permanent;
+    if (mounted) setState(() {});
+    _syncNativePlayback(forceBg: true);
+  }
+
+  /// Focus handed back. Only resume if *we* were the ones interrupted.
+  void _onMayResume() {
+    if (!_pausedByInterruption) return;
+    _pausedByInterruption = false;
+    final c = _controller;
+    if (c == null || !c.value.isInitialized || c.value.isPlaying) return;
+    AudioHelper.requestFocus().then((_) {
+      c.play();
+      if (mounted) setState(() {});
+      _syncNativePlayback(forceBg: true);
+    });
+  }
+
+  /// Transient sound (notification): duck rather than pause.
+  void _onDuck(bool ducking) {
+    final c = _controller;
+    if (c == null || !c.value.isInitialized) return;
+    if (ducking) {
+      _preDuckVolume = _muted ? 0 : 1;
+      c.setVolume(_muted ? 0 : AudioHelper.duckVolume);
+    } else {
+      c.setVolume(_muted ? 0 : _preDuckVolume);
+    }
+  }
+
+  /// PiP window rewind / forward buttons.
+  void _onMediaRewind() => _seekBy(-10);
+  void _onMediaForward() => _seekBy(10);
 
   void _onPipChanged(bool inPip) {
     if (!mounted) return;
@@ -138,6 +193,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
       onMediaPlay: _onMediaPlay,
       onMediaPause: _onMediaPause,
       onMediaStop: _onMediaStop,
+      onMediaRewind: _onMediaRewind,
+      onMediaForward: _onMediaForward,
+    );
+    AudioHelper.addListeners(
+      onBecomingNoisy: _onBecomingNoisy,
+      onShouldPause: _onShouldPause,
+      onMayResume: _onMayResume,
+      onDuck: _onDuck,
     );
 
     // Resume from mini player — same controller, no reload
@@ -198,7 +261,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
     await _startPlayback(details);
   }
 
-  Future<void> _startPlayback(VideoDetails details, {String? quality}) async {
+  Future<void> _startPlayback(VideoDetails details,
+      {String? quality, Duration? resumeAt}) async {
     final q = (details.isLive)
         ? 'Auto (HLS)'
         : (quality ?? _quality);
@@ -250,37 +314,64 @@ class _PlayerScreenState extends State<PlayerScreen> {
       add(details.urlForQuality(q));
       add(details.bestMuxedUrl);
     } else {
-      // Locked quality — NEVER silently jump to unrelated 360p first
-      add(details.urlForQuality(q));
+      // Locked quality. The old code appended every other height and then the
+      // adaptive master playlist, so a failure at the requested height
+      // silently landed on 360p — the lock did nothing. Only offer streams at
+      // (or very near) the requested height, and never the adaptive master,
+      // which would re-introduce automatic switching.
+      const tolerance = 20; // 1080 vs 1088 etc.
+      bool near(int h) => (h - target).abs() <= tolerance;
+
       if (target > 0) {
-        // exact + nearest HLS
-        final hHeights = details.hlsVariants.keys.toList()
-          ..sort((a, b) => (a - target).abs().compareTo((b - target).abs()));
-        for (final h in hHeights) {
+        // Exact HLS variant is the best lock available.
+        if (details.hlsVariants.containsKey(target)) {
+          add(details.hlsVariants[target]);
+        }
+        for (final h in details.hlsVariants.keys.where(near)) {
           add(details.hlsVariants[h]);
         }
-        final pHeights = details.progressiveByHeight.keys.toList()
-          ..sort((a, b) => (a - target).abs().compareTo((b - target).abs()));
-        for (final h in pHeights) {
+        // Progressive muxed at the same height.
+        if (details.progressiveByHeight.containsKey(target)) {
+          add(details.progressiveByHeight[target]);
+        }
+        for (final h in details.progressiveByHeight.keys.where(near)) {
           add(details.progressiveByHeight[h]);
         }
+        // Muxed formats list, same height only.
+        for (final f in details.formats.where(
+            (f) => f.isMuxed && f.url.isNotEmpty && near(f.height))) {
+          add(f.url);
+        }
+      } else {
+        add(details.urlForQuality(q));
       }
-      // master HLS as soft fallback (adaptive)
-      add(details.hlsUrl);
-      // progressive only if nothing else
-      add(details.bestMuxedUrl);
     }
 
     if (candidates.isEmpty) {
-      if (mounted) {
-        setState(() {
-          _isBuffering = false;
-          _ready = false;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No playable stream for this video')),
-        );
-      }
+      if (!mounted) return;
+      // A locked quality with no stream is a different problem from a video
+      // with no streams at all; say which, and offer the way out.
+      final lockFailed = !isAuto && q != 'Audio Only' && target > 0;
+      setState(() {
+        _isBuffering = false;
+        _ready = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(lockFailed
+              ? '$q is not available for this video'
+              : 'No playable stream for this video'),
+          action: lockFailed
+              ? SnackBarAction(
+                  label: 'Use Auto',
+                  onPressed: () {
+                    setState(() => _quality = 'Auto (HLS)');
+                    _startPlayback(details, quality: 'Auto (HLS)');
+                  },
+                )
+              : null,
+        ),
+      );
       return;
     }
 
@@ -290,7 +381,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     Object? lastErr;
     for (final url in candidates) {
       try {
-        await _attachController(url);
+        await _attachController(url, resumeAt: resumeAt);
         if (_ready) {
           final tag = url.contains('m3u8')
               ? (url == details.hlsUrl ? 'HLS-master' : 'HLS-variant')
@@ -315,7 +406,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
   }
 
-  Future<void> _attachController(String url) async {
+  Future<void> _attachController(String url, {Duration? resumeAt}) async {
     setState(() {
       _isBuffering = true;
       _ready = false;
@@ -344,7 +435,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       final path = url.startsWith('file:') ? Uri.parse(url).toFilePath() : url;
       final c = VideoPlayerController.file(File(path));
       await c.initialize().timeout(const Duration(seconds: 20));
-      await _finishAttach(c, url);
+      await _finishAttach(c, url, resumeAt: resumeAt);
       return;
     }
 
@@ -382,7 +473,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
             ? VideoPlayerController.networkUrl(Uri.parse(url))
             : VideoPlayerController.networkUrl(Uri.parse(url), httpHeaders: headers);
         await c.initialize().timeout(const Duration(seconds: 25));
-        await _finishAttach(c, url);
+        await _finishAttach(c, url, resumeAt: resumeAt);
         return;
       } catch (e) {
         lastErr = e;
@@ -395,7 +486,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
     throw lastErr ?? Exception('Failed to open stream');
   }
 
-  Future<void> _finishAttach(VideoPlayerController c, String url) async {
+  Future<void> _finishAttach(VideoPlayerController c, String url,
+      {Duration? resumeAt}) async {
     if (!mounted) {
       await c.dispose();
       return;
@@ -403,6 +495,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
     // Capture the provider up-front: every use below sits after an await and
     // touching BuildContext across an async gap is unsafe once popped.
     final provider = context.read<AppProvider>();
+    // Seek before the first play(): seeking afterwards restarts audio at 0
+    // for a moment, which is what made quality switches feel like a reload.
+    if (resumeAt != null && resumeAt > Duration.zero) {
+      try {
+        await c.seekTo(resumeAt);
+      } catch (_) {}
+    }
     await c.setLooping(_looping);
     await c.setPlaybackSpeed(_speed);
     await c.setVolume(_muted ? 0 : 1);
@@ -414,6 +513,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _activeUrl = url;
       _duration = c.value.duration;
     });
+    // Give PiP the true dimensions; otherwise a Short is letterboxed into a
+    // 16:9 window.
+    final sz = c.value.size;
+    if (sz.width > 0 && sz.height > 0) {
+      NativePlayer.setVideoAspect(sz.width.round(), sz.height.round());
+    }
     await AudioHelper.requestFocus();
     await c.play();
     if (!mounted) return;
@@ -547,6 +652,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final provider = context.read<AppProvider>();
     if (c.value.isPlaying) {
       await c.pause();
+      _pausedByInterruption = false;
       WakelockPlus.disable();
     } else {
       await AudioHelper.requestFocus();
@@ -698,6 +804,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
       onMediaPlay: _onMediaPlay,
       onMediaPause: _onMediaPause,
       onMediaStop: _onMediaStop,
+      onMediaRewind: _onMediaRewind,
+      onMediaForward: _onMediaForward,
+    );
+    AudioHelper.removeListeners(
+      onBecomingNoisy: _onBecomingNoisy,
+      onShouldPause: _onShouldPause,
+      onMayResume: _onMayResume,
+      onDuck: _onDuck,
     );
     // Never dispose a controller we don't own: it was either handed to the
     // mini player on the way out, or borrowed from it on the way in
@@ -1996,12 +2110,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                 ),
                               );
                             }
-                            await _startPlayback(d, quality: q);
-                            final liveCtrl = _controller;
-                            if (pos != null && liveCtrl != null) {
-                              await liveCtrl.seekTo(pos);
-                              await liveCtrl.play();
-                            }
+                            // resumeAt seeks before the first play(), so the
+                            // switch continues from where we were.
+                            await _startPlayback(d, quality: q, resumeAt: pos);
                           }
                         },
                       );
@@ -2198,11 +2309,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
     setState(() => _quality = 'Audio Only');
     final pos = _controller?.value.position;
-    await _startPlayback(d, quality: 'Audio Only');
-    if (pos != null) {
-      await _controller?.seekTo(pos);
-      await _controller?.play();
-    }
+    await _startPlayback(d, quality: 'Audio Only', resumeAt: pos);
     _toast('Audio only');
   }
 

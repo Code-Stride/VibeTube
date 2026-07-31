@@ -338,4 +338,69 @@ void main() {
           tricky);
     });
   });
+
+  group('Quality locking', () {
+    // A locked quality must never resolve to a different height. The old
+    // candidate list appended every other variant plus the adaptive master,
+    // so picking 1080p could quietly play 360p.
+    const details = VideoDetails(
+      id: 'test123456',
+      title: 'Test',
+      hlsUrl: 'https://example.com/master.m3u8',
+      hlsVariants: {
+        360: 'https://example.com/360.m3u8',
+        720: 'https://example.com/720.m3u8',
+        1080: 'https://example.com/1080.m3u8',
+      },
+      progressiveByHeight: {
+        360: 'https://example.com/360.mp4',
+        720: 'https://example.com/720.mp4',
+      },
+    );
+
+    test('exact HLS variant wins for a locked height', () {
+      expect(details.urlForQuality('1080p'), 'https://example.com/1080.m3u8');
+      expect(details.urlForQuality('720p'), 'https://example.com/720.m3u8');
+      expect(details.urlForQuality('360p'), 'https://example.com/360.m3u8');
+    });
+
+    test('Auto resolves to the adaptive master', () {
+      expect(details.urlForQuality('Auto (HLS)'), details.hlsUrl);
+      expect(details.urlForQuality('Auto'), details.hlsUrl);
+    });
+
+    test('a locked height never resolves to the master playlist', () {
+      for (final q in ['360p', '720p', '1080p']) {
+        expect(details.urlForQuality(q), isNot(details.hlsUrl), reason: q);
+      }
+    });
+
+    test('canLockQuality reports what is actually available', () {
+      expect(details.canLockQuality('1080p'), isTrue);
+      expect(details.canLockQuality('720p'), isTrue);
+      expect(details.canLockQuality('Auto (HLS)'), isTrue);
+      expect(details.canLockQuality('Audio Only'), isTrue);
+    });
+
+    test('progressive-only video still locks by height', () {
+      const prog = VideoDetails(
+        id: 'test123456',
+        title: 'Test',
+        progressiveByHeight: {
+          360: 'https://example.com/360.mp4',
+          720: 'https://example.com/720.mp4',
+        },
+      );
+      expect(prog.urlForQuality('720p'), 'https://example.com/720.mp4');
+      expect(prog.urlForQuality('360p'), 'https://example.com/360.mp4');
+    });
+
+    test('quality ladder is ordered high to low and bracketed', () {
+      final qs = details.availableQualities;
+      expect(qs.first, 'Auto (HLS)');
+      expect(qs.last, 'Audio Only');
+      final mid = qs.sublist(1, qs.length - 1);
+      expect(mid, ['1080p', '720p', '360p']);
+    });
+  });
 }

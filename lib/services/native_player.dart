@@ -12,6 +12,8 @@ class NativePlayer {
   static final List<void Function()> _playListeners = [];
   static final List<void Function()> _pauseListeners = [];
   static final List<void Function()> _stopListeners = [];
+  static final List<void Function()> _rewindListeners = [];
+  static final List<void Function()> _forwardListeners = [];
 
   static void _ensureChannelWired() {
     if (_wired) return;
@@ -39,6 +41,17 @@ class NativePlayer {
             l();
           }
           break;
+        // Sent by the PiP window's rewind / forward buttons.
+        case 'mediaRewind':
+          for (final l in List.of(_rewindListeners)) {
+            l();
+          }
+          break;
+        case 'mediaForward':
+          for (final l in List.of(_forwardListeners)) {
+            l();
+          }
+          break;
       }
     });
   }
@@ -49,6 +62,8 @@ class NativePlayer {
     void Function()? onMediaPlay,
     void Function()? onMediaPause,
     void Function()? onMediaStop,
+    void Function()? onMediaRewind,
+    void Function()? onMediaForward,
   }) {
     _ensureChannelWired();
     if (onPip != null && !_pipListeners.contains(onPip)) {
@@ -63,6 +78,12 @@ class NativePlayer {
     if (onMediaStop != null && !_stopListeners.contains(onMediaStop)) {
       _stopListeners.add(onMediaStop);
     }
+    if (onMediaRewind != null && !_rewindListeners.contains(onMediaRewind)) {
+      _rewindListeners.add(onMediaRewind);
+    }
+    if (onMediaForward != null && !_forwardListeners.contains(onMediaForward)) {
+      _forwardListeners.add(onMediaForward);
+    }
   }
 
   static void removeHandlers({
@@ -70,11 +91,15 @@ class NativePlayer {
     void Function()? onMediaPlay,
     void Function()? onMediaPause,
     void Function()? onMediaStop,
+    void Function()? onMediaRewind,
+    void Function()? onMediaForward,
   }) {
     if (onPip != null) _pipListeners.remove(onPip);
     if (onMediaPlay != null) _playListeners.remove(onMediaPlay);
     if (onMediaPause != null) _pauseListeners.remove(onMediaPause);
     if (onMediaStop != null) _stopListeners.remove(onMediaStop);
+    if (onMediaRewind != null) _rewindListeners.remove(onMediaRewind);
+    if (onMediaForward != null) _forwardListeners.remove(onMediaForward);
   }
 
   static Future<bool> isPipSupported() async {
@@ -96,6 +121,18 @@ class NativePlayer {
   static Future<void> setAutoPip(bool enabled) async {
     try {
       await _ch.invokeMethod('setAutoPip', {'enabled': enabled});
+    } catch (_) {}
+  }
+
+  /// Tell native the real video dimensions so the PiP window matches the
+  /// content instead of assuming 16:9 (Shorts are 9:16).
+  static Future<void> setVideoAspect(int width, int height) async {
+    if (width <= 0 || height <= 0) return;
+    try {
+      await _ch.invokeMethod('setVideoAspect', {
+        'width': width,
+        'height': height,
+      });
     } catch (_) {}
   }
 

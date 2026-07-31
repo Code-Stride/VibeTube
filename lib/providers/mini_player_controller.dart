@@ -90,6 +90,12 @@ class MiniPlayerController extends ChangeNotifier {
       onMediaPause: _onMediaPause,
       onMediaStop: _onMediaStop,
     );
+    AudioHelper.addListeners(
+      onBecomingNoisy: _onBecomingNoisy,
+      onShouldPause: _onShouldPause,
+      onMayResume: _onMayResume,
+      onDuck: _onDuck,
+    );
     _syncBackground();
     notifyListeners();
   }
@@ -117,6 +123,7 @@ class MiniPlayerController extends ChangeNotifier {
     final c = controller;
     if (c == null || !c.value.isInitialized) return;
     if (c.value.isPlaying) {
+      _pausedByInterruption = false;
       await c.pause();
     } else {
       await AudioHelper.requestFocus();
@@ -145,6 +152,37 @@ class MiniPlayerController extends ChangeNotifier {
   /// True once the foreground MediaSession service has been started for this
   /// session, so later syncs update it instead of re-starting it.
   bool _bgStarted = false;
+
+  /// Paused by the OS rather than the user, so auto-resume is appropriate.
+  bool _pausedByInterruption = false;
+
+  void _onBecomingNoisy() {
+    final c = controller;
+    if (c == null || !c.value.isInitialized || !c.value.isPlaying) return;
+    _pausedByInterruption = false;
+    pause();
+  }
+
+  void _onShouldPause(bool permanent) {
+    final c = controller;
+    if (c == null || !c.value.isInitialized || !c.value.isPlaying) return;
+    _pausedByInterruption = !permanent;
+    pause();
+  }
+
+  void _onMayResume() {
+    if (!_pausedByInterruption) return;
+    _pausedByInterruption = false;
+    final c = controller;
+    if (c == null || !c.value.isInitialized || c.value.isPlaying) return;
+    play();
+  }
+
+  void _onDuck(bool ducking) {
+    final c = controller;
+    if (c == null || !c.value.isInitialized) return;
+    c.setVolume(ducking ? AudioHelper.duckVolume : 1.0);
+  }
 
   void _syncBackground() {
     final c = controller;
@@ -175,6 +213,12 @@ class MiniPlayerController extends ChangeNotifier {
       onMediaPlay: _onMediaPlay,
       onMediaPause: _onMediaPause,
       onMediaStop: _onMediaStop,
+    );
+    AudioHelper.removeListeners(
+      onBecomingNoisy: _onBecomingNoisy,
+      onShouldPause: _onShouldPause,
+      onMayResume: _onMayResume,
+      onDuck: _onDuck,
     );
     final c = controller;
     controller = null;
