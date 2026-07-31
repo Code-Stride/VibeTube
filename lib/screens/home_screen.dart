@@ -68,7 +68,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final pages = <Widget>[
       const _HomeFeed(),
       const SearchScreen(),
-      const ShortsScreen(),
+      ShortsScreen(isActive: _index == 2),
       const LibraryScreen(),
       const DownloadsScreen(),
       const SettingsScreen(),

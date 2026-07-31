@@ -12,7 +12,8 @@ import 'player_screen.dart';
 
 /// YouTube-style vertical swipeable Shorts with inline video playback.
 class ShortsScreen extends StatefulWidget {
-  const ShortsScreen({super.key});
+  final bool isActive;
+  const ShortsScreen({super.key, this.isActive = true});
 
   @override
   State<ShortsScreen> createState() => _ShortsScreenState();
@@ -75,7 +76,7 @@ class _ShortsScreenState extends State<ShortsScreen> {
             itemBuilder: (context, index) {
               return _ShortPlayer(
                 video: provider.shortsVideos[index],
-                isActive: index == _currentIndex,
+                isActive: widget.isActive && index == _currentIndex,
               );
             },
           );

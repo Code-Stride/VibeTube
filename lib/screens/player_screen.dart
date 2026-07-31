@@ -79,6 +79,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   /// WE initiated the focus change (play/pause). Without this guard,
   /// requesting audio focus triggers _onShouldPause which immediately pauses.
   bool _requestingFocus = false;
+  DateTime _lastPlayTime = DateTime.fromMillisecondsSinceEpoch(0);
 
   void _onMediaPlay() async {
     final c = _controller;
@@ -113,6 +114,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   /// media app, instead of switching to the loudspeaker.
   void _onBecomingNoisy() {
     if (_requestingFocus) return;
+    if (DateTime.now().difference(_lastPlayTime).inMilliseconds < 1000) return;
     final c = _controller;
     if (c == null || !c.value.isInitialized || !c.value.isPlaying) return;
     c.pause();
@@ -123,8 +125,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   /// Call or another media app took audio focus.
   void _onShouldPause(bool permanent) {
-    // Suppress interruptions we triggered ourselves
     if (_requestingFocus) return;
+    if (DateTime.now().difference(_lastPlayTime).inMilliseconds < 1000) return;
     final c = _controller;
     if (c == null || !c.value.isInitialized || !c.value.isPlaying) return;
     c.pause();
@@ -530,9 +532,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
       NativePlayer.setVideoAspect(sz.width.round(), sz.height.round());
     }
     _requestingFocus = true;
+    _lastPlayTime = DateTime.now();
     await AudioHelper.requestFocus();
     await c.play();
-    _requestingFocus = false;
+    Future.delayed(const Duration(seconds: 1), () {
+      _requestingFocus = false;
+    });
     if (!mounted) return;
     await NativePlayer.setPlaying(true);
     if (!mounted) return;
@@ -670,9 +675,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
       WakelockPlus.disable();
     } else {
       _requestingFocus = true;
+      _lastPlayTime = DateTime.now();
       await AudioHelper.requestFocus();
       await c.play();
-      _requestingFocus = false;
+      Future.delayed(const Duration(seconds: 1), () {
+        _requestingFocus = false;
+      });
       if (!provider.isBackgroundPlayEnabled) {
         WakelockPlus.enable();
       } else {

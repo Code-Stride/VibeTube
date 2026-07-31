@@ -149,6 +149,10 @@ class AppProvider extends ChangeNotifier {
         trendingVideos =
             await _client.getCategoryFeed(selectedCategory, region: region);
       }
+      // Shuffle for variety on each refresh (like YouTube)
+      if (trendingVideos.length > 3) {
+        trendingVideos.shuffle();
+      }
       if (trendingVideos.isEmpty) {
         error = 'No videos found. Check internet & pull to retry.';
       }
@@ -185,6 +189,7 @@ class AppProvider extends ChangeNotifier {
         final result = await _client.search('#shorts', params: InnerTubeClient.kFilterShorts);
         shortsVideos = result.videos;
       }
+      if (shortsVideos.length > 2) shortsVideos.shuffle();
     } catch (e) {
       debugPrint('loadShorts: $e');
     } finally {
