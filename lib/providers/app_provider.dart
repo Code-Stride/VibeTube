@@ -255,13 +255,31 @@ class AppProvider extends ChangeNotifier {
   }
 
   /// Resolve a progressive URL for offline download.
+  ///
+  /// Only progressive (muxed MP4) streams are usable offline. An HLS/DASH
+  /// manifest is a text playlist — saving it as `.mp4` produces a file that
+  /// looks downloaded but never plays, so we reject it explicitly.
   Future<String?> resolveDownloadUrl(String videoId) async {
+    bool isProgressive(String? u) =>
+        u != null &&
+        u.isNotEmpty &&
+        !u.contains('.m3u8') &&
+        !u.contains('/manifest/hls') &&
+        !u.contains('/manifest/dash');
+
     if (currentVideo?.id == videoId) {
       final muxed = currentVideo?.bestMuxedUrl;
-      if (muxed != null && muxed.isNotEmpty) return muxed;
+      if (isProgressive(muxed)) return muxed;
     }
     final d = await _client.getVideoDetails(videoId);
-    return d.bestMuxedUrl ?? d.preferredPlayUrl;
+    if (d.isLive) {
+      throw Exception('Live streams cannot be downloaded');
+    }
+    final muxed = d.bestMuxedUrl;
+    if (isProgressive(muxed)) return muxed;
+    final fallback = d.preferredPlayUrl;
+    if (isProgressive(fallback)) return fallback;
+    throw Exception('No downloadable (progressive) stream for this video');
   }
 
   Future<void> downloadVideo(Video video) async {
@@ -274,12 +292,25 @@ class AppProvider extends ChangeNotifier {
       if (url == null || url.isEmpty) {
         throw Exception('No downloadable stream for this video');
       }
+      // Throttle UI updates: the HTTP stream fires per chunk, which would
+      // rebuild the widget tree hundreds of times per second.
+      var lastNotify = DateTime.fromMillisecondsSinceEpoch(0);
+      var lastPct = -1;
       final path = await downloader.downloadVideo(
         video: video,
         streamUrl: url,
         onProgress: (p) {
           downloadProgress[video.id] = p;
-          notifyListeners();
+          final now = DateTime.now();
+          final pct = (p * 100).floor();
+          final done = p >= 1.0;
+          if (done ||
+              (pct != lastPct &&
+                  now.difference(lastNotify).inMilliseconds >= 200)) {
+            lastNotify = now;
+            lastPct = pct;
+            notifyListeners();
+          }
         },
       );
       final saved = video.copyWith(localPath: path);

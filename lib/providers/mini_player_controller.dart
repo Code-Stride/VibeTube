@@ -42,6 +42,9 @@ class MiniPlayerController extends ChangeNotifier {
       // Full player owns ticks while expanded
       controller?.removeListener(_tick);
     } else if (controller != null) {
+      // Collapsing while a session is alive: fall back to the mini bar,
+      // otherwise playback would continue with no visible control surface.
+      _minimized = true;
       controller!.removeListener(_tick);
       controller!.addListener(_tick);
     }
@@ -78,6 +81,8 @@ class MiniPlayerController extends ChangeNotifier {
     this.speed = speed;
     _minimized = true;
     _expanded = false;
+    // New session: the media notification must be (re)started, not updated.
+    _bgStarted = false;
     controller!.removeListener(_tick);
     controller!.addListener(_tick);
     NativePlayer.ensureHandlers(
@@ -130,21 +135,38 @@ class MiniPlayerController extends ChangeNotifier {
 
   Future<void> pause() async {
     await controller?.pause();
-    await NativePlayer.stopBackground();
+    // Keep the MediaSession alive on pause so lock-screen / notification
+    // controls remain usable to resume. Only close() tears it down.
+    await NativePlayer.setPlaying(false);
+    _syncBackground();
     notifyListeners();
   }
+
+  /// True once the foreground MediaSession service has been started for this
+  /// session, so later syncs update it instead of re-starting it.
+  bool _bgStarted = false;
 
   void _syncBackground() {
     final c = controller;
     final v = video;
     if (c == null || !c.value.isInitialized || v == null) return;
     final playing = c.value.isPlaying;
+    final artist = v.channelName.isEmpty ? 'VibeTube' : v.channelName;
     NativePlayer.setPlaying(playing);
-    NativePlayer.startBackground(
-      title: v.title,
-      artist: v.channelName.isEmpty ? 'VibeTube' : v.channelName,
-      playing: playing,
-    );
+    if (_bgStarted) {
+      NativePlayer.updateBackground(
+        title: v.title,
+        artist: artist,
+        playing: playing,
+      );
+    } else {
+      NativePlayer.startBackground(
+        title: v.title,
+        artist: artist,
+        playing: playing,
+      );
+      _bgStarted = true;
+    }
   }
 
   /// Close mini player completely and free decoder.
@@ -161,6 +183,8 @@ class MiniPlayerController extends ChangeNotifier {
     activeUrl = null;
     _minimized = false;
     _expanded = false;
+    _bgStarted = false;
+    _lastNotify = DateTime.fromMillisecondsSinceEpoch(0);
     if (c != null) {
       try {
         c.removeListener(_tick);
@@ -184,6 +208,17 @@ class MiniPlayerController extends ChangeNotifier {
     _minimized = false;
     notifyListeners();
     return c;
+  }
+
+  /// Give up ownership of the current controller *without* disposing it.
+  /// Used when the full player replaces the borrowed controller (e.g. the user
+  /// switched quality) and becomes responsible for disposing the old one.
+  void detachController() {
+    final c = controller;
+    if (c == null) return;
+    c.removeListener(_tick);
+    controller = null;
+    notifyListeners();
   }
 
   /// After full player rebuilds with same session, re-bind.

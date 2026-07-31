@@ -38,6 +38,29 @@ class PlaybackService : Service() {
     private var artist: String = "Playing"
     private var playing: Boolean = true
 
+    /**
+     * Whether startForeground() has already run for this service instance.
+     * On Android 8+ a service started with startForegroundService() MUST call
+     * startForeground() within ~5s or the system throws
+     * ForegroundServiceDidNotStartInTimeException and kills the app.
+     */
+    private var isForeground = false
+
+    /** Promote to foreground exactly once; later calls just refresh. */
+    private fun ensureForeground() {
+        if (isForeground) {
+            refreshNotification()
+            return
+        }
+        try {
+            startForeground(NOTIF_ID, buildNotification())
+            isForeground = true
+        } catch (_: Exception) {
+            // e.g. missing POST_NOTIFICATIONS on API 33+ — degrade gracefully
+            // instead of taking the whole app down.
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         mediaSession = MediaSession(this, "VibeTubeSession").apply {
@@ -85,24 +108,24 @@ class PlaybackService : Service() {
                 playing = true
                 pushState()
                 notifyFlutter("mediaPlay")
-                refreshNotification()
+                ensureForeground()
             }
             ACTION_PAUSE -> {
                 playing = false
                 pushState()
                 notifyFlutter("mediaPause")
-                refreshNotification()
+                ensureForeground()
             }
             ACTION_TOGGLE -> {
                 playing = !playing
                 pushState()
                 notifyFlutter(if (playing) "mediaPlay" else "mediaPause")
-                refreshNotification()
+                ensureForeground()
             }
             ACTION_PLAYING_STATE -> {
                 playing = intent.getBooleanExtra("playing", playing)
                 pushState()
-                refreshNotification()
+                ensureForeground()
             }
             ACTION_UPDATE, ACTION_START, null -> {
                 title = intent?.getStringExtra("title") ?: title
@@ -119,7 +142,7 @@ class PlaybackService : Service() {
                         .build()
                 )
                 pushState()
-                startForeground(NOTIF_ID, buildNotification())
+                ensureForeground()
             }
         }
         // Use START_NOT_STICKY to avoid restarting with null/stale intent after system kill
@@ -229,12 +252,22 @@ class PlaybackService : Service() {
             mediaSession?.isActive = false
         } catch (_: Exception) {
         }
+        // If we were launched via startForegroundService() but stopped before
+        // ever promoting, we still owe the system a startForeground() call.
+        if (!isForeground) {
+            try {
+                startForeground(NOTIF_ID, buildNotification())
+                isForeground = true
+            } catch (_: Exception) {
+            }
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             stopForeground(STOP_FOREGROUND_REMOVE)
         } else {
             @Suppress("DEPRECATION")
             stopForeground(true)
         }
+        isForeground = false
         stopSelf()
     }
 

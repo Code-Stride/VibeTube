@@ -11,7 +11,6 @@ import 'utils/theme.dart';
 import 'widgets/mini_player_bar.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
-const _deepLinkChannel = MethodChannel('com.blazenxt.vibetube/player');
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -39,24 +38,25 @@ void main() async {
 }
 
 void _setupDeepLinkHandler() {
-  // The native side also registers a handler on this channel for player commands.
-  // We use a separate method name 'onDeepLink' that native invokes when a YT URL is opened.
-  // Since the native side sets its own handler in configureFlutterEngine, we need
-  // to intercept 'onDeepLink' calls. We use a secondary channel to avoid conflicts.
+  // Dedicated channel so we don't clash with the native player command channel.
+  // Native buffers any link that arrives before this handler exists and
+  // replays it when we announce 'ready' below.
   const deepChannel = MethodChannel('com.blazenxt.vibetube/deeplink');
   deepChannel.setMethodCallHandler((call) async {
     if (call.method == 'onDeepLink' && call.arguments is String) {
-      final videoId = call.arguments as String;
-      final ctx = navigatorKey.currentContext;
-      if (ctx != null) {
-        Navigator.of(ctx).push(
-          MaterialPageRoute(
-            builder: (_) => PlayerScreen(videoId: videoId),
-          ),
-        );
-      }
+      final videoId = (call.arguments as String).trim();
+      if (videoId.isEmpty) return;
+      // Use the navigator state directly — currentContext can belong to a
+      // widget that is not below the Navigator once routes are pushed.
+      navigatorKey.currentState?.push(
+        MaterialPageRoute(
+          builder: (_) => PlayerScreen(videoId: videoId),
+        ),
+      );
     }
   });
+  // Tell native we're listening; it flushes any cold-start link now.
+  deepChannel.invokeMethod('ready').catchError((_) => null);
 }
 
 class VibeTubeApp extends StatelessWidget {

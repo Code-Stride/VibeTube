@@ -18,11 +18,34 @@ class MainActivity : FlutterActivity() {
     /** Only enter PiP / auto-PiP when Flutter reports active playback. */
     private var isPlaying = false
 
+    /**
+     * A deep link that arrived before the Dart side registered its handler
+     * (cold start). Delivered as soon as Flutter asks for it.
+     */
+    private var pendingDeepLink: String? = null
+    private var deepLinkReady = false
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
         deepLinkChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, deepLinkChannelName)
         PlaybackService.flutterChannel = methodChannel
+
+        // Dart calls this once its handler is installed; until then any
+        // incoming link is buffered in pendingDeepLink.
+        deepLinkChannel?.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "ready" -> {
+                    deepLinkReady = true
+                    pendingDeepLink?.let { id ->
+                        pendingDeepLink = null
+                        deepLinkChannel?.invokeMethod("onDeepLink", id)
+                    }
+                    result.success(null)
+                }
+                else -> result.notImplemented()
+            }
+        }
 
         // Handle deep links (YouTube URLs opened from other apps)
         handleDeepLink(intent)
@@ -129,12 +152,19 @@ class MainActivity : FlutterActivity() {
     private fun handleDeepLink(intent: Intent?) {
         val data = intent?.data ?: return
         val videoId = extractVideoId(data) ?: return
-        // Notify Flutter about the deep link after a short delay to ensure engine is ready
-        android.os.Handler(mainLooper).postDelayed({
+        // Consume the URI so a config change / re-create doesn't replay it.
+        intent.data = null
+        if (deepLinkReady) {
             try {
                 deepLinkChannel?.invokeMethod("onDeepLink", videoId)
-            } catch (_: Exception) {}
-        }, 800)
+            } catch (_: Exception) {
+                pendingDeepLink = videoId
+            }
+        } else {
+            // Engine not listening yet — deliver on "ready" instead of racing
+            // a fixed timeout.
+            pendingDeepLink = videoId
+        }
     }
 
     private fun extractVideoId(uri: android.net.Uri): String? {

@@ -26,7 +26,10 @@ class UpdateService {
 
       if (res.statusCode != 200) return null;
       final data = jsonDecode(res.body) as Map<String, dynamic>;
-      final tag = (data['tag_name'] as String? ?? '').replaceFirst('v', '');
+      // Only strip a leading "v" (e.g. "v1.5.0"), not a "v" anywhere in the tag.
+      final tag = (data['tag_name'] as String? ?? '')
+          .trim()
+          .replaceFirst(RegExp(r'^[vV]'), '');
       if (tag.isEmpty) return null;
 
       final prefs = await SharedPreferences.getInstance();
@@ -67,10 +70,13 @@ class UpdateService {
   /// Semver-ish compare: returns true if remote > local
   bool _isNewer(String remote, String local) {
     List<int> parse(String v) {
-      final cleaned = v.replaceAll(RegExp(r'[^0-9.]'), '');
+      // Strip any build metadata ("1.5.0+11") and pre-release suffix first,
+      // then keep only digits and dots.
+      final core = v.split('+').first.split('-').first;
+      final cleaned = core.replaceAll(RegExp(r'[^0-9.]'), '');
       final parts = cleaned.split('.');
       return [
-        int.tryParse(parts.length > 0 ? parts[0] : '0') ?? 0,
+        int.tryParse(parts.isNotEmpty ? parts[0] : '0') ?? 0,
         int.tryParse(parts.length > 1 ? parts[1] : '0') ?? 0,
         int.tryParse(parts.length > 2 ? parts[2] : '0') ?? 0,
       ];

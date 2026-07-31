@@ -280,7 +280,6 @@ class VideoCard extends StatelessWidget {
 
   void _options(BuildContext outerContext, VibeColors c) {
     final provider = outerContext.read<AppProvider>();
-    final rootNav = Navigator.of(outerContext, rootNavigator: true);
     final messenger = ScaffoldMessenger.of(outerContext);
     showModalBottomSheet(
       context: outerContext,

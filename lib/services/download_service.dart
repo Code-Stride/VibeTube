@@ -79,7 +79,13 @@ class DownloadService {
       await for (final chunk in res.stream) {
         sink.add(chunk);
         received += chunk.length;
-        if (total > 0) onProgress?.call(received / total);
+        if (total > 0) {
+          onProgress?.call((received / total).clamp(0.0, 1.0));
+        } else {
+          // Server sent no Content-Length: we cannot compute a real ratio.
+          // Report a slowly saturating estimate so the UI still moves.
+          onProgress?.call(1 - (1 / (1 + received / 8000000)));
+        }
       }
       await sink.close();
     } catch (e) {

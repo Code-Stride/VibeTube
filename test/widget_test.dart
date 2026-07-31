@@ -184,4 +184,93 @@ void main() {
       expect(qs.contains('360p'), true);
     });
   });
+
+  group('Offline download stream selection', () {
+    // A manifest saved as .mp4 looks downloaded but never plays, so
+    // bestMuxedUrl must never surface one for the download path.
+    bool isProgressive(String? u) =>
+        u != null &&
+        u.isNotEmpty &&
+        !u.contains('.m3u8') &&
+        !u.contains('/manifest/hls') &&
+        !u.contains('/manifest/dash');
+
+    test('progressive muxed URL is accepted', () {
+      const details = VideoDetails(
+        id: 'test123456',
+        title: 'Test',
+        progressiveByHeight: {
+          360: 'https://example.com/360.mp4',
+          720: 'https://example.com/720.mp4',
+        },
+      );
+      expect(details.bestMuxedUrl, 'https://example.com/720.mp4');
+      expect(isProgressive(details.bestMuxedUrl), true);
+    });
+
+    test('HLS-only video exposes no progressive stream to download', () {
+      const details = VideoDetails(
+        id: 'test123456',
+        title: 'Test',
+        hlsUrl: 'https://example.com/master.m3u8',
+        hlsVariants: {720: 'https://example.com/720.m3u8'},
+      );
+      expect(details.bestMuxedUrl, isNull);
+      expect(isProgressive(details.preferredPlayUrl), false);
+    });
+
+    test('manifest URLs are rejected by the progressive guard', () {
+      expect(isProgressive('https://example.com/master.m3u8'), false);
+      expect(isProgressive('https://r1.googlevideo.com/manifest/hls/x'), false);
+      expect(isProgressive('https://r1.googlevideo.com/manifest/dash/x'), false);
+      expect(isProgressive(''), false);
+      expect(isProgressive(null), false);
+    });
+  });
+
+  group('Update version compare', () {
+    // Mirrors UpdateService._isNewer, which must ignore build metadata
+    // ("1.5.0+11") and a leading "v" so the dialog doesn't loop forever.
+    List<int> parse(String v) {
+      final core = v.split('+').first.split('-').first;
+      final cleaned = core.replaceAll(RegExp(r'[^0-9.]'), '');
+      final parts = cleaned.split('.');
+      return [
+        int.tryParse(parts.isNotEmpty ? parts[0] : '0') ?? 0,
+        int.tryParse(parts.length > 1 ? parts[1] : '0') ?? 0,
+        int.tryParse(parts.length > 2 ? parts[2] : '0') ?? 0,
+      ];
+    }
+
+    bool isNewer(String remote, String local) {
+      final r = parse(remote);
+      final l = parse(local);
+      for (var i = 0; i < 3; i++) {
+        if (r[i] > l[i]) return true;
+        if (r[i] < l[i]) return false;
+      }
+      return false;
+    }
+
+    test('build metadata does not make a version look newer', () {
+      expect(isNewer('1.5.0', '1.5.0+11'), false);
+      expect(parse('1.5.0+11'), [1, 5, 0]);
+    });
+
+    test('detects genuinely newer versions', () {
+      expect(isNewer('1.6.0', '1.5.0'), true);
+      expect(isNewer('2.0.0', '1.9.9'), true);
+      expect(isNewer('1.5.1', '1.5.0'), true);
+    });
+
+    test('does not downgrade', () {
+      expect(isNewer('1.4.0', '1.5.0'), false);
+      expect(isNewer('1.5.0', '1.5.0'), false);
+    });
+
+    test('pre-release suffix is ignored', () {
+      expect(parse('1.6.0-beta'), [1, 6, 0]);
+      expect(isNewer('1.6.0-beta', '1.5.0'), true);
+    });
+  });
 }

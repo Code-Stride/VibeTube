@@ -57,7 +57,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool _bgActive = false;
   bool _pipSupported = false;
   bool _handedToMini = false;
-  bool _resumed = false;
+  /// True when this screen borrowed the mini player's controller instead of
+  /// creating its own — it must not dispose it.
+  bool _borrowedFromMini = false;
   bool _lastNativePlaying = false;
   bool _looping = false;
   bool _muted = false;
@@ -96,7 +98,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   void _onPipChanged(bool inPip) {
     if (!mounted) return;
-    setState(() => _inPip = inPip);
+    setState(() {
+      _inPip = inPip;
+      // Entering PiP: drop the overlay so it can't reappear on exit.
+      if (inPip) _showControls = false;
+    });
+    if (inPip) {
+      _hideTimer?.cancel();
+    } else {
+      _armHide();
+    }
   }
 
   @override
@@ -134,7 +145,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         mini.video?.id == widget.videoId &&
         mini.controller != null &&
         mini.controller!.value.isInitialized) {
-      _resumed = true;
+      _borrowedFromMini = true;
       final resumed = mini.controller!;
       _controller = resumed;
       _activeUrl = mini.activeUrl;
@@ -311,8 +322,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     final prev = _controller;
     _controller = null;
-    // Only dispose previous if it wasn't handed off to the mini player
+    // Only dispose previous if it wasn't handed off to the mini player.
     if (!_handedToMini) {
+      if (prev != null && _borrowedFromMini) {
+        // We are replacing the controller we borrowed (quality switch):
+        // tell the mini player to let go, then dispose it ourselves.
+        try {
+          context.read<MiniPlayerController>().detachController();
+        } catch (_) {}
+        _borrowedFromMini = false;
+      }
+      prev?.removeListener(_onTick);
       await prev?.dispose();
     }
 
@@ -379,6 +399,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
       await c.dispose();
       return;
     }
+    // Capture the provider up-front: every use below sits after an await and
+    // touching BuildContext across an async gap is unsafe once popped.
+    final provider = context.read<AppProvider>();
     await c.setLooping(_looping);
     await c.setPlaybackSpeed(_speed);
     await c.setVolume(_muted ? 0 : 1);
@@ -394,7 +417,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     await c.play();
     if (!mounted) return;
     await NativePlayer.setPlaying(true);
-    final provider = context.read<AppProvider>();
+    if (!mounted) return;
     final title =
         provider.currentVideo?.title ?? widget.preview?.title ?? 'VibeTube';
     final artist = provider.currentVideo?.channelName ??
@@ -539,10 +562,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   Future<void> _syncNativePlayback({bool forceBg = false}) async {
+    if (!mounted) return;
     final c = _controller;
     final playing = c != null && c.value.isInitialized && c.value.isPlaying;
-    await NativePlayer.setPlaying(playing);
+    // Read the provider before awaiting — context is unsafe after the gap.
     final provider = context.read<AppProvider>();
+    await NativePlayer.setPlaying(playing);
     if (!provider.isBackgroundPlayEnabled) {
       if (_bgActive) {
         await NativePlayer.stopBackground();
@@ -673,7 +698,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
       onMediaPause: _onMediaPause,
       onMediaStop: _onMediaStop,
     );
-    if (!_handedToMini) {
+    // Never dispose a controller we don't own: it was either handed to the
+    // mini player on the way out, or borrowed from it on the way in
+    // (resumeSession). Disposing it would leave the mini bar holding a dead
+    // controller and crash on the next frame.
+    final ownsController = !_handedToMini && !_borrowedFromMini;
+    if (ownsController) {
       _controller?.removeListener(_onTick);
       _controller?.dispose();
       _controller = null;
@@ -685,6 +715,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
       }
       // Release audio focus so other apps can play audio
       AudioHelper.abandonFocus();
+    } else {
+      _controller?.removeListener(_onTick);
+      _controller = null;
     }
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
@@ -693,6 +726,24 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // In Picture-in-Picture the window is tiny: render only the video surface.
+    // Controls / info pane would be unreadable and steal taps from the system.
+    if (_inPip) {
+      final c = _controller;
+      return Scaffold(
+        backgroundColor: Colors.black,
+        body: Center(
+          child: (_ready && c != null && c.value.isInitialized)
+              ? AspectRatio(
+                  aspectRatio:
+                      c.value.aspectRatio > 0 ? c.value.aspectRatio : 16 / 9,
+                  child: VideoPlayer(c),
+                )
+              : const ColoredBox(color: Colors.black),
+        ),
+      );
+    }
+
     if (_fullscreen) {
       return Scaffold(
         backgroundColor: Colors.black,
@@ -1708,7 +1759,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     itemBuilder: (_, i) {
                       final q = qs[i];
                       final selected = _quality == q;
-                      String? sub;
+                      final String sub;
                       final d = details;
                       if (q.startsWith('Auto')) {
                         final maxQ = _maxQualityLabel(d);
@@ -1730,7 +1781,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                 d.progressiveByHeight.keys
                                     .any((x) => (x - h).abs() <= 20));
                         if (hasExact || hasNear) {
-                          final isHls = d!.hlsVariants.containsKey(h) ||
+                          // hasExact/hasNear are only true when d != null.
+                          final isHls = d.hlsVariants.containsKey(h) ||
                               d.hlsVariants.keys.any((x) => (x - h).abs() <= 20);
                           sub = isHls ? 'Tap to lock · HLS' : 'Tap to lock · MP4';
                         } else if (hasHls) {
@@ -1746,11 +1798,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
                               fontWeight:
                                   selected ? FontWeight.w700 : FontWeight.w500,
                             )),
-                        subtitle: sub == null
-                            ? null
-                            : Text(sub,
-                                style: TextStyle(
-                                    fontSize: 11, color: c.textMuted)),
+                        subtitle: Text(sub,
+                            style:
+                                TextStyle(fontSize: 11, color: c.textMuted)),
                         trailing: selected
                             ? const Icon(Icons.check, color: AppTheme.primary)
                             : null,

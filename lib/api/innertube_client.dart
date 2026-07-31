@@ -765,9 +765,13 @@ class InnerTubeClient {
             final tx = _text(n['text']);
             if (title.isEmpty && tx.length > 3) title = tx;
           }
-          for (final v in n.values) scan(v);
+          for (final v in n.values) {
+            scan(v);
+          }
         } else if (n is List) {
-          for (final i in n) scan(i);
+          for (final i in n) {
+            scan(i);
+          }
         }
       }
       scan(r['metadata']);
@@ -861,9 +865,8 @@ class InnerTubeClient {
     var isLive = false;
     for (final b in badges) {
       final label = b is Map
-          ? (_text(b['metadataBadgeRenderer']?['label']) +
-              ' ' +
-              (b['metadataBadgeRenderer']?['style']?.toString() ?? ''))
+          ? '${_text(b['metadataBadgeRenderer']?['label'])} '
+              '${b['metadataBadgeRenderer']?['style']?.toString() ?? ''}'
           : '';
       if (label.toUpperCase().contains('LIVE')) isLive = true;
     }
