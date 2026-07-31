@@ -10,6 +10,44 @@ and this project roughly follows [Semantic Versioning](https://semver.org/).
 ### Planned
 - Further video quality selection polish
 
+## [1.5.2] - 2026-07-31
+
+### Fixed
+- **Player controls were unreadable as a group**: the seek slider was
+  positioned at the bottom of the same stack as the action chips, so the
+  two overlapped. The scrubber now sits in its own tier and, while the
+  controls are hidden, is replaced by a slim progress line instead of a
+  full slider with a floating thumb.
+- **Light mode info pane**: the area below the video was written against
+  hardcoded dark colours while the rest of the app is theme-aware, so
+  text and cards were near-unreadable on a light background. All colours
+  now resolve from the active theme.
+- Sponsor markers drifted away from the seek bar at the edges; they are
+  now drawn on the track's centre line with a matching inset.
+- Centre transport glyphs washed out on bright frames; they now sit on a
+  subtle scrim.
+
+### Changed
+- Overlay controls are grouped into three tiers — scrubber, playback
+  settings (mute / loop / speed / quality / PiP / fullscreen), then
+  actions — instead of sharing one strip. No control was removed.
+- The duplicate -10s / +10s chips are gone; the same seek is already on
+  the centre buttons and on double-tap.
+- Action chips are hidden in fullscreen, where the identical actions are
+  a swipe away in the info pane.
+- The minimise button is a chevron rather than a back arrow, matching
+  what it does.
+- PiP is only offered when the device reports support for it.
+- Description gained an explicit "Show more / Show less" affordance, and
+  comments now show like counts.
+
+### Security
+- The release keystore is no longer committed. CI decodes it from the
+  `VIBETUBE_KEYSTORE_BASE64` secret at build time and deletes it before
+  uploading artifacts; signing passwords come from repository secrets
+  with no inline fallbacks. See SECURITY.md for the exposure window —
+  the signing key itself is unchanged, so updates install normally.
+
 ## [1.5.1] - 2026-07-31
 
 ### Fixed
