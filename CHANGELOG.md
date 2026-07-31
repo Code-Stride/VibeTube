@@ -10,6 +10,35 @@ and this project roughly follows [Semantic Versioning](https://semver.org/).
 ### Planned
 - Further video quality selection polish
 
+## [1.6.0] - 2026-07-31
+
+### Added
+- **Share links now open in VibeTube.** Sharing a video used to hand out
+  a `youtu.be` link, which opened YouTube — the app VibeTube exists to
+  replace. Shares are now VibeTube links of the form
+  `https://code-stride.github.io/VibeTube/w/<id>`, registered as verified
+  Android App Links so they open the video straight in the app with no
+  browser bounce and no chooser dialog.
+- Anyone without the app gets a small landing page with the video
+  thumbnail and a link to install VibeTube.
+- A `vibetube://watch?v=<id>` scheme is accepted for deep linking. It is
+  never shared, because messaging apps render it as plain text rather
+  than a tappable link.
+
+### Fixed
+- Deep links from `youtube.com/live/…` and `youtube.com/v/…` were
+  ignored; only `/shorts/` and `/embed/` were recognised.
+- Video ids are now validated against `[A-Za-z0-9_-]{11}` rather than
+  just their length, so malformed links fail cleanly instead of loading
+  a broken player.
+- `vibetube://<id>` lost the id's capitalisation, because URI parsing
+  lowercases the authority — the video would never be found.
+
+### Changed
+- Release notes are generated from this changelog, so the GitHub release
+  page and the in-app update prompt list what actually changed instead
+  of showing a bare compare link.
+
 ## [1.5.2] - 2026-07-31
 
 ### Fixed
