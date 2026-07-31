@@ -222,21 +222,29 @@ class AppProvider extends ChangeNotifier {
       try {
         relatedVideos = await _client.getRelatedVideos(videoId);
         notifyListeners();
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('relatedVideos error: $e');
+      }
       try {
         comments = await _client.getComments(videoId);
         notifyListeners();
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('comments error: $e');
+      }
       try {
         if (isSponsorBlockEnabled) {
           sponsorSegments = await _client.getSponsorSegments(videoId);
         }
         notifyListeners();
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('sponsorSegments error: $e');
+      }
       try {
         dislikeCount = await _client.getDislikeCount(videoId);
         notifyListeners();
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('dislikeCount error: $e');
+      }
     } catch (e) {
       playerError = 'Could not load video stream.\n$e';
       isPlayerLoading = false;
