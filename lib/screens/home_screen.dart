@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:package_info_plus/package_info_plus.dart';
 import '../providers/app_provider.dart';
 import '../utils/theme.dart';
 import '../widgets/video_card.dart';
@@ -143,15 +142,6 @@ class _HomeFeed extends StatefulWidget {
 
 class _HomeFeedState extends State<_HomeFeed> {
   final _searchController = TextEditingController();
-  String _appVersion = '';
-
-  @override
-  void initState() {
-    super.initState();
-    PackageInfo.fromPlatform().then((p) {
-      if (mounted) setState(() => _appVersion = p.version);
-    });
-  }
 
   static const cats = [
     'All',
@@ -220,24 +210,6 @@ class _HomeFeedState extends State<_HomeFeed> {
                     letterSpacing: -0.3,
                   ),
                 ),
-                if (_appVersion.isNotEmpty)
-                  Container(
-                    margin: const EdgeInsets.only(left: 6),
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: AppTheme.primary.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Text(
-                      'v$_appVersion',
-                      style: const TextStyle(
-                        color: AppTheme.primary,
-                        fontSize: 9,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 0.3,
-                      ),
-                    ),
-                  ),
                 // Search bar (YouTube style - takes most of the width)
                 const SizedBox(width: 10),
                 Expanded(
