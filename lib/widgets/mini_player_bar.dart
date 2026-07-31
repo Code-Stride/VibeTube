@@ -41,7 +41,7 @@ class MiniPlayerBar extends StatelessWidget {
                 color: AppTheme.primary,
               ),
               Dismissible(
-                key: ValueKey('mini-${v.id}'),
+                key: ValueKey('mini-${v.id}-${mini.hashCode}'),
                 direction: DismissDirection.horizontal,
                 onDismissed: (_) => mini.close(),
                 background: Container(

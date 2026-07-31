@@ -122,7 +122,8 @@ class PlaybackService : Service() {
                 startForeground(NOTIF_ID, buildNotification())
             }
         }
-        return START_STICKY
+        // Use START_NOT_STICKY to avoid restarting with null/stale intent after system kill
+        return START_NOT_STICKY
     }
 
     private fun pushState() {

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../api/innertube_client.dart';
 import '../models/video.dart';
 import '../services/download_service.dart';
+import '../services/hls_parser.dart';
 import '../services/storage_service.dart';
 import '../services/update_service.dart';
 import '../services/native_player.dart';
@@ -422,6 +423,7 @@ class AppProvider extends ChangeNotifier {
   void dispose() {
     _client.dispose();
     downloader.dispose();
+    HlsParser.dispose();
     super.dispose();
   }
 }

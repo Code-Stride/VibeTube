@@ -1,0 +1,5 @@
+# Copy this file to gradle.properties (local, not committed) and fill in your values.
+# NEVER commit real signing credentials to version control.
+VIBETUBE_STORE_PASSWORD=your_keystore_password_here
+VIBETUBE_KEY_ALIAS=your_key_alias_here
+VIBETUBE_KEY_PASSWORD=your_key_password_here

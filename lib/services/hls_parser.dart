@@ -30,7 +30,14 @@ class HlsVariant {
 
 /// Parses YouTube HLS master playlists into per-resolution variant URLs.
 class HlsParser {
-  static final _http = http.Client();
+  static http.Client? _httpClient;
+  static http.Client get _http => _httpClient ??= http.Client();
+
+  /// Dispose the shared HTTP client to free sockets. Call when app is shutting down.
+  static void dispose() {
+    _httpClient?.close();
+    _httpClient = null;
+  }
 
   static Future<List<HlsVariant>> parseMaster(
     String masterUrl, {

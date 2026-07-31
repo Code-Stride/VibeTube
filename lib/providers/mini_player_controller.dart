@@ -13,6 +13,10 @@ class MiniPlayerController extends ChangeNotifier {
   String quality = 'Auto (HLS)';
   double speed = 1.0;
 
+  // Throttle _tick notifications to avoid rebuilding widget tree every frame (~60fps)
+  DateTime _lastNotify = DateTime.fromMillisecondsSinceEpoch(0);
+  static const int _notifyIntervalMs = 250;
+
   bool get hasSession => controller != null && video != null;
   bool get isReady =>
       controller != null && controller!.value.isInitialized;
@@ -86,6 +90,9 @@ class MiniPlayerController extends ChangeNotifier {
   }
 
   void _tick() {
+    final now = DateTime.now();
+    if (now.difference(_lastNotify).inMilliseconds < _notifyIntervalMs) return;
+    _lastNotify = now;
     notifyListeners();
   }
 
@@ -209,6 +216,9 @@ class MiniPlayerController extends ChangeNotifier {
         c.dispose();
       } catch (_) {}
     }
+    // Stop background media notification so it doesn't persist as a zombie
+    NativePlayer.setPlaying(false);
+    NativePlayer.stopBackground();
     super.dispose();
   }
 }

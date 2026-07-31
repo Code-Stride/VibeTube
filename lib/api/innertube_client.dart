@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../models/video.dart';
 import '../services/hls_parser.dart';
@@ -21,6 +22,7 @@ class InnerTubeClient {
       'gl': 'US',
       '_ua':
           'com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)',
+      '_clientNameId': '5',
     },
     {
       'clientName': 'ANDROID',
@@ -31,6 +33,7 @@ class InnerTubeClient {
       'hl': 'en',
       'gl': 'IN',
       '_ua': 'com.google.android.youtube/20.10.38 (Linux; U; Android 14) gzip',
+      '_clientNameId': '3',
     },
   ];
 
@@ -63,15 +66,17 @@ class InnerTubeClient {
     Map<String, dynamic> body, {
     String? userAgent,
     Map<String, String>? extraHeaders,
+    String? clientNameId,
+    String? clientVersion,
   }) async {
     final uri = Uri.parse(
       '$_baseUrl/$endpoint?prettyPrint=false&key=$_apiKey',
     );
     final headers = {
       ..._headers(userAgent),
-      'X-YouTube-Client-Name': '1',
+      'X-YouTube-Client-Name': clientNameId ?? '1',
       'X-YouTube-Client-Version':
-          (_webClient['clientVersion'] as String?) ?? '2.20250312.00.00',
+          clientVersion ?? (_webClient['clientVersion'] as String?) ?? '2.20250312.00.00',
       if (extraHeaders != null) ...extraHeaders,
     };
     final res = await _http
@@ -128,10 +133,10 @@ class InnerTubeClient {
   }
 
   /// Category chip feed.
-  /// InnerTube search filter params (base64 protobuf-ish).
-  static const String kFilterVideos = 'EgIQAQ%3D%3D';
-  static const String kFilterShorts = 'EgIYAQ%3D%3D';
-  static const String kFilterLive = 'EgJAAQ%3D%3D';
+  /// InnerTube search filter params (raw base64, NOT URL-encoded).
+  static const String kFilterVideos = 'EgIQAQ==';
+  static const String kFilterShorts = 'EgIYAQ==';
+  static const String kFilterLive = 'EgJAAQ==';
 
   Future<List<Video>> getCategoryFeed(String category, {String region = 'IN'}) async {
     final c = category.trim().toLowerCase();
@@ -221,8 +226,11 @@ class InnerTubeClient {
     final seen = <String>{};
     final out = <Video>[];
 
-    // Parallel batches of 4 for speed
+    // Parallel batches of 4 for speed, with delay between batches to avoid rate limiting
     for (var i = 0; i < queries.length; i += 4) {
+      if (i > 0) {
+        await Future.delayed(const Duration(milliseconds: 300));
+      }
       final batch = queries.sublist(i, (i + 4).clamp(0, queries.length));
       final results = await Future.wait(
         batch.map((q) async {
@@ -471,7 +479,12 @@ class InnerTubeClient {
       'racyCheckOk': true,
     };
 
-    final response = await _post('player', body, userAgent: ua);
+    // Extract client-specific header info before sending
+    final clientNameId = client.remove('_clientNameId') as String?;
+    final clientVersion = client['clientVersion'] as String?;
+
+    final response = await _post('player', body, userAgent: ua,
+        clientNameId: clientNameId, clientVersion: clientVersion);
     final status = response['playabilityStatus']?['status']?.toString();
     if (status != null && status != 'OK') {
       final reason =
@@ -488,7 +501,8 @@ class InnerTubeClient {
         'context': {'client': _webClient},
       }, userAgent: _webClient['userAgent'] as String);
       return _parseVideosDeep(response);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('getRelatedVideos error for $videoId: $e');
       return [];
     }
   }
@@ -499,8 +513,10 @@ class InnerTubeClient {
         'videoId': videoId,
         'context': {'client': _webClient},
       }, userAgent: _webClient['userAgent'] as String);
-      return _parseCommentsDeep(response);
-    } catch (_) {
+      final comments = _parseCommentsDeep(response);
+      return comments;
+    } catch (e) {
+      debugPrint('getComments error for $videoId: $e');
       return [];
     }
   }
@@ -580,13 +596,14 @@ class InnerTubeClient {
       dashUrl: sd['dashManifestUrl']?.toString(),
       isLive: vd['isLiveContent'] == true ||
           vd['isLive'] == true ||
-          vd['isUpcoming'] != true &&
+          (vd['isUpcoming'] != true &&
               ((vd['lengthSeconds']?.toString() == '0') ||
                   (int.tryParse(vd['lengthSeconds']?.toString() ?? '-1') == 0)) &&
-              (sd['hlsManifestUrl'] != null || sd['dashManifestUrl'] != null),
+              (sd['hlsManifestUrl'] != null || sd['dashManifestUrl'] != null)),
       isShort: (int.tryParse(vd['lengthSeconds']?.toString() ?? '0') ?? 0) > 0 &&
           (int.tryParse(vd['lengthSeconds']?.toString() ?? '0') ?? 0) <= 60 &&
-          (vd['title']?.toString().toLowerCase().contains('#shorts') == true),
+          (vd['title']?.toString().toLowerCase().contains('#shorts') == true ||
+           vd['title']?.toString().toLowerCase().contains('#short') == true),
     );
   }
 
@@ -731,14 +748,11 @@ class InnerTubeClient {
 
   Video? _extractLockup(Map<String, dynamic> r) {
     try {
-      // Nested contentId / metadata
+      // Try to find videoId from known fields first
       String id = r['contentId']?.toString() ?? '';
-      if (id.isEmpty) {
-        final s = r.toString();
-        final m = RegExp(r'[\?&/]v=([\w-]{11})|shorts/([\w-]{11})|watch\?v=([\w-]{11})').firstMatch(s);
-        if (m != null) {
-          id = m.group(1) ?? m.group(2) ?? m.group(3) ?? '';
-        }
+      if (id.isEmpty || id.length != 11) {
+        // Walk nested structures properly instead of regex on toString()
+        id = _findVideoIdDeep(r) ?? '';
       }
       if (id.length != 11) return null;
       String title = '';
@@ -859,20 +873,14 @@ class InnerTubeClient {
         if (s.contains('LIVE')) isLive = true;
       }
     }
-    // Shorts: vertical reel / short duration with shorts nav
+    // Shorts: only flag as short when there's a strong signal (navigation endpoint)
     var isShort = false;
     try {
       final nav = r['navigationEndpoint']?.toString() ?? '';
-      if (nav.contains('reel') || nav.contains('shorts')) isShort = true;
+      if (nav.contains('reelWatchEndpoint') || nav.contains('/shorts/')) isShort = true;
     } catch (_) {}
     final dur = _parseDurationText(lengthText);
-    if (!isShort && dur > Duration.zero && dur.inSeconds > 0 && dur.inSeconds <= 60) {
-      // Heuristic only when explicitly shorts-ish thumbnails
-      if (thumb.contains('hq720') == false && (r['richThumbnail'] != null)) {
-        isShort = true;
-      }
-    }
-    if (lengthText.toLowerCase().contains('short')) isShort = true;
+    if (lengthText.toLowerCase().contains('short') && dur.inSeconds <= 60) isShort = true;
 
     return Video(
       id: id,
@@ -890,6 +898,34 @@ class InnerTubeClient {
     );
   }
 
+  /// Walk a nested map/list structure to find a valid 11-char YouTube video ID.
+  String? _findVideoIdDeep(dynamic node, {int depth = 0}) {
+    if (depth > 6) return null; // guard against excessively deep traversal
+    if (node is Map) {
+      // Direct videoId field
+      final vid = node['videoId']?.toString();
+      if (vid != null && vid.length == 11) return vid;
+      // Check navigationEndpoint for watch/reel endpoints
+      final nav = node['navigationEndpoint'];
+      if (nav is Map) {
+        final watchId = nav['watchEndpoint']?['videoId']?.toString();
+        if (watchId != null && watchId.length == 11) return watchId;
+        final reelId = nav['reelWatchEndpoint']?['videoId']?.toString();
+        if (reelId != null && reelId.length == 11) return reelId;
+      }
+      for (final v in node.values) {
+        final found = _findVideoIdDeep(v, depth: depth + 1);
+        if (found != null) return found;
+      }
+    } else if (node is List) {
+      for (final item in node) {
+        final found = _findVideoIdDeep(item, depth: depth + 1);
+        if (found != null) return found;
+      }
+    }
+    return null;
+  }
+
   String _text(dynamic o) {
     if (o == null) return '';
     if (o is String) return o;
@@ -904,6 +940,8 @@ class InnerTubeClient {
 
   int _parseCount(String text) {
     if (text.isEmpty) return 0;
+    // Handle "No views", "Recommended", etc.
+    if (RegExp(r'^[a-zA-Z\s]+$').hasMatch(text.trim())) return 0;
     final cleaned = text.replaceAll(',', '').trim();
     final m = RegExp(r'([\d.]+)\s*([KMBTkmbt])?').firstMatch(cleaned);
     if (m == null) {

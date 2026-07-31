@@ -60,12 +60,15 @@ app.*.map.json
 # Signing — personal keys only; keep shared CI sideload key tracked
 android/key.properties
 android/app/keystore.jks
+android/app/vibetube-release.jks
 *.keystore
+*.jks
 
 # Env / secrets
 .env
 .env.*
 !.env.example
+!.gradle.properties.example
 
 # Tooling
 .fvm/

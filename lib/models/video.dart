@@ -291,9 +291,10 @@ class VideoDetails extends Video {
       labels.add(labelFor(h));
     }
 
-    // If we only have master HLS without parsed variants yet, still show ladder
+    // If we only have master HLS without parsed variants, show just Auto
+    // (don't show phantom quality options that may not be available)
     if (labels.isEmpty && hlsUrl != null && hlsUrl!.isNotEmpty) {
-      labels.addAll(['144p', '240p', '360p', '480p', '720p', '1080p']);
+      // Only show Auto (HLS) — user gets adaptive quality automatically
     }
 
     const order = [

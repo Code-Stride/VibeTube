@@ -311,7 +311,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     final prev = _controller;
     _controller = null;
-    await prev?.dispose();
+    // Only dispose previous if it wasn't handed off to the mini player
+    if (!_handedToMini) {
+      await prev?.dispose();
+    }
 
     final isLocal = url.startsWith('/') || url.startsWith('file:');
     final isHls = url.contains('m3u8') || url.contains('/manifest/hls');
@@ -426,9 +429,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _lastNativePlaying = playing;
       NativePlayer.setPlaying(playing);
     }
-    final live = context.read<AppProvider>().currentVideo?.isLive == true;
-    if (!live) {
-      _maybeSkipSponsor(v.position);
+    // Guard context.read against post-dispose listener callbacks
+    try {
+      final live = context.read<AppProvider>().currentVideo?.isLive == true;
+      if (!live) {
+        _maybeSkipSponsor(v.position);
+      }
+    } catch (_) {
+      // Widget disposed — safe to ignore
     }
   }
 
@@ -438,15 +446,25 @@ class _PlayerScreenState extends State<PlayerScreen> {
       final c = _controller;
       if (c == null || !c.value.isInitialized || _seeking) return;
       if (!mounted) return;
+      // Only rebuild when controls are visible or progress bar needs updating
+      final newPos = c.value.position;
+      final newDur = c.value.duration;
+      if (newPos == _position && newDur == _duration) return; // no change
       setState(() {
-        _position = c.value.position;
-        _duration = c.value.duration;
+        _position = newPos;
+        _duration = newDur;
       });
     });
   }
 
   void _maybeSkipSponsor(Duration pos) {
-    final provider = context.read<AppProvider>();
+    if (!mounted) return;
+    AppProvider provider;
+    try {
+      provider = context.read<AppProvider>();
+    } catch (_) {
+      return; // Widget disposed
+    }
     if (!provider.isSponsorBlockEnabled) return;
     final t = pos.inMilliseconds / 1000.0;
     for (final seg in provider.activeSponsorSegments) {
@@ -665,6 +683,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
         NativePlayer.stopBackground();
         _bgActive = false;
       }
+      // Release audio focus so other apps can play audio
+      AudioHelper.abandonFocus();
     }
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
@@ -992,12 +1012,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       _ctrlIcon(
                         _muted ? Icons.volume_off : Icons.volume_up,
                         'Mute',
-                        _toggleMute,
+                        () => _toggleMute(),
                       ),
                       _ctrlIcon(
                         _looping ? Icons.repeat_one : Icons.repeat,
                         'Loop',
-                        _toggleLoop,
+                        () => _toggleLoop(),
                         active: _looping,
                       ),
                       TextButton(
@@ -1020,7 +1040,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       _ctrlIcon(
                         Icons.picture_in_picture_alt_outlined,
                         'PiP',
-                        _enterPipIfPlaying,
+                        () => _enterPipIfPlaying(),
                       ),
                       _ctrlIcon(
                         fullscreen
@@ -1771,18 +1791,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
 
 
-  Widget _ctrlIcon(IconData icon, String tip, dynamic onTap,
+  Widget _ctrlIcon(IconData icon, String tip, VoidCallback onTap,
       {bool active = false}) {
     return IconButton(
       tooltip: tip,
       icon: Icon(icon,
           color: active ? AppTheme.primary : Colors.white, size: 22),
-      onPressed: () {
-        final r = onTap is Function ? onTap() : null;
-        if (r is Future) {
-          r.catchError((_) {});
-        }
-      },
+      onPressed: onTap,
       visualDensity: VisualDensity.compact,
     );
   }

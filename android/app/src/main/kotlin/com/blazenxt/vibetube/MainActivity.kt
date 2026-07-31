@@ -11,7 +11,9 @@ import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
     private val channelName = "com.blazenxt.vibetube/player"
+    private val deepLinkChannelName = "com.blazenxt.vibetube/deeplink"
     private var methodChannel: MethodChannel? = null
+    private var deepLinkChannel: MethodChannel? = null
     private var autoPip = true
     /** Only enter PiP / auto-PiP when Flutter reports active playback. */
     private var isPlaying = false
@@ -19,7 +21,11 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
+        deepLinkChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, deepLinkChannelName)
         PlaybackService.flutterChannel = methodChannel
+
+        // Handle deep links (YouTube URLs opened from other apps)
+        handleDeepLink(intent)
         methodChannel?.setMethodCallHandler { call, result ->
             when (call.method) {
                 "enterPip" -> {
@@ -113,6 +119,46 @@ class MainActivity : FlutterActivity() {
         } catch (e: Exception) {
             false
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleDeepLink(intent)
+    }
+
+    private fun handleDeepLink(intent: Intent?) {
+        val data = intent?.data ?: return
+        val videoId = extractVideoId(data) ?: return
+        // Notify Flutter about the deep link after a short delay to ensure engine is ready
+        android.os.Handler(mainLooper).postDelayed({
+            try {
+                deepLinkChannel?.invokeMethod("onDeepLink", videoId)
+            } catch (_: Exception) {}
+        }, 800)
+    }
+
+    private fun extractVideoId(uri: android.net.Uri): String? {
+        val host = uri.host?.lowercase() ?: return null
+        // youtu.be/VIDEO_ID
+        if (host == "youtu.be") {
+            val id = uri.pathSegments.firstOrNull()
+            if (id != null && id.length == 11) return id
+        }
+        // youtube.com/watch?v=VIDEO_ID or /shorts/VIDEO_ID
+        if (host.contains("youtube.com")) {
+            val v = uri.getQueryParameter("v")
+            if (v != null && v.length == 11) return v
+            val path = uri.pathSegments
+            if (path.size >= 2 && path[0] == "shorts") {
+                val id = path[1]
+                if (id.length == 11) return id
+            }
+            if (path.size >= 2 && path[0] == "embed") {
+                val id = path[1]
+                if (id.length == 11) return id
+            }
+        }
+        return null
     }
 
     override fun onUserLeaveHint() {

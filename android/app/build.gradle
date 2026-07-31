@@ -10,13 +10,13 @@ def storeToUse = releaseStoreFile.exists() ? releaseStoreFile : (ciStoreFile.exi
 
 android {
     namespace "com.blazenxt.vibetube"
-    compileSdk 36
+    compileSdk 35
     ndkVersion flutter.ndkVersion
 
     defaultConfig {
         applicationId "com.blazenxt.vibetube"
         minSdk 24
-        targetSdk 36
+        targetSdk 35
         versionCode 11
         versionName "1.5.0"
         multiDexEnabled true
@@ -26,9 +26,11 @@ android {
         release {
             if (storeToUse != null) {
                 storeFile storeToUse
-                storePassword "vibetube2026"
-                keyAlias "vibetube"
-                keyPassword "vibetube2026"
+                // Credentials loaded from gradle.properties or CI/CD environment variables
+                // NEVER hardcode secrets here. See gradle.properties.example
+                storePassword findProperty('VIBETUBE_STORE_PASSWORD') ?: System.getenv('VIBETUBE_STORE_PASSWORD') ?: ''
+                keyAlias findProperty('VIBETUBE_KEY_ALIAS') ?: System.getenv('VIBETUBE_KEY_ALIAS') ?: ''
+                keyPassword findProperty('VIBETUBE_KEY_PASSWORD') ?: System.getenv('VIBETUBE_KEY_PASSWORD') ?: ''
             }
         }
     }

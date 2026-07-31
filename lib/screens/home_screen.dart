@@ -42,22 +42,27 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _scheduleUpdateCheck() async {
-    // Give network a moment; update check already started in provider.init
-    for (var i = 0; i < 10; i++) {
-      await Future.delayed(const Duration(milliseconds: 600));
-      if (!mounted || _updateShown) return;
-      final provider = context.read<AppProvider>();
-      final u = provider.pendingUpdate;
-      if (u != null && u.hasUpdate) {
-        _updateShown = true;
-        await UpdateDialog.show(
-          context,
-          info: u,
-          onLater: () {},
-          onSkip: () => provider.dismissUpdate(),
-        );
-        return;
-      }
+    // Wait for the provider's async update check to complete, then show dialog
+    // instead of polling in a loop.
+    await Future.delayed(const Duration(seconds: 4));
+    if (!mounted || _updateShown) return;
+    final provider = context.read<AppProvider>();
+    final u = provider.pendingUpdate;
+    if (u != null && u.hasUpdate) {
+      _updateShown = true;
+      if (!mounted) return;
+      await UpdateDialog.show(
+        context,
+        info: u,
+        onLater: () {
+          // Reset so user can be prompted again later in the session
+          _updateShown = false;
+        },
+        onSkip: () {
+          provider.dismissUpdate();
+          _updateShown = false;
+        },
+      );
     }
   }
 

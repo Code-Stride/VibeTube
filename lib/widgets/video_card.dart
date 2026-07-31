@@ -278,10 +278,12 @@ class VideoCard extends StatelessWidget {
     );
   }
 
-  void _options(BuildContext context, VibeColors c) {
-    final provider = context.read<AppProvider>();
+  void _options(BuildContext outerContext, VibeColors c) {
+    final provider = outerContext.read<AppProvider>();
+    final rootNav = Navigator.of(outerContext, rootNavigator: true);
+    final messenger = ScaffoldMessenger.of(outerContext);
     showModalBottomSheet(
-      context: context,
+      context: outerContext,
       backgroundColor: c.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
@@ -308,13 +310,11 @@ class VideoCard extends StatelessWidget {
                 onTap: () async {
                   Navigator.pop(ctx);
                   final added = await provider.toggleWatchLater(video);
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                      content: Text(added
-                          ? 'Saved to Watch Later'
-                          : 'Removed from Watch Later'),
-                    ));
-                  }
+                  messenger.showSnackBar(SnackBar(
+                    content: Text(added
+                        ? 'Saved to Watch Later'
+                        : 'Removed from Watch Later'),
+                  ));
                 },
               ),
               ListTile(
@@ -323,11 +323,9 @@ class VideoCard extends StatelessWidget {
                 onTap: () async {
                   Navigator.pop(ctx);
                   final liked = await provider.toggleLike(video);
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                      content: Text(liked ? 'Added to Liked' : 'Removed like'),
-                    ));
-                  }
+                  messenger.showSnackBar(SnackBar(
+                    content: Text(liked ? 'Added to Liked' : 'Removed like'),
+                  ));
                 },
               ),
               ListTile(
@@ -335,22 +333,18 @@ class VideoCard extends StatelessWidget {
                 title: Text('Download', style: TextStyle(color: c.textPrimary)),
                 onTap: () async {
                   Navigator.pop(ctx);
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  messenger.showSnackBar(
                     const SnackBar(content: Text('Starting download…')),
                   );
                   try {
                     await provider.downloadVideo(video);
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Download complete')),
-                      );
-                    }
+                    messenger.showSnackBar(
+                      const SnackBar(content: Text('Download complete')),
+                    );
                   } catch (e) {
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Download failed: $e')),
-                      );
-                    }
+                    messenger.showSnackBar(
+                      SnackBar(content: Text('Download failed: $e')),
+                    );
                   }
                 },
               ),

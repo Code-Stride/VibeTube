@@ -24,6 +24,8 @@ class DownloadService {
   }
 
   /// Download progressive MP4 URL to app storage.
+  /// Uses a .part file during download, renamed on completion to avoid
+  /// serving partial/corrupted files as complete downloads.
   Future<String> downloadVideo({
     required Video video,
     required String streamUrl,
@@ -31,9 +33,23 @@ class DownloadService {
   }) async {
     final path = await pathFor(video.id);
     final file = File(path);
-    if (await file.exists() && await file.length() > 1000) {
-      onProgress?.call(1);
-      return path;
+
+    // Check for a fully completed file (exists with .mp4 extension, not .part)
+    if (await file.exists()) {
+      final len = await file.length();
+      // A valid MP4 is at least 50KB (tiny videos are still >100KB)
+      if (len > 50000) {
+        onProgress?.call(1);
+        return path;
+      }
+      // Suspiciously small — likely a partial/corrupt file; delete and retry
+      try { await file.delete(); } catch (_) {}
+    }
+
+    // Clean up any leftover .part file from a previous failed attempt
+    final partFile = File('$path.part');
+    if (await partFile.exists()) {
+      try { await partFile.delete(); } catch (_) {}
     }
 
     final req = http.Request('GET', Uri.parse(streamUrl));
@@ -43,19 +59,38 @@ class DownloadService {
       'Referer': 'https://www.youtube.com/',
       'Accept': '*/*',
     });
-    final res = await _http.send(req).timeout(const Duration(minutes: 30));
+
+    final http.StreamedResponse res;
+    try {
+      res = await _http.send(req).timeout(const Duration(minutes: 30));
+    } catch (e) {
+      // Clean up partial file on network error
+      try { await partFile.delete(); } catch (_) {}
+      rethrow;
+    }
+
     if (res.statusCode != 200) {
       throw Exception('Download failed HTTP ${res.statusCode}');
     }
     final total = res.contentLength ?? 0;
-    final sink = file.openWrite();
+    final sink = partFile.openWrite();
     var received = 0;
-    await for (final chunk in res.stream) {
-      sink.add(chunk);
-      received += chunk.length;
-      if (total > 0) onProgress?.call(received / total);
+    try {
+      await for (final chunk in res.stream) {
+        sink.add(chunk);
+        received += chunk.length;
+        if (total > 0) onProgress?.call(received / total);
+      }
+      await sink.close();
+    } catch (e) {
+      // Clean up partial file on stream error
+      await sink.close();
+      try { await partFile.delete(); } catch (_) {}
+      rethrow;
     }
-    await sink.close();
+
+    // Rename .part → .mp4 only on complete success
+    await partFile.rename(path);
     onProgress?.call(1);
     return path;
   }
