@@ -15,6 +15,7 @@ import '../widgets/video_card.dart';
 import '../widgets/caption_overlay.dart';
 import '../services/native_player.dart';
 import '../services/audio_helper.dart';
+import '../services/piped_service.dart';
 import '../providers/mini_player_controller.dart';
 
 class PlayerScreen extends StatefulWidget {
@@ -75,6 +76,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
   String? _toastMsg;
   Timer? _toastTimer;
 
+  /// When true, audio session interruption callbacks are suppressed because
+  /// WE initiated the focus change (play/pause). Without this guard,
+  /// requesting audio focus triggers _onShouldPause which immediately pauses.
+  bool _requestingFocus = false;
+
   void _onMediaPlay() async {
     final c = _controller;
     if (c != null && c.value.isInitialized && !c.value.isPlaying) {
@@ -107,6 +113,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   /// Headphones pulled out / Bluetooth dropped: pause, like every other
   /// media app, instead of switching to the loudspeaker.
   void _onBecomingNoisy() {
+    if (_requestingFocus) return;
     final c = _controller;
     if (c == null || !c.value.isInitialized || !c.value.isPlaying) return;
     c.pause();
@@ -117,6 +124,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   /// Call or another media app took audio focus.
   void _onShouldPause(bool permanent) {
+    // Suppress interruptions we triggered ourselves
+    if (_requestingFocus) return;
     final c = _controller;
     if (c == null || !c.value.isInitialized || !c.value.isPlaying) return;
     c.pause();
@@ -127,12 +136,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   /// Focus handed back. Only resume if *we* were the ones interrupted.
   void _onMayResume() {
-    if (!_pausedByInterruption) return;
+    if (!_pausedByInterruption || _requestingFocus) return;
     _pausedByInterruption = false;
     final c = _controller;
     if (c == null || !c.value.isInitialized || c.value.isPlaying) return;
+    _requestingFocus = true;
     AudioHelper.requestFocus().then((_) {
       c.play();
+      _requestingFocus = false;
       if (mounted) setState(() {});
       _syncNativePlayback(forceBg: true);
     });
@@ -350,9 +361,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
 
     if (candidates.isEmpty) {
+      // Try Piped API as fallback
+      debugPrint('No direct URLs, trying Piped API fallback…');
+      try {
+        final piped = await PipedService.getStreams(widget.videoId);
+        if (piped != null && piped.bestStreamUrl != null && mounted) {
+          debugPrint('Piped fallback found: ${piped.bestQuality}');
+          await _attachController(piped.bestStreamUrl!, resumeAt: resumeAt);
+          if (_ready) return;
+        }
+      } catch (e) {
+        debugPrint('Piped fallback failed: $e');
+      }
+
       if (!mounted) return;
-      // A locked quality with no stream is a different problem from a video
-      // with no streams at all; say which, and offer the way out.
       final lockFailed = !isAuto && q != 'Audio Only' && target > 0;
       setState(() {
         _isBuffering = false;
@@ -397,6 +419,19 @@ class _PlayerScreenState extends State<PlayerScreen> {
         debugPrint('candidate failed: $e');
       }
     }
+    // All direct URLs failed — try Piped API
+    debugPrint('All candidates failed, trying Piped API…');
+    try {
+      final piped = await PipedService.getStreams(widget.videoId);
+      if (piped != null && piped.bestStreamUrl != null && mounted) {
+        debugPrint('Piped fallback: ${piped.bestQuality}');
+        await _attachController(piped.bestStreamUrl!, resumeAt: resumeAt);
+        if (_ready) return;
+      }
+    } catch (e) {
+      debugPrint('Piped fallback failed: $e');
+    }
+
     if (mounted) {
       setState(() {
         _isBuffering = false;
@@ -521,8 +556,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (sz.width > 0 && sz.height > 0) {
       NativePlayer.setVideoAspect(sz.width.round(), sz.height.round());
     }
+    _requestingFocus = true;
     await AudioHelper.requestFocus();
     await c.play();
+    _requestingFocus = false;
     if (!mounted) return;
     await NativePlayer.setPlaying(true);
     if (!mounted) return;
@@ -650,22 +687,26 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   Future<void> _togglePlay() async {
     final c = _controller;
-    if (c == null) return;
+    if (c == null || !c.value.isInitialized) return;
     final provider = context.read<AppProvider>();
     if (c.value.isPlaying) {
+      _requestingFocus = true;
       await c.pause();
+      _requestingFocus = false;
       _pausedByInterruption = false;
       WakelockPlus.disable();
     } else {
+      _requestingFocus = true;
       await AudioHelper.requestFocus();
       await c.play();
+      _requestingFocus = false;
       if (!provider.isBackgroundPlayEnabled) {
         WakelockPlus.enable();
       } else {
         WakelockPlus.disable();
       }
     }
-    setState(() {});
+    if (mounted) setState(() {});
     await _syncNativePlayback(forceBg: true);
     _armHide();
   }
@@ -943,6 +984,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     final player = GestureDetector(
       onTap: _toggleControls,
+      behavior: HitTestBehavior.translucent,
       onDoubleTapDown: (d) {
         final w = MediaQuery.sizeOf(context).width;
         if (d.localPosition.dx < w / 2) {
@@ -956,8 +998,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
         child: Stack(
           alignment: Alignment.center,
           children: [
+            // Video surface wrapped in its own tap detector
             if (_ready && c != null)
-              AspectRatio(aspectRatio: aspect, child: VideoPlayer(c))
+              GestureDetector(
+                onTap: _toggleControls,
+                child: AspectRatio(aspectRatio: aspect, child: VideoPlayer(c)),
+              )
             else
               AspectRatio(
                 aspectRatio: 16 / 9,
@@ -977,7 +1023,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
               ),
             if (_isBuffering || (!_ready && context.watch<AppProvider>().isPlayerLoading))
               const CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
-            if (_showControls) _controlsOverlay(playing, fullscreen),
+            // Controls overlay - wrapped to absorb taps so they don't bubble to parent GestureDetector
+            if (_showControls)
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () {}, // Absorb tap — child buttons handle their own taps
+                child: _controlsOverlay(playing, fullscreen),
+              ),
             if (_sponsorToast)
               Positioned(
                 bottom: fullscreen ? 72 : 56,
@@ -1724,11 +1776,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 color: c.surface,
                 borderRadius: BorderRadius.circular(14),
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    video!.description,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      video?.description ?? '',
                     maxLines: _descExpanded ? 1000 : 3,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
