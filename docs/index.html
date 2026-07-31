@@ -365,7 +365,7 @@
                 <a href="#download">Download</a>
                 <a href="https://github.com/Code-Stride/VibeTube" target="_blank">GitHub</a>
             </div>
-            <a href="https://github.com/Code-Stride/VibeTube/releases/latest/download/app-release.apk" class="btn btn-primary btn-sm">
+            <a href="https://github.com/Code-Stride/VibeTube/releases/latest" class="btn btn-primary btn-sm">
                 ⬇ Download
             </a>
         </div>
@@ -384,7 +384,7 @@
                     video downloads, SponsorBlock, and more — completely free.
                 </p>
                 <div class="hero-actions">
-                    <a href="https://github.com/Code-Stride/VibeTube/releases/latest/download/app-release.apk" class="btn btn-primary btn-lg">
+                    <a href="https://github.com/Code-Stride/VibeTube/releases/latest" class="btn btn-primary btn-lg">
                         ⬇ Download APK
                     </a>
                     <a href="https://github.com/Code-Stride/VibeTube" target="_blank" class="btn btn-outline btn-lg">
@@ -465,7 +465,7 @@
                     <p style="color:#B0B0B0;margin-bottom:16px">Built with Flutter • Uses InnerTube API • No Google account required</p>
                     
                     <div class="download-buttons">
-                        <a href="https://github.com/Code-Stride/VibeTube/releases/latest/download/app-release.apk" class="btn btn-primary btn-lg">
+                        <a href="https://github.com/Code-Stride/VibeTube/releases/latest" class="btn btn-primary btn-lg">
                             ⬇ Download APK
                         </a>
                         <a href="https://github.com/Code-Stride/VibeTube/releases" class="btn btn-outline btn-lg" target="_blank">
@@ -500,7 +500,7 @@
         </div>
     </section>
 
-    <a href="https://github.com/Code-Stride/VibeTube/releases/latest/download/app-release.apk" class="floating-download" id="floatingBtn">
+    <a href="https://github.com/Code-Stride/VibeTube/releases/latest" class="floating-download" id="floatingBtn">
         ⬇ Download APK
     </a>
 
@@ -515,5 +515,34 @@
             document.getElementById('floatingBtn').style.display = window.scrollY > 500 ? 'flex' : 'none';
         });
     </script>
+
+<script>
+async function resolveLatestApk() {
+  try {
+    const res = await fetch('https://api.github.com/repos/Code-Stride/VibeTube/releases/latest');
+    const data = await res.json();
+    const apk = (data.assets || []).find(a => a.name.toLowerCase().endsWith('.apk'));
+    if (apk) {
+      document.querySelectorAll('a.js-apk-download').forEach(a => {
+        a.href = apk.browser_download_url;
+      });
+      const ver = document.getElementById('latest-version');
+      if (ver) ver.textContent = data.tag_name || '';
+      const name = document.getElementById('latest-apk-name');
+      if (name) name.textContent = apk.name;
+    }
+  } catch (e) {
+    console.warn('Could not resolve latest APK', e);
+  }
+}
+document.querySelectorAll('a[href*="releases/latest"]').forEach(a => {
+  const text = (a.textContent || '').toLowerCase();
+  if (a.classList.contains('btn-primary') || a.classList.contains('floating-download') || text.includes('download') || text.includes('apk')) {
+    a.classList.add('js-apk-download');
+  }
+});
+resolveLatestApk();
+</script>
+
 </body>
 </html>
