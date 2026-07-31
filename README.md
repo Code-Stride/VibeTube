@@ -144,4 +144,4 @@ the Free Software Foundation, either version 3 of the License, or
 - **Issues:** https://github.com/Code-Stride/VibeTube/issues  
 - **Actions (CI):** https://github.com/Code-Stride/VibeTube/actions  
 
-Made with ❤️ by **BlazeNXT** / [Code-Stride](https://github.com/Code-Stride)
+Made with ❤️ by [**BlazeNXT**](https://github.com/blazenxt) / [Code-Stride](https://github.com/Code-Stride)
