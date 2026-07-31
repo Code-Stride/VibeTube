@@ -10,6 +10,7 @@ import '../services/caption_service.dart';
 
 class AppProvider extends ChangeNotifier {
   final InnerTubeClient _client = InnerTubeClient();
+  InnerTubeClient get client => _client;
   final StorageService storage = StorageService();
   final UpdateService updates = UpdateService();
   final DownloadService downloader = DownloadService();

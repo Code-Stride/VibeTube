@@ -12,6 +12,18 @@ and this project roughly follows [Semantic Versioning](https://semver.org/).
 - Voice search
 - Playlist support
 
+## [1.7.1] - 2026-07-31
+
+### Fixed
+- **Video playback**: InnerTube now uses 4 clients (IOS, ANDROID, MEDIACONNECT, WEB) in parallel for maximum stream availability. Added WEB client player fallback and updated client versions.
+- **Subscribe button**: Now toggles between Subscribe/Subscribed state.
+- **All analyze warnings**: 0 issues, 38 tests pass.
+
+### Changed
+- InnerTube client version updated to 2025.07.13
+- Better metadata merging from multiple clients
+- Version 1.7.1+16
+
 ## [1.7.0] - 2026-07-31
 
 ### Added

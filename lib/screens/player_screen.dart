@@ -71,6 +71,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   /// Pre-duck volume, restored when the interruption ends.
   double _preDuckVolume = 1.0;
   bool _watchLater = false;
+  bool _subscribed = false;
   String? _toastMsg;
   Timer? _toastTimer;
 
@@ -1697,9 +1698,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
             const SizedBox(width: 8),
             ElevatedButton(
               onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Subscriptions coming soon')),
-                );
+                _toggleSubscribe(channel);
               },
               style: ElevatedButton.styleFrom(
                 padding:
@@ -1709,7 +1708,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   borderRadius: BorderRadius.circular(20),
                 ),
               ),
-              child: const Text('Subscribe'),
+              child: Text(_subscribed ? 'Subscribed' : 'Subscribe'),
             ),
           ],
         ),
@@ -2233,6 +2232,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (!ok) {
       _toast(_pipSupported ? 'PiP unavailable' : 'PiP not supported');
     }
+  }
+
+  void _toggleSubscribe(String channel) {
+    setState(() => _subscribed = !_subscribed);
+    _toast(_subscribed ? "Subscribed to $channel" : "Unsubscribed");
   }
 
   Future<void> _toggleLike() async {
