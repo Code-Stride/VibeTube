@@ -1,5 +1,16 @@
-# Copy this file to gradle.properties (local, not committed) and fill in your values.
-# NEVER commit real signing credentials to version control.
+# Copy this file to android/gradle.properties (local, never committed) and
+# fill in your values. NEVER commit real signing credentials.
+#
+# The release keystore is NOT stored in this repository. To build a signed
+# release locally, obtain vibetube-release.jks from a maintainer and place it
+# at android/app/vibetube-release.jks (it is gitignored).
+#
+# CI does not use this file: it decodes the keystore from the
+# VIBETUBE_KEYSTORE_BASE64 secret and reads the passwords below from the
+# matching repository secrets.
+#
+# Without a keystore the release build falls back to debug signing, which is
+# fine for local testing but must never be published.
 VIBETUBE_STORE_PASSWORD=your_keystore_password_here
 VIBETUBE_KEY_ALIAS=your_key_alias_here
 VIBETUBE_KEY_PASSWORD=your_key_password_here

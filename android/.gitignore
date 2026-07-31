@@ -10,5 +10,7 @@ GeneratedPluginRegistrant.java
 key.properties
 **/*.keystore
 **/keystore.jks
-# Shared CI/sideload key (see README security notes)
-!**/vibetube-release.jks
+# Signing keys must never be committed. The release keystore is supplied to
+# CI through the VIBETUBE_KEYSTORE_BASE64 secret and decoded at build time.
+**/vibetube-release.jks
+*.jks

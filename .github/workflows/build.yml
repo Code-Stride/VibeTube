@@ -42,22 +42,31 @@ jobs:
       - name: Test
         run: flutter test
 
-      - name: Verify release keystore
+      - name: Decode release keystore
         env:
-          VIBETUBE_STORE_PASSWORD: ${{ secrets.VIBETUBE_STORE_PASSWORD || 'vibetube2026' }}
+          KEYSTORE_BASE64: ${{ secrets.VIBETUBE_KEYSTORE_BASE64 }}
+          VIBETUBE_STORE_PASSWORD: ${{ secrets.VIBETUBE_STORE_PASSWORD }}
         run: |
-          ls -la android/app/vibetube-release.jks
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::error::VIBETUBE_KEYSTORE_BASE64 secret is not set."
+            echo "Add it with: base64 -w0 vibetube-release.jks"
+            exit 1
+          fi
+          echo "$KEYSTORE_BASE64" | base64 -d > android/app/vibetube-release.jks
+          # Confirm the keystore decoded and the password opens it, without
+          # printing any secret material into the log.
           keytool -list -keystore android/app/vibetube-release.jks \
-            -storepass "$VIBETUBE_STORE_PASSWORD" | head -20
+            -storepass "$VIBETUBE_STORE_PASSWORD" > /dev/null
+          echo "Keystore decoded and verified."
 
       - name: Build APK
         env:
-          # Gradle reads these for signingConfigs.release. Configure repository
-          # secrets to sign with your own credentials; the fallbacks match the
-          # keystore committed in this repo so CI stays green without them.
-          VIBETUBE_STORE_PASSWORD: ${{ secrets.VIBETUBE_STORE_PASSWORD || 'vibetube2026' }}
-          VIBETUBE_KEY_ALIAS: ${{ secrets.VIBETUBE_KEY_ALIAS || 'vibetube' }}
-          VIBETUBE_KEY_PASSWORD: ${{ secrets.VIBETUBE_KEY_PASSWORD || 'vibetube2026' }}
+          # Gradle reads these in signingConfigs.release. No fallbacks: a
+          # missing secret must fail the build rather than silently produce
+          # an unsigned or debug-signed APK.
+          VIBETUBE_STORE_PASSWORD: ${{ secrets.VIBETUBE_STORE_PASSWORD }}
+          VIBETUBE_KEY_ALIAS: ${{ secrets.VIBETUBE_KEY_ALIAS }}
+          VIBETUBE_KEY_PASSWORD: ${{ secrets.VIBETUBE_KEY_PASSWORD }}
         run: flutter build apk --release
 
       - name: Rename APK
@@ -65,6 +74,10 @@ jobs:
           mkdir -p dist
           cp build/app/outputs/flutter-apk/app-release.apk dist/VibeTube-release.apk
           ls -lah dist/
+
+      - name: Remove decoded keystore
+        if: always()
+        run: rm -f android/app/vibetube-release.jks
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
