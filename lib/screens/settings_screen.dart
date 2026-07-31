@@ -633,8 +633,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ? const Icon(Icons.check, color: AppTheme.primary)
                       : null,
                   onTap: () {
-                    p.region = r;
-                    p.notifyListeners();
+                    p.setRegion(r);
                     Navigator.pop(ctx);
                   },
                 )),

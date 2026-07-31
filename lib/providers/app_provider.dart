@@ -544,6 +544,12 @@ class AppProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setRegion(String r) {
+    region = r;
+    _persistSettings();
+    notifyListeners();
+  }
+
   List<SponsorSegment> get activeSponsorSegments {
     if (!isSponsorBlockEnabled) return [];
     return sponsorSegments.where((s) => sbEnabled(s.category)).toList();
