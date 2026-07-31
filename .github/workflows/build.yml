@@ -78,6 +78,11 @@ jobs:
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    # Default GITHUB_TOKEN is read-only in this repo, which made
+    # action-gh-release fail with "Resource not accessible by integration"
+    # (403). Creating a release and uploading the APK needs contents: write.
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout code
