@@ -10,6 +10,43 @@ and this project roughly follows [Semantic Versioning](https://semver.org/).
 ### Planned
 - Further video quality selection polish
 
+## [1.5.1] - 2026-07-31
+
+### Fixed
+- **Mini player crash**: resuming a video and leaving without minimising
+  disposed the controller the mini bar still held, crashing on the next
+  frame. Controller ownership is now tracked explicitly.
+- **Background service crash**: `startForeground()` was only reached from
+  one branch of `onStartCommand`, so Android 8+ could kill the app with
+  `ForegroundServiceDidNotStartInTimeException`.
+- **Picture-in-Picture**: the full UI and control overlay rendered inside
+  the tiny PiP window; it now shows only the video surface.
+- **Silent playback**: collapsing the full player left audio running with
+  no mini bar and no way to control it.
+- **Lock-screen controls**: pausing from the mini player tore down the
+  MediaSession, so playback could not be resumed from the notification.
+- **Fake downloads**: an HLS/DASH manifest could be saved as `.mp4`,
+  reporting "Download complete" for a file that never plays. Manifests
+  and live streams are now rejected up front.
+- **Deep links**: YouTube URLs opened from other apps were lost on cold
+  start due to a hardcoded 800 ms delay; links are now buffered natively
+  and delivered when the Dart handler is ready.
+- **Update prompt loop**: `1.5.0` compared as newer than `1.5.0+11`, and
+  a `v` anywhere in a release tag was stripped.
+- Removed `BuildContext` use across async gaps in the player.
+
+### Changed
+- Download progress notifications are throttled instead of firing once
+  per network chunk, and report sensibly when the server sends no
+  `Content-Length`.
+- `compileSdk` 35 -> 36 (required by androidx.core 1.17 /
+  androidx.browser 1.9). `targetSdk` stays at 35.
+
+### CI
+- APK workflow was failing on every push at `checkReleaseAarMetadata`;
+  fixed alongside the signing credentials it never passed through.
+- `flutter analyze` and `flutter test` now gate the build.
+
 ## [1.5.0] - 2026-07-30
 
 ### Fixed
