@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Open in VibeTube</title>
+<!-- Served by GitHub Pages for /VibeTube/w/<id>, which has no real file. -->
+<meta name="robots" content="noindex">
+
+<meta property="og:title" content="Watch on VibeTube">
+<meta property="og:description" content="Open this video in VibeTube.">
+<meta property="og:type" content="video.other">
+<meta name="theme-color" content="#12141a">
+
+<style>
+  :root { --bg:#12141a; --surface:#1a1d26; --text:#e8eaf0; --muted:#8b93a7;
+          --primary:#ff4d2e; --border:#2a2f3d; }
+  * { box-sizing:border-box; }
+  body { margin:0; min-height:100dvh; background:var(--bg); color:var(--text);
+         font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+         display:grid; place-items:center; padding:24px; }
+  .card { width:100%; max-width:400px; text-align:center; }
+  .logo { width:64px; height:64px; border-radius:50%; margin:0 auto 18px;
+          background:linear-gradient(135deg,var(--primary),#ff8a5b);
+          display:grid; place-items:center; }
+  .logo svg { width:32px; height:32px; fill:#fff; }
+  h1 { font-size:21px; margin:0 0 6px; }
+  p  { color:var(--muted); font-size:14px; line-height:1.5; margin:0 0 22px; }
+  .thumb { width:100%; aspect-ratio:16/9; border-radius:12px; margin-bottom:20px;
+           background:#000 center/cover no-repeat; border:1px solid var(--border);
+           display:none; }
+  .btn { display:block; width:100%; padding:14px 18px; border-radius:26px;
+         font-size:15px; font-weight:700; text-decoration:none; border:0;
+         cursor:pointer; margin-bottom:10px; font-family:inherit; }
+  .primary { background:var(--primary); color:#fff; }
+  .ghost { background:transparent; color:var(--text); border:1px solid var(--border); }
+  .hint { font-size:12px; color:var(--muted); margin-top:16px; }
+  .hint code { background:var(--surface); padding:2px 6px; border-radius:5px;
+               font-size:11px; word-break:break-all; }
+  .err { color:var(--primary); font-size:13px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo" aria-hidden="true">
+    <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+  </div>
+
+  <h1 id="title">Opening in VibeTube…</h1>
+  <p id="sub">If the app doesn’t open automatically, tap below.</p>
+
+  <div class="thumb" id="thumb"></div>
+
+  <a class="btn primary" id="open" href="#">Open in VibeTube</a>
+  <a class="btn ghost" id="get"
+     href="https://github.com/Code-Stride/VibeTube/releases/latest">
+     Get VibeTube</a>
+
+  <p class="hint" id="hint"></p>
+</div>
+
+<script>
+(function () {
+  // /VibeTube/w/<id> — also accept ?v=<id> so hand-written links work.
+  var parts = location.pathname.split('/').filter(Boolean);
+  var i = parts.indexOf('w');
+  var id = (i !== -1 && parts[i + 1]) ? parts[i + 1]
+         : new URLSearchParams(location.search).get('v') || '';
+
+  var valid = /^[A-Za-z0-9_-]{11}$/.test(id);
+  var titleEl = document.getElementById('title');
+  var subEl   = document.getElementById('sub');
+  var openEl  = document.getElementById('open');
+  var hintEl  = document.getElementById('hint');
+
+  if (!valid) {
+    // A genuine 404 rather than a watch link.
+    titleEl.textContent = 'Page not found';
+    subEl.innerHTML = '<span class="err">That link doesn\u2019t point to a ' +
+                      'video.</span>';
+    openEl.style.display = 'none';
+    document.getElementById('get').textContent = 'Go to VibeTube';
+    document.getElementById('get').href =
+      'https://github.com/Code-Stride/VibeTube';
+    return;
+  }
+
+  // Thumbnail gives the page something to show while the app launches.
+  var thumb = document.getElementById('thumb');
+  thumb.style.backgroundImage =
+    'url("https://i.ytimg.com/vi/' + id + '/hqdefault.jpg")';
+  thumb.style.display = 'block';
+
+  var deep = 'vibetube://watch?v=' + id;
+  openEl.href = deep;
+  hintEl.innerHTML = 'Video ID <code>' + id + '</code>';
+
+  // On Android the App Link should have opened the app before this page ever
+  // rendered. Reaching here usually means it isn't installed (or the link was
+  // opened in an in-app browser that bypasses App Links), so try the custom
+  // scheme once, then settle into the install prompt.
+  var isAndroid = /android/i.test(navigator.userAgent);
+  if (isAndroid) {
+    var t = setTimeout(function () {
+      titleEl.textContent = 'VibeTube isn\u2019t installed';
+      subEl.textContent = 'Install VibeTube to watch this video in the app.';
+    }, 1500);
+    // If we get backgrounded, the app opened — cancel the fallback copy.
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden) clearTimeout(t);
+    });
+    location.href = deep;
+  } else {
+    titleEl.textContent = 'Watch in VibeTube';
+    subEl.textContent = 'VibeTube is an Android app. Open this link on your ' +
+                        'phone, or install it below.';
+  }
+})();
+</script>
+</body>
+</html>

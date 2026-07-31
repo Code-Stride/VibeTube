@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vibetube/models/video.dart';
+import 'package:vibetube/utils/share_links.dart';
 
 void main() {
   group('Video model', () {
@@ -271,6 +272,70 @@ void main() {
     test('pre-release suffix is ignored', () {
       expect(parse('1.6.0-beta'), [1, 6, 0]);
       expect(isNewer('1.6.0-beta', '1.5.0'), true);
+    });
+  });
+
+  group('ShareLinks', () {
+    const id = 'dQw4w9WgXcQ';
+
+    test('shares a VibeTube link, not a YouTube one', () {
+      final link = ShareLinks.watch(id);
+      expect(link, contains(ShareLinks.host));
+      expect(link, endsWith('/w/$id'));
+      expect(link, isNot(contains('youtu')));
+    });
+
+    test('share text keeps the title above the link', () {
+      final text = ShareLinks.shareText(id, 'Never Gonna Give You Up');
+      expect(text, startsWith('Never Gonna Give You Up'));
+      expect(text, contains(ShareLinks.watch(id)));
+    });
+
+    test('share text is just the link when there is no title', () {
+      expect(ShareLinks.shareText(id, '   '), ShareLinks.watch(id));
+    });
+
+    test('round-trips its own watch link', () {
+      expect(ShareLinks.parseVideoId(Uri.parse(ShareLinks.watch(id))), id);
+    });
+
+    test('parses the custom scheme', () {
+      expect(ShareLinks.parseVideoId(Uri.parse('vibetube://watch?v=$id')), id);
+      // Bare form must go through the string helper: Uri.parse lowercases the
+      // authority and would corrupt the id.
+      expect(ShareLinks.parseVideoIdFromString('vibetube://$id'), id);
+      expect(ShareLinks.parseVideoIdFromString('vibetube://watch?v=$id'), id);
+    });
+
+    test('still accepts YouTube links shared from other apps', () {
+      for (final u in [
+        'https://youtu.be/$id',
+        'https://www.youtube.com/watch?v=$id',
+        'https://m.youtube.com/watch?v=$id&t=42s',
+        'https://www.youtube.com/shorts/$id',
+        'https://www.youtube.com/embed/$id',
+        'https://www.youtube.com/live/$id',
+      ]) {
+        expect(ShareLinks.parseVideoId(Uri.parse(u)), id, reason: u);
+      }
+    });
+
+    test('rejects malformed or unrelated links', () {
+      for (final u in [
+        'https://example.com/w/$id',
+        'https://youtu.be/tooshort',
+        'https://www.youtube.com/watch?v=way_too_long_id_here',
+        'https://code-stride.github.io/VibeTube/',
+        'https://www.youtube.com/feed/subscriptions',
+      ]) {
+        expect(ShareLinks.parseVideoId(Uri.parse(u)), isNull, reason: u);
+      }
+    });
+
+    test('ids with hyphens and underscores survive', () {
+      const tricky = 'a-b_c1D2e3F';
+      expect(ShareLinks.parseVideoId(Uri.parse(ShareLinks.watch(tricky))),
+          tricky);
     });
   });
 }

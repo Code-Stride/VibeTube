@@ -39,6 +39,31 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+            <!-- VibeTube share links. autoVerify makes Android check
+                 https://code-stride.github.io/.well-known/assetlinks.json and,
+                 on success, open these straight in the app with no chooser.
+                 Keep the host in sync with ShareLinks.host and assetlinks. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data
+                    android:scheme="https"
+                    android:host="code-stride.github.io"
+                    android:pathPrefix="/VibeTube/w/"/>
+            </intent-filter>
+
+            <!-- Private scheme: accepted if something hands us one, but never
+                 shared, since messaging apps don't linkify it. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="vibetube"/>
+            </intent-filter>
+
+            <!-- YouTube URLs opened from other apps. Not autoVerify: we don't
+                 own these domains, so this stays an opt-in chooser entry. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW"/>
                 <category android:name="android.intent.category.DEFAULT"/>

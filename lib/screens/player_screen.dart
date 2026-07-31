@@ -10,6 +10,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import '../models/video.dart';
 import '../providers/app_provider.dart';
 import '../utils/theme.dart';
+import '../utils/share_links.dart';
 import '../widgets/video_card.dart';
 import '../services/native_player.dart';
 import '../services/audio_helper.dart';
@@ -1472,7 +1473,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 label: 'Share',
                 onTap: () {
                   Share.share(
-                    'https://youtu.be/${widget.videoId}',
+                    ShareLinks.shareText(widget.videoId, title),
                     subject: title,
                   );
                 },
@@ -2158,7 +2159,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final title = context.read<AppProvider>().currentVideo?.title ??
         widget.preview?.title ??
         'VibeTube';
-    await Share.share('https://youtu.be/${widget.videoId}', subject: title);
+    await Share.share(
+      ShareLinks.shareText(widget.videoId, title),
+      subject: title,
+    );
   }
 
   Future<void> _downloadCurrent() async {

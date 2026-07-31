@@ -10,6 +10,12 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
+    companion object {
+        /** Must match ShareLinks.host and the App Links intent-filter. */
+        const val LINK_HOST = "code-stride.github.io"
+        const val APP_SCHEME = "vibetube"
+    }
+
     private val channelName = "com.blazenxt.vibetube/player"
     private val deepLinkChannelName = "com.blazenxt.vibetube/deeplink"
     private var methodChannel: MethodChannel? = null
@@ -167,25 +173,39 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    private val idPattern = Regex("^[A-Za-z0-9_-]{11}$")
+
+    private fun validId(id: String?): String? =
+        id?.trim()?.takeIf { idPattern.matches(it) }
+
     private fun extractVideoId(uri: android.net.Uri): String? {
+        // vibetube://watch?v=ID (also tolerate vibetube://ID)
+        if (uri.scheme.equals(APP_SCHEME, ignoreCase = true)) {
+            return validId(uri.getQueryParameter("v"))
+                ?: validId(uri.host)
+                ?: validId(uri.pathSegments?.lastOrNull())
+        }
+
         val host = uri.host?.lowercase() ?: return null
+        val path = uri.pathSegments?.filter { it.isNotEmpty() } ?: emptyList()
+
+        // Our own share link: https://<LINK_HOST>/VibeTube/w/ID
+        if (host == LINK_HOST) {
+            val i = path.indexOf("w")
+            if (i != -1 && i + 1 < path.size) return validId(path[i + 1])
+            return validId(uri.getQueryParameter("v"))
+        }
+
         // youtu.be/VIDEO_ID
         if (host == "youtu.be") {
-            val id = uri.pathSegments.firstOrNull()
-            if (id != null && id.length == 11) return id
+            return validId(path.firstOrNull())
         }
-        // youtube.com/watch?v=VIDEO_ID or /shorts/VIDEO_ID
-        if (host.contains("youtube.com")) {
-            val v = uri.getQueryParameter("v")
-            if (v != null && v.length == 11) return v
-            val path = uri.pathSegments
-            if (path.size >= 2 && path[0] == "shorts") {
-                val id = path[1]
-                if (id.length == 11) return id
-            }
-            if (path.size >= 2 && path[0] == "embed") {
-                val id = path[1]
-                if (id.length == 11) return id
+
+        // youtube.com/watch?v=ID, /shorts/ID, /embed/ID, /live/ID
+        if (host.endsWith("youtube.com")) {
+            validId(uri.getQueryParameter("v"))?.let { return it }
+            if (path.size >= 2 && path[0] in setOf("shorts", "embed", "live", "v")) {
+                return validId(path[1])
             }
         }
         return null
