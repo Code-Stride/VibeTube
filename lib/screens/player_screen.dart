@@ -758,7 +758,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         await _minimizeToMiniPlayer();
       },
       child: Scaffold(
-      backgroundColor: AppTheme.background,
+      backgroundColor: VibeColors.of(context).background,
       body: Consumer<AppProvider>(
         builder: (context, provider, _) {
           final video = provider.currentVideo;
@@ -797,7 +797,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
             Text(
               provider.playerError ?? 'Playback error',
               textAlign: TextAlign.center,
-              style: const TextStyle(color: AppTheme.textSecondary),
+              style: TextStyle(color: VibeColors.of(context).textSecondary),
             ),
             const SizedBox(height: 16),
             ElevatedButton(
@@ -892,13 +892,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   ),
                 ),
               ),
-            // Sponsor markers on progress
-            if (_ready)
+            // Slim seek indicator while the controls are hidden. When they are
+            // visible the full slider lives inside the bottom cluster, so
+            // drawing it here too would stack two bars on the same strip.
+            if (_ready && !_showControls)
               Positioned(
                 left: 0,
                 right: 0,
                 bottom: 0,
-                child: _progressBar(),
+                child: _idleProgressBar(),
               ),
             if (_toastMsg != null)
               Positioned(
@@ -945,229 +947,335 @@ class _PlayerScreenState extends State<PlayerScreen> {
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
             colors: [
-              Colors.black.withValues(alpha: 0.65),
+              Colors.black.withValues(alpha: 0.55),
               Colors.transparent,
               Colors.transparent,
-              Colors.black.withValues(alpha: 0.75),
+              Colors.black.withValues(alpha: 0.82),
             ],
-            stops: const [0, 0.25, 0.6, 1],
+            // Bottom scrim starts higher because the cluster below is taller
+            // than the title bar above it.
+            stops: const [0, 0.28, 0.5, 1],
           ),
         ),
         child: Column(
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(4, 4, 8, 0),
-              child: Row(
-                children: [
-                  IconButton(
-                    icon: Icon(
-                      fullscreen ? Icons.fullscreen_exit : Icons.arrow_back,
-                      color: Colors.white,
-                    ),
-                    onPressed: () async {
-                      if (fullscreen) {
-                        await _exitFullscreen();
-                      } else {
-                        await _minimizeToMiniPlayer();
-                      }
-                    },
-                  ),
-                  Expanded(
-                    child: Text(
-                      context.watch<AppProvider>().currentVideo?.title ??
-                          widget.preview?.title ??
-                          '',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
+            SizedBox(
+              height: 48,
+              child: Padding(
+                padding: const EdgeInsets.only(left: 2, right: 10),
+                child: Row(
+                  children: [
+                    IconButton(
+                      tooltip: fullscreen ? 'Exit fullscreen' : 'Minimise',
+                      icon: Icon(
+                        fullscreen
+                            ? Icons.fullscreen_exit
+                            : Icons.keyboard_arrow_down_rounded,
                         color: Colors.white,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 14,
+                        size: fullscreen ? 24 : 30,
                       ),
+                      onPressed: () async {
+                        if (fullscreen) {
+                          await _exitFullscreen();
+                        } else {
+                          await _minimizeToMiniPlayer();
+                        }
+                      },
                     ),
-                  ),
-                  if (context.watch<AppProvider>().isSponsorBlockEnabled)
-                    Container(
-                      margin: const EdgeInsets.only(right: 4),
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: AppTheme.sbSponsor.withValues(alpha: 0.9),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: const Text(
-                        'SB',
-                        style: TextStyle(
-                          color: Colors.black,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w800,
+                    Expanded(
+                      child: Text(
+                        context.watch<AppProvider>().currentVideo?.title ??
+                            widget.preview?.title ??
+                            '',
+                        maxLines: fullscreen ? 1 : 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13.5,
+                          height: 1.25,
+                          shadows: [
+                            Shadow(blurRadius: 6, color: Colors.black54),
+                          ],
                         ),
                       ),
                     ),
-                ],
+                    if (context.watch<AppProvider>().isSponsorBlockEnabled)
+                      Padding(
+                        padding: const EdgeInsets.only(left: 8),
+                        child: Tooltip(
+                          message: 'SponsorBlock active',
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 7, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: AppTheme.sbSponsor.withValues(alpha: 0.9),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: const Text(
+                              'SB',
+                              style: TextStyle(
+                                color: Colors.black,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 0.3,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
               ),
             ),
             const Spacer(),
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                IconButton(
-                  iconSize: 36,
-                  color: Colors.white,
-                  onPressed: () => _seekBy(-10),
-                  icon: const Icon(Icons.replay_10),
+                _centreBtn(Icons.replay_10, 'Back 10 seconds',
+                    () => _seekBy(-10), 30),
+                const SizedBox(width: 28),
+                _centreBtn(
+                  playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                  playing ? 'Pause' : 'Play',
+                  _togglePlay,
+                  40,
+                  primary: true,
                 ),
-                const SizedBox(width: 18),
-                IconButton(
-                  iconSize: 64,
-                  color: Colors.white,
-                  onPressed: _togglePlay,
-                  icon: Icon(
-                    playing
-                        ? Icons.pause_circle_filled
-                        : Icons.play_circle_filled,
-                  ),
-                ),
-                const SizedBox(width: 18),
-                IconButton(
-                  iconSize: 36,
-                  color: Colors.white,
-                  onPressed: () => _seekBy(10),
-                  icon: const Icon(Icons.forward_10),
-                ),
+                const SizedBox(width: 28),
+                _centreBtn(Icons.forward_10, 'Forward 10 seconds',
+                    () => _seekBy(10), 30),
               ],
             ),
             const Spacer(),
-            // Time + feature controls (YouTube-style)
+            // Bottom cluster: scrubber, then time + transport, then actions.
+            // Each row has one job so the controls stop reading as one blob.
             Padding(
-              padding: const EdgeInsets.fromLTRB(6, 0, 4, 10),
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
               child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Row(
-                    children: [
-                      Text(
-                        detailsIsLive
-                            ? 'LIVE'
-                            : '${_fmt(_position)} / ${_fmt(_duration)}',
-                        style: TextStyle(
-                          color: detailsIsLive
-                              ? const Color(0xFFFF5555)
-                              : Colors.white,
-                          fontSize: 12,
-                          fontWeight: detailsIsLive
-                              ? FontWeight.w800
-                              : FontWeight.w500,
-                        ),
-                      ),
-                      const Spacer(),
-                      _ctrlIcon(
-                        _muted ? Icons.volume_off : Icons.volume_up,
-                        'Mute',
-                        () => _toggleMute(),
-                      ),
-                      _ctrlIcon(
-                        _looping ? Icons.repeat_one : Icons.repeat,
-                        'Loop',
-                        () => _toggleLoop(),
-                        active: _looping,
-                      ),
-                      TextButton(
-                        onPressed: _showSpeedSheet,
-                        child: Text(
-                          '${_speed == _speed.roundToDouble() ? _speed.toInt() : _speed}x',
-                          style: const TextStyle(
-                              color: Colors.white, fontSize: 13),
-                        ),
-                      ),
-                      if (!detailsIsLive)
-                        TextButton(
-                          onPressed: _showQualitySheet,
-                          child: Text(
-                            _quality.replaceAll(' (HLS)', ''),
-                            style: const TextStyle(
-                                color: Colors.white, fontSize: 13),
-                          ),
-                        ),
-                      _ctrlIcon(
-                        Icons.picture_in_picture_alt_outlined,
-                        'PiP',
-                        () => _enterPipIfPlaying(),
-                      ),
-                      _ctrlIcon(
-                        fullscreen
-                            ? Icons.fullscreen_exit
-                            : Icons.fullscreen,
-                        'Fullscreen',
-                        () async {
-                          if (fullscreen) {
-                            await _exitFullscreen();
-                          } else {
-                            await _enterFullscreen();
-                          }
-                        },
-                      ),
-                    ],
-                  ),
-                  // Secondary actions row
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
+                  // 1. Scrubber sits directly under the video, full width.
+                  if (_ready && !detailsIsLive) _progressBar(),
+
+                  // 2. Elapsed time on the left, playback settings on the
+                  //    right — the controls that change *how* it plays.
+                  SizedBox(
+                    height: 34,
                     child: Row(
                       children: [
-                        _chipBtn(Icons.replay_10, '-10s', () => _seekBy(-10)),
-                        _chipBtn(Icons.forward_10, '+10s', () => _seekBy(10)),
-                        _chipBtn(
-                          Icons.skip_next,
-                          'Next',
-                          _playNextRelated,
+                        if (detailsIsLive)
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                width: 7,
+                                height: 7,
+                                decoration: const BoxDecoration(
+                                  color: Color(0xFFFF3B30),
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              const Text(
+                                'LIVE',
+                                style: TextStyle(
+                                  color: Color(0xFFFF5555),
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 0.4,
+                                ),
+                              ),
+                            ],
+                          )
+                        else
+                          Text(
+                            '${_fmt(_position)} / ${_fmt(_duration)}',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                              fontFeatures: [FontFeature.tabularFigures()],
+                            ),
+                          ),
+                        const Spacer(),
+                        _ctrlIcon(
+                          _muted ? Icons.volume_off : Icons.volume_up,
+                          'Mute',
+                          _toggleMute,
+                          active: _muted,
                         ),
-                        _chipBtn(
-                          _liked ? Icons.thumb_up : Icons.thumb_up_outlined,
-                          'Like',
-                          _toggleLike,
-                          active: _liked,
+                        _ctrlIcon(
+                          _looping ? Icons.repeat_one : Icons.repeat,
+                          'Loop',
+                          _toggleLoop,
+                          active: _looping,
                         ),
-                        _chipBtn(
-                          Icons.thumb_down_outlined,
-                          'Dislike',
-                          _showDislikes,
-                        ),
-                        _chipBtn(Icons.share_outlined, 'Share', _shareVideo),
-                        _chipBtn(
-                          _watchLater
-                              ? Icons.watch_later
-                              : Icons.watch_later_outlined,
-                          'Save',
-                          _toggleWatchLater,
-                          active: _watchLater,
-                        ),
-                        _chipBtn(
-                          Icons.download_outlined,
-                          'Download',
-                          _downloadCurrent,
-                        ),
-                        _chipBtn(
-                          Icons.closed_caption_outlined,
-                          'CC',
-                          () => _toast('Captions coming soon'),
-                        ),
-                        _chipBtn(
-                          Icons.headphones,
-                          'Audio',
-                          _audioOnlyMode,
-                        ),
-                        _chipBtn(
-                          Icons.settings_outlined,
-                          'More',
-                          _showMoreSheet,
+                        _pillBtn(_speedLabel, _showSpeedSheet),
+                        if (!detailsIsLive)
+                          _pillBtn(
+                            _quality.replaceAll(' (HLS)', ''),
+                            _showQualitySheet,
+                          ),
+                        if (_pipSupported)
+                          _ctrlIcon(
+                            Icons.picture_in_picture_alt_outlined,
+                            'PiP',
+                            _enterPipIfPlaying,
+                          ),
+                        _ctrlIcon(
+                          fullscreen
+                              ? Icons.fullscreen_exit
+                              : Icons.fullscreen,
+                          fullscreen ? 'Exit fullscreen' : 'Fullscreen',
+                          () async {
+                            if (fullscreen) {
+                              await _exitFullscreen();
+                            } else {
+                              await _enterFullscreen();
+                            }
+                          },
                         ),
                       ],
                     ),
                   ),
+
+                  // 3. Actions on the video itself. Hidden in fullscreen,
+                  //    where the same actions are a swipe away in the info
+                  //    pane and screen space is better spent on the picture.
+                  if (!fullscreen) ...[
+                    const SizedBox(height: 2),
+                    SizedBox(
+                      height: 34,
+                      child: ListView(
+                        scrollDirection: Axis.horizontal,
+                        padding: EdgeInsets.zero,
+                        children: [
+                          _chipBtn(Icons.skip_next, 'Next', _playNextRelated),
+                          _chipBtn(
+                            _liked ? Icons.thumb_up : Icons.thumb_up_outlined,
+                            'Like',
+                            _toggleLike,
+                            active: _liked,
+                          ),
+                          _chipBtn(
+                            Icons.thumb_down_outlined,
+                            'Dislike',
+                            _showDislikes,
+                          ),
+                          _chipBtn(Icons.share_outlined, 'Share', _shareVideo),
+                          _chipBtn(
+                            _watchLater
+                                ? Icons.watch_later
+                                : Icons.watch_later_outlined,
+                            'Save',
+                            _toggleWatchLater,
+                            active: _watchLater,
+                          ),
+                          _chipBtn(
+                            Icons.download_outlined,
+                            'Download',
+                            _downloadCurrent,
+                          ),
+                          _chipBtn(
+                            Icons.closed_caption_outlined,
+                            'CC',
+                            () => _toast('Captions coming soon'),
+                          ),
+                          _chipBtn(Icons.headphones, 'Audio', _audioOnlyMode),
+                          _chipBtn(
+                            Icons.settings_outlined,
+                            'More',
+                            _showMoreSheet,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  /// Circular transport button with a scrim so the glyph stays readable
+  /// over bright frames.
+  Widget _centreBtn(
+    IconData icon,
+    String tip,
+    VoidCallback onTap,
+    double size, {
+    bool primary = false,
+  }) {
+    final diameter = primary ? 64.0 : 48.0;
+    return Tooltip(
+      message: tip,
+      child: Material(
+        color: Colors.black.withValues(alpha: primary ? 0.38 : 0.28),
+        shape: const CircleBorder(),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          customBorder: const CircleBorder(),
+          child: SizedBox(
+            width: diameter,
+            height: diameter,
+            child: Icon(icon, color: Colors.white, size: size),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Compact text button used for speed / quality in the control row.
+  Widget _pillBtn(String label, VoidCallback onTap) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 2),
+      child: Material(
+        color: Colors.white.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(14),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(14),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  String get _speedLabel {
+    final s = _speed == _speed.roundToDouble()
+        ? _speed.toInt().toString()
+        : _speed.toString();
+    return '${s}x';
+  }
+
+  /// Thin, non-interactive progress line shown while the controls are
+  /// hidden, so the user still has a sense of position without a full slider
+  /// (and without a stray thumb floating over the video).
+  Widget _idleProgressBar() {
+    final total = _duration.inMilliseconds;
+    if (total <= 0) return const SizedBox.shrink();
+    final value = (_position.inMilliseconds / total).clamp(0.0, 1.0);
+    return IgnorePointer(
+      child: LinearProgressIndicator(
+        value: value,
+        minHeight: 2.5,
+        backgroundColor: Colors.white24,
+        valueColor: const AlwaysStoppedAnimation(AppTheme.primary),
       ),
     );
   }
@@ -1180,33 +1288,43 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final segments = context.read<AppProvider>().activeSponsorSegments;
 
     return SizedBox(
-      height: 18,
+      height: 24,
       child: Stack(
-        alignment: Alignment.bottomCenter,
+        alignment: Alignment.center,
         children: [
-          // sponsor markers
-          if (_duration.inMilliseconds > 0)
+          // Sponsor segments, drawn on the same centre line as the track so
+          // they read as part of the bar rather than a stripe above it.
+          if (_duration.inMilliseconds > 0 && segments.isNotEmpty)
             Positioned.fill(
-              child: Padding(
-                padding: const EdgeInsets.only(bottom: 6),
-                child: LayoutBuilder(
-                  builder: (context, box) {
-                    return Stack(
-                      children: segments.map((s) {
-                        final left =
-                            (s.start * 1000 / total) * box.maxWidth;
-                        final width =
-                            ((s.end - s.start) * 1000 / total) * box.maxWidth;
-                        return Positioned(
-                          left: left.clamp(0, box.maxWidth),
-                          width: width.clamp(2, box.maxWidth),
-                          top: 10,
-                          height: 3,
-                          child: Container(color: AppTheme.sbSponsor),
-                        );
-                      }).toList(),
-                    );
-                  },
+              child: IgnorePointer(
+                child: Padding(
+                  // Match the Slider's own horizontal inset so markers line
+                  // up with the track instead of drifting at the edges.
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  child: LayoutBuilder(
+                    builder: (context, box) {
+                      return Stack(
+                        alignment: Alignment.center,
+                        children: segments.map((s) {
+                          final left =
+                              (s.start * 1000 / total) * box.maxWidth;
+                          final width =
+                              ((s.end - s.start) * 1000 / total) * box.maxWidth;
+                          return Positioned(
+                            left: left.clamp(0, box.maxWidth),
+                            width: width.clamp(2, box.maxWidth),
+                            height: 3,
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                color: AppTheme.sbSponsor,
+                                borderRadius: BorderRadius.circular(2),
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      );
+                    },
+                  ),
                 ),
               ),
             ),
@@ -1214,10 +1332,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
             data: SliderTheme.of(context).copyWith(
               trackHeight: 3,
               thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-              overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+              overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
               activeTrackColor: AppTheme.primary,
               inactiveTrackColor: Colors.white24,
               thumbColor: AppTheme.primary,
+              trackShape: const RoundedRectSliderTrackShape(),
             ),
             child: Slider(
               value: value.isNaN ? 0 : value,
@@ -1249,13 +1368,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
     VideoDetails? video,
     Video? preview,
   ) {
+    final c = VibeColors.of(context);
     final title = video?.title ?? preview?.title ?? 'Loading…';
     final channel = video?.channelName ?? preview?.channelName ?? '';
     final views = video?.formattedViewCount ?? preview?.formattedViewCount ?? '0';
     final published = video?.publishedAt ?? preview?.publishedAt ?? '';
 
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 32),
       children: [
         if (video?.isLive == true || preview?.isLive == true)
           Padding(
@@ -1276,8 +1396,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 ),
                 const SizedBox(width: 8),
                 Text('Streaming live',
-                    style: TextStyle(
-                        color: AppTheme.textSecondary, fontSize: 12)),
+                    style: TextStyle(color: c.textSecondary, fontSize: 12)),
               ],
             ),
           ),
@@ -1299,11 +1418,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
           ),
         Text(
           title,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 17,
             fontWeight: FontWeight.w700,
             height: 1.3,
-            color: AppTheme.textPrimary,
+            color: c.textPrimary,
           ),
         ),
         const SizedBox(height: 6),
@@ -1312,13 +1431,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
             if ((video?.viewCount ?? preview?.viewCount ?? 0) > 0)
               '$views views',
             if (published.isNotEmpty) published,
-          ].join(' • '),
-          style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13),
+          ].join(' · '),
+          style: TextStyle(color: c.textSecondary, fontSize: 13),
         ),
         const SizedBox(height: 14),
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(
+        SizedBox(
+          height: 38,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            padding: EdgeInsets.zero,
             children: [
               _action(
                 icon: _liked ? Icons.thumb_up : Icons.thumb_up_outlined,
@@ -1401,112 +1522,151 @@ class _PlayerScreenState extends State<PlayerScreen> {
           ),
         ),
         const SizedBox(height: 16),
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: AppTheme.surface,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: AppTheme.border),
-          ),
-          child: Row(
-            children: [
-              CircleAvatar(
-                radius: 20,
-                backgroundColor: AppTheme.surfaceVariant,
-                child: Text(
-                  channel.isNotEmpty ? channel[0].toUpperCase() : 'C',
-                  style: const TextStyle(
-                      color: AppTheme.primary, fontWeight: FontWeight.bold),
+        // Channel row: avatar, name, subscribe. No card border — the avatar
+        // and button already give it enough shape.
+        Row(
+          children: [
+            CircleAvatar(
+              radius: 20,
+              backgroundColor: c.surfaceVariant,
+              child: Text(
+                channel.isNotEmpty ? channel[0].toUpperCase() : 'C',
+                style: const TextStyle(
+                    color: AppTheme.primary,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    channel.isEmpty ? 'Channel' : channel,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 14.5,
+                      color: c.textPrimary,
+                    ),
+                  ),
+                  if (video != null && video.likeCount > 0)
+                    Text(
+                      '${_short(video.likeCount)} likes',
+                      style: TextStyle(fontSize: 12, color: c.textMuted),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            ElevatedButton(
+              onPressed: () {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Subscriptions coming soon')),
+                );
+              },
+              style: ElevatedButton.styleFrom(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                minimumSize: Size.zero,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
                 ),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  channel.isEmpty ? 'Channel' : channel,
-                  style: const TextStyle(
-                      fontWeight: FontWeight.w700, fontSize: 14.5),
-                ),
-              ),
-              ElevatedButton(
-                onPressed: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                        content: Text('Subscriptions coming soon')),
-                  );
-                },
-                style: ElevatedButton.styleFrom(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  minimumSize: Size.zero,
-                ),
-                child: const Text('Subscribe'),
-              ),
-            ],
-          ),
+              child: const Text('Subscribe'),
+            ),
+          ],
         ),
         if ((video?.description ?? '').isNotEmpty) ...[
-          const SizedBox(height: 12),
-          GestureDetector(
+          const SizedBox(height: 14),
+          InkWell(
             onTap: () => setState(() => _descExpanded = !_descExpanded),
+            borderRadius: BorderRadius.circular(14),
             child: Container(
               width: double.infinity,
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: AppTheme.surface,
+                color: c.surface,
                 borderRadius: BorderRadius.circular(14),
               ),
-              child: Text(
-                video!.description,
-                maxLines: _descExpanded ? 100 : 3,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: AppTheme.textSecondary,
-                  fontSize: 13,
-                  height: 1.4,
-                ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    video!.description,
+                    maxLines: _descExpanded ? 1000 : 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: c.textSecondary,
+                      fontSize: 13,
+                      height: 1.45,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    _descExpanded ? 'Show less' : 'Show more',
+                    style: const TextStyle(
+                      color: AppTheme.primary,
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
         ],
-        const SizedBox(height: 12),
+        const SizedBox(height: 14),
         // SponsorBlock card
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
           decoration: BoxDecoration(
-            color: AppTheme.surface,
+            color: c.surface,
             borderRadius: BorderRadius.circular(14),
           ),
           child: SwitchListTile(
             contentPadding: EdgeInsets.zero,
             secondary: const Icon(Icons.skip_next, color: AppTheme.sbSponsor),
-            title: const Text('SponsorBlock',
-                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+            title: Text('SponsorBlock',
+                style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                    color: c.textPrimary)),
             subtitle: Text(
               provider.sponsorSegments.isEmpty
                   ? 'Auto-skip sponsored segments'
                   : '${provider.activeSponsorSegments.length} segments loaded',
-              style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+              style: TextStyle(fontSize: 12, color: c.textSecondary),
             ),
             value: provider.isSponsorBlockEnabled,
             onChanged: (_) => provider.toggleSponsorBlock(),
           ),
         ),
         if (provider.comments.isNotEmpty) ...[
-          const SizedBox(height: 20),
+          const SizedBox(height: 22),
           Text(
             'Comments · ${provider.comments.length}',
-            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+            style: TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: 15,
+                color: c.textPrimary),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 10),
           ...provider.comments.take(8).map(_commentTile),
         ],
         if (provider.relatedVideos.isNotEmpty) ...[
-          const SizedBox(height: 20),
-          const Text(
+          const SizedBox(height: 22),
+          Text(
             'Related',
-            style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+            style: TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: 15,
+                color: c.textPrimary),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 10),
           ...provider.relatedVideos.take(15).map((v) {
             return VideoCard(
               video: v,
@@ -1526,21 +1686,22 @@ class _PlayerScreenState extends State<PlayerScreen> {
     );
   }
 
-  Widget _commentTile(Comment c) {
+  Widget _commentTile(Comment comment) {
+    final col = VibeColors.of(context);
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.only(bottom: 14),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           CircleAvatar(
             radius: 14,
-            backgroundColor: AppTheme.surfaceVariant,
-            backgroundImage: c.authorAvatar.isNotEmpty
-                ? CachedNetworkImageProvider(c.authorAvatar)
+            backgroundColor: col.surfaceVariant,
+            backgroundImage: comment.authorAvatar.isNotEmpty
+                ? CachedNetworkImageProvider(comment.authorAvatar)
                 : null,
-            child: c.authorAvatar.isEmpty
-                ? Text(c.author.isNotEmpty ? c.author[0] : '?',
-                    style: const TextStyle(fontSize: 12))
+            child: comment.authorAvatar.isEmpty
+                ? Text(comment.author.isNotEmpty ? comment.author[0] : '?',
+                    style: TextStyle(fontSize: 12, color: col.textPrimary))
                 : null,
           ),
           const SizedBox(width: 10),
@@ -1549,13 +1710,25 @@ class _PlayerScreenState extends State<PlayerScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '${c.author} · ${c.publishedAt}',
-                  style: const TextStyle(
-                      fontSize: 11, color: AppTheme.textMuted),
+                  '${comment.author} · ${comment.publishedAt}',
+                  style: TextStyle(fontSize: 11, color: col.textMuted),
                 ),
-                const SizedBox(height: 2),
-                Text(c.text,
-                    style: const TextStyle(fontSize: 13, height: 1.35)),
+                const SizedBox(height: 3),
+                Text(comment.text,
+                    style: TextStyle(
+                        fontSize: 13, height: 1.35, color: col.textPrimary)),
+                if (comment.likeCount > 0) ...[
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Icon(Icons.thumb_up_outlined,
+                          size: 12, color: col.textMuted),
+                      const SizedBox(width: 4),
+                      Text(_short(comment.likeCount),
+                          style: TextStyle(fontSize: 11, color: col.textMuted)),
+                    ],
+                  ),
+                ],
               ],
             ),
           ),
@@ -1570,27 +1743,30 @@ class _PlayerScreenState extends State<PlayerScreen> {
     required VoidCallback onTap,
     bool active = false,
   }) {
+    final col = VibeColors.of(context);
+    final fg = active ? AppTheme.primary : col.textPrimary;
     return Padding(
       padding: const EdgeInsets.only(right: 8),
       child: Material(
-        color: AppTheme.surfaceLight,
-        borderRadius: BorderRadius.circular(20),
+        color: active
+            ? AppTheme.primary.withValues(alpha: 0.14)
+            : col.surfaceLight,
+        borderRadius: BorderRadius.circular(19),
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(19),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 14),
             child: Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(icon,
-                    size: 18,
-                    color: active ? AppTheme.primary : AppTheme.textPrimary),
+                Icon(icon, size: 18, color: fg),
                 const SizedBox(width: 6),
                 Text(label,
                     style: TextStyle(
                       fontSize: 12.5,
                       fontWeight: FontWeight.w600,
-                      color: active ? AppTheme.primary : AppTheme.textPrimary,
+                      color: fg,
                     )),
               ],
             ),
@@ -1843,36 +2019,44 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   Widget _ctrlIcon(IconData icon, String tip, VoidCallback onTap,
       {bool active = false}) {
-    return IconButton(
-      tooltip: tip,
-      icon: Icon(icon,
-          color: active ? AppTheme.primary : Colors.white, size: 22),
-      onPressed: onTap,
-      visualDensity: VisualDensity.compact,
+    return Tooltip(
+      message: tip,
+      child: InkResponse(
+        onTap: onTap,
+        radius: 20,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 5),
+          child: Icon(
+            icon,
+            color: active ? AppTheme.primary : Colors.white,
+            size: 20,
+          ),
+        ),
+      ),
     );
   }
 
   Widget _chipBtn(IconData icon, String label, VoidCallback onTap,
       {bool active = false}) {
     return Padding(
-      padding: const EdgeInsets.only(right: 6, top: 2, bottom: 4),
+      padding: const EdgeInsets.only(right: 6),
       child: Material(
         color: active
-            ? AppTheme.primary.withValues(alpha: 0.25)
+            ? AppTheme.primary.withValues(alpha: 0.22)
             : Colors.white.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(17),
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: BorderRadius.circular(17),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 11),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(icon,
-                    size: 16,
+                    size: 15,
                     color: active ? AppTheme.primary : Colors.white),
-                const SizedBox(width: 4),
+                const SizedBox(width: 5),
                 Text(label,
                     style: TextStyle(
                       color: active ? AppTheme.primary : Colors.white,
