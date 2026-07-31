@@ -151,7 +151,7 @@ class UpdateDialog extends StatelessWidget {
             }
           },
           icon: const Icon(Icons.download, size: 18),
-          label: const Text('Update'),
+          label: const Text('Download APK'),
         ),
       ],
     );
