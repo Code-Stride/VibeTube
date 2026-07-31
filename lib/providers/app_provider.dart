@@ -6,6 +6,7 @@ import '../services/hls_parser.dart';
 import '../services/storage_service.dart';
 import '../services/update_service.dart';
 import '../services/native_player.dart';
+import '../services/caption_service.dart';
 
 class AppProvider extends ChangeNotifier {
   final InnerTubeClient _client = InnerTubeClient();
@@ -20,6 +21,7 @@ class AppProvider extends ChangeNotifier {
   List<Video> watchLater = [];
   List<Video> downloads = [];
   List<Video> relatedVideos = [];
+  List<Video> shortsVideos = [];
   List<Comment> comments = [];
   List<SponsorSegment> sponsorSegments = [];
 
@@ -28,6 +30,7 @@ class AppProvider extends ChangeNotifier {
 
   bool isLoading = false;
   bool isPlayerLoading = false;
+  bool isShortsLoading = false;
   String? error;
   String? playerError;
   String searchQuery = '';
@@ -52,6 +55,12 @@ class AppProvider extends ChangeNotifier {
   double defaultSpeed = 1.0;
   String region = 'IN';
 
+  // Captions
+  bool isCaptionsEnabled = false;
+  List<CaptionTrack> captionTracks = [];
+  List<CaptionCue> captionCues = [];
+  String? selectedCaptionLanguage;
+
   AppUpdateInfo? pendingUpdate;
   bool libraryLoaded = false;
 
@@ -65,6 +74,8 @@ class AppProvider extends ChangeNotifier {
     defaultQuality = s['defaultQuality'] ?? 'Auto (HLS)';
     defaultSpeed = (s['defaultSpeed'] as num?)?.toDouble() ?? 1.0;
     region = s['region'] ?? 'IN';
+    isCaptionsEnabled = s['isCaptionsEnabled'] ?? false;
+    selectedCaptionLanguage = s['selectedCaptionLanguage'];
     sbSponsor = s['sbSponsor'] ?? true;
     sbSelfpromo = s['sbSelfpromo'] ?? true;
     sbInteraction = s['sbInteraction'] ?? true;
@@ -93,6 +104,8 @@ class AppProvider extends ChangeNotifier {
       'sbIntro': sbIntro,
       'sbOutro': sbOutro,
       'sbFiller': sbFiller,
+      'isCaptionsEnabled': isCaptionsEnabled,
+      'selectedCaptionLanguage': selectedCaptionLanguage,
     });
   }
 
@@ -157,6 +170,86 @@ class AppProvider extends ChangeNotifier {
     error = null;
     notifyListeners();
     await loadTrending();
+  }
+
+  // ---- Shorts ----
+
+  Future<void> loadShorts() async {
+    isShortsLoading = true;
+    notifyListeners();
+    try {
+      shortsVideos = await _client.getCategoryFeed('Shorts', region: region);
+      if (shortsVideos.isEmpty) {
+        // Fallback: search for shorts
+        final result = await _client.search('#shorts', params: InnerTubeClient.kFilterShorts);
+        shortsVideos = result.videos;
+      }
+    } catch (e) {
+      debugPrint('loadShorts: $e');
+    } finally {
+      isShortsLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> loadMoreShorts() async {
+    try {
+      final more = await _client.search('shorts', params: InnerTubeClient.kFilterShorts);
+      final seen = shortsVideos.map((v) => v.id).toSet();
+      for (final v in more.videos) {
+        if (seen.add(v.id)) {
+          shortsVideos.add(v);
+        }
+      }
+      notifyListeners();
+    } catch (e) {
+      debugPrint('loadMoreShorts: $e');
+    }
+  }
+
+  // ---- Captions ----
+
+  Future<void> loadCaptions(String videoId) async {
+    try {
+      captionTracks = await CaptionService.getTracks(videoId);
+      if (captionTracks.isNotEmpty && isCaptionsEnabled) {
+        // Auto-select preferred language or first available
+        final preferred = selectedCaptionLanguage;
+        final track = captionTracks.firstWhere(
+          (t) => t.languageCode == preferred,
+          orElse: () => captionTracks.first,
+        );
+        await selectCaptionTrack(track);
+      }
+      notifyListeners();
+    } catch (e) {
+      debugPrint('loadCaptions: $e');
+    }
+  }
+
+  Future<void> selectCaptionTrack(CaptionTrack track) async {
+    try {
+      captionCues = await CaptionService.getCues(track.baseUrl);
+      selectedCaptionLanguage = track.languageCode;
+      notifyListeners();
+    } catch (e) {
+      debugPrint('selectCaptionTrack: $e');
+    }
+  }
+
+  void toggleCaptions() {
+    isCaptionsEnabled = !isCaptionsEnabled;
+    if (!isCaptionsEnabled) {
+      captionCues = [];
+    }
+    _persistSettings();
+    notifyListeners();
+  }
+
+  void clearCaptions() {
+    captionTracks = [];
+    captionCues = [];
+    notifyListeners();
   }
 
   Future<void> searchVideos(String query) async {
@@ -245,6 +338,12 @@ class AppProvider extends ChangeNotifier {
         notifyListeners();
       } catch (e) {
         debugPrint('dislikeCount error: $e');
+      }
+      // Load captions
+      try {
+        await loadCaptions(videoId);
+      } catch (e) {
+        debugPrint('captions error: $e');
       }
     } catch (e) {
       playerError = 'Could not load video stream.\n$e';

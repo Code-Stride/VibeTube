@@ -9,6 +9,28 @@ and this project roughly follows [Semantic Versioning](https://semver.org/).
 
 ### Planned
 - Further video quality selection polish
+- Voice search
+- Playlist support
+
+## [1.7.0] - 2026-07-31
+
+### Added
+- **Shorts section**: Dedicated YouTube-style vertical Shorts feed with swipe navigation, separate bottom tab, and auto-loading.
+- **Caption/CC system**: Full subtitle support with track selection, auto-generated captions, and overlay rendering during playback.
+- **YouTube-style search bar**: Search bar moved to top of home screen (like YouTube), with voice search placeholder and notification icon.
+- **Settings upgrade**: Reorganized settings with section headers (Playback, SponsorBlock, Appearance, Default settings, Updates, About), account card, and dedicated quality/speed/region pickers.
+- **UI improvements**: Cleaner home screen layout, improved search results display with count, better visual hierarchy.
+
+### Fixed
+- Search screen now has proper YouTube-style top search bar with voice search icon.
+- Player caption overlay properly integrated with Provider state management.
+- Shorts loading from InnerTube with proper short detection.
+- Settings screen now uses SliverAppBar for better scrolling behavior.
+
+### Changed
+- Bottom navigation now has 6 tabs: Home, Search, Shorts, Library, Downloads, Settings.
+- Removed Shorts from category chips (now has its own dedicated tab).
+- Captions toggle added to player controls and settings.
 
 ## [1.6.0] - 2026-07-31
 

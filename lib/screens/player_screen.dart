@@ -12,8 +12,10 @@ import '../providers/app_provider.dart';
 import '../utils/theme.dart';
 import '../utils/share_links.dart';
 import '../widgets/video_card.dart';
+import '../widgets/caption_overlay.dart';
 import '../services/native_player.dart';
 import '../services/audio_helper.dart';
+import '../services/caption_service.dart';
 import '../providers/mini_player_controller.dart';
 
 class PlayerScreen extends StatefulWidget {
@@ -1017,6 +1019,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 bottom: 0,
                 child: _idleProgressBar(),
               ),
+            // Caption overlay
+            Consumer<AppProvider>(
+              builder: (context, provider, _) {
+                if (!provider.isCaptionsEnabled ||
+                    provider.captionCues.isEmpty) {
+                  return const SizedBox.shrink();
+                }
+                return CaptionOverlay(
+                  cues: provider.captionCues,
+                  position: _position,
+                  visible: true,
+                );
+              },
+            ),
             if (_toastMsg != null)
               Positioned(
                 top: 56,
@@ -1293,9 +1309,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
                             _downloadCurrent,
                           ),
                           _chipBtn(
-                            Icons.closed_caption_outlined,
+                            context.watch<AppProvider>().isCaptionsEnabled
+                                ? Icons.closed_caption
+                                : Icons.closed_caption_outlined,
                             'CC',
-                            () => _toast('Captions coming soon'),
+                            _showCaptionSheet,
+                            active: context.watch<AppProvider>().isCaptionsEnabled,
                           ),
                           _chipBtn(Icons.headphones, 'Audio', _audioOnlyMode),
                           _chipBtn(
@@ -2325,6 +2344,135 @@ class _PlayerScreenState extends State<PlayerScreen> {
       MaterialPageRoute(
         builder: (_) => PlayerScreen(videoId: next.id, preview: next),
       ),
+    );
+  }
+
+  void _showCaptionSheet() {
+    final provider = context.read<AppProvider>();
+    final c = VibeColors.of(context);
+
+    if (provider.captionTracks.isEmpty) {
+      _toast('No captions available for this video');
+      return;
+    }
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: c.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (ctx) {
+        final h = MediaQuery.sizeOf(ctx).height;
+        return SafeArea(
+          child: SizedBox(
+            height: h * 0.5,
+            child: Column(
+              children: [
+                const SizedBox(height: 10),
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: c.surfaceVariant,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+                  child: Row(
+                    children: [
+                      Icon(Icons.closed_caption,
+                          color: AppTheme.primary, size: 22),
+                      const SizedBox(width: 10),
+                      Text('Captions',
+                          style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 16,
+                              color: c.textPrimary)),
+                      const Spacer(),
+                      Switch(
+                        value: provider.isCaptionsEnabled,
+                        onChanged: (_) {
+                          provider.toggleCaptions();
+                          Navigator.pop(ctx);
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1),
+                // Off option
+                ListTile(
+                  leading: Icon(Icons.closed_caption_disabled,
+                      color: c.textSecondary),
+                  title: Text('Off',
+                      style: TextStyle(
+                        color: c.textPrimary,
+                        fontWeight: !provider.isCaptionsEnabled
+                            ? FontWeight.w700
+                            : FontWeight.w500,
+                      )),
+                  trailing: !provider.isCaptionsEnabled
+                      ? const Icon(Icons.check, color: AppTheme.primary)
+                      : null,
+                  onTap: () {
+                    provider.toggleCaptions();
+                    Navigator.pop(ctx);
+                  },
+                ),
+                const Divider(height: 1),
+                // Available tracks
+                Expanded(
+                  child: ListView.builder(
+                    itemCount: provider.captionTracks.length,
+                    itemBuilder: (_, i) {
+                      final track = provider.captionTracks[i];
+                      final selected =
+                          provider.isCaptionsEnabled &&
+                              provider.selectedCaptionLanguage ==
+                                  track.languageCode;
+                      return ListTile(
+                        leading: Icon(
+                          Icons.closed_caption,
+                          color: selected
+                              ? AppTheme.primary
+                              : c.textSecondary,
+                        ),
+                        title: Text(track.name,
+                            style: TextStyle(
+                              color: c.textPrimary,
+                              fontWeight: selected
+                                  ? FontWeight.w700
+                                  : FontWeight.w500,
+                            )),
+                        subtitle: track.isAutoGenerated
+                            ? Text('Auto-generated',
+                                style: TextStyle(
+                                    fontSize: 11, color: c.textMuted))
+                            : null,
+                        trailing: selected
+                            ? const Icon(Icons.check,
+                                color: AppTheme.primary)
+                            : null,
+                        onTap: () async {
+                          if (!provider.isCaptionsEnabled) {
+                            provider.toggleCaptions();
+                          }
+                          await provider.selectCaptionTrack(track);
+                          if (ctx.mounted) Navigator.pop(ctx);
+                          _toast('Captions: ${track.name}');
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 

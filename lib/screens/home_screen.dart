@@ -9,6 +9,7 @@ import 'player_screen.dart';
 import 'library_screen.dart';
 import 'downloads_screen.dart';
 import 'settings_screen.dart';
+import 'shorts_screen.dart';
 import '../providers/mini_player_controller.dart';
 import '../widgets/mini_player_bar.dart';
 
@@ -34,7 +35,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
-    // Leaving main shell (shouldn't often) — allow global mini
     try {
       context.read<MiniPlayerController>().setUseGlobalOverlay(true);
     } catch (_) {}
@@ -42,8 +42,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _scheduleUpdateCheck() async {
-    // Wait for the provider's async update check to complete, then show dialog
-    // instead of polling in a loop.
     await Future.delayed(const Duration(seconds: 4));
     if (!mounted || _updateShown) return;
     final provider = context.read<AppProvider>();
@@ -55,7 +53,6 @@ class _HomeScreenState extends State<HomeScreen> {
         context,
         info: u,
         onLater: () {
-          // Reset so user can be prompted again later in the session
           _updateShown = false;
         },
         onSkip: () {
@@ -71,6 +68,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final pages = <Widget>[
       const _HomeFeed(),
       const SearchScreen(),
+      const ShortsScreen(),
       const LibraryScreen(),
       const DownloadsScreen(),
       const SettingsScreen(),
@@ -107,6 +105,11 @@ class _HomeScreenState extends State<HomeScreen> {
                   label: 'Search',
                 ),
                 BottomNavigationBarItem(
+                  icon: Icon(Icons.movie_filter_outlined),
+                  activeIcon: Icon(Icons.movie_filter),
+                  label: 'Shorts',
+                ),
+                BottomNavigationBarItem(
                   icon: Icon(Icons.video_library_outlined),
                   activeIcon: Icon(Icons.video_library),
                   label: 'Library',
@@ -138,9 +141,10 @@ class _HomeFeed extends StatefulWidget {
 }
 
 class _HomeFeedState extends State<_HomeFeed> {
+  final _searchController = TextEditingController();
+
   static const cats = [
     'All',
-    'Shorts',
     'Music',
     'Gaming',
     'News',
@@ -153,21 +157,40 @@ class _HomeFeedState extends State<_HomeFeed> {
   ];
 
   @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _openSearch() {
+    // Switch to search tab
+    final homeState = context.findAncestorStateOfType<_HomeScreenState>();
+    if (homeState != null) {
+      homeState.setState(() => homeState._index = 1);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final c = VibeColors.of(context);
     return SafeArea(
       child: Column(
         children: [
+          // YouTube-style top bar with search
           Container(
-            padding: const EdgeInsets.fromLTRB(16, 10, 8, 10),
+            padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
             decoration: BoxDecoration(
-              color: VibeColors.of(context).surface,
-              border: Border(bottom: BorderSide(color: VibeColors.of(context).border, width: 0.6)),
+              color: c.surface,
+              border: Border(
+                bottom: BorderSide(color: c.border, width: 0.6),
+              ),
             ),
             child: Row(
               children: [
+                // Logo
                 Container(
-                  width: 34,
-                  height: 34,
+                  width: 32,
+                  height: 32,
                   decoration: const BoxDecoration(
                     gradient: LinearGradient(
                       colors: [AppTheme.primary, Color(0xFFFF8A5B)],
@@ -175,70 +198,89 @@ class _HomeFeedState extends State<_HomeFeed> {
                     shape: BoxShape.circle,
                   ),
                   child: const Icon(Icons.play_arrow_rounded,
-                      color: Colors.white, size: 22),
+                      color: Colors.white, size: 20),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: 8),
                 Text(
                   'VibeTube',
                   style: TextStyle(
-                    color: VibeColors.of(context).textPrimary,
-                    fontSize: 20,
+                    color: c.textPrimary,
+                    fontSize: 19,
                     fontWeight: FontWeight.w800,
                     letterSpacing: -0.3,
                   ),
                 ),
-                Container(
-                  margin: const EdgeInsets.only(left: 8),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: AppTheme.primary.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: const Text(
-                    'PREMIUM',
-                    style: TextStyle(
-                      color: AppTheme.primary,
-                      fontSize: 9,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 0.6,
+                // Search bar (YouTube style - takes most of the width)
+                const SizedBox(width: 10),
+                Expanded(
+                  child: GestureDetector(
+                    onTap: _openSearch,
+                    child: Container(
+                      height: 38,
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                      decoration: BoxDecoration(
+                        color: c.surfaceLight,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: c.border, width: 0.5),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.search, size: 20, color: c.textMuted),
+                          const SizedBox(width: 10),
+                          Text(
+                            'Search',
+                            style: TextStyle(
+                              color: c.textMuted,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
-                const Spacer(),
-                IconButton(
-                  icon: const Icon(Icons.search_rounded),
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => const SearchScreen(standalone: true)),
-                    );
-                  },
+                const SizedBox(width: 6),
+                // Profile/notifications icon
+                Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: c.surfaceLight,
+                    shape: BoxShape.circle,
+                  ),
+                  child: IconButton(
+                    icon: Icon(Icons.notifications_outlined,
+                        size: 20, color: c.textPrimary),
+                    onPressed: () {},
+                    padding: EdgeInsets.zero,
+                  ),
                 ),
               ],
             ),
           ),
+          // Category chips
           SizedBox(
-            height: 48,
+            height: 46,
             child: Consumer<AppProvider>(
               builder: (context, provider, _) {
                 return ListView.separated(
                   scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   itemCount: cats.length,
                   separatorBuilder: (_, __) => const SizedBox(width: 8),
                   itemBuilder: (context, i) {
-                    final c = cats[i];
-                    final selected = provider.selectedCategory == c;
+                    final cat = cats[i];
+                    final selected = provider.selectedCategory == cat;
                     return FilterChip(
-                      label: Text(c),
+                      label: Text(cat),
                       selected: selected,
-                      onSelected: (_) => provider.setCategory(c),
+                      onSelected: (_) => provider.setCategory(cat),
                       showCheckmark: false,
                       selectedColor: AppTheme.primary,
-                      backgroundColor: VibeColors.of(context).surfaceLight,
+                      backgroundColor: c.surfaceLight,
                       labelStyle: TextStyle(
-                        color: selected ? Colors.white : VibeColors.of(context).textPrimary,
+                        color: selected ? Colors.white : c.textPrimary,
                         fontWeight:
                             selected ? FontWeight.w700 : FontWeight.w500,
                         fontSize: 13,
@@ -251,10 +293,10 @@ class _HomeFeedState extends State<_HomeFeed> {
               },
             ),
           ),
+          // Feed
           Expanded(
             child: Consumer<AppProvider>(
               builder: (context, provider, _) {
-                final c = VibeColors.of(context);
                 if (provider.isLoading && provider.trendingVideos.isEmpty) {
                   return Center(
                     child: Column(
@@ -305,7 +347,9 @@ class _HomeFeedState extends State<_HomeFeed> {
                             size: 52, color: c.textMuted),
                         const SizedBox(height: 12),
                         Text('Nothing here yet',
-                            style: TextStyle(color: c.textPrimary, fontWeight: FontWeight.w700)),
+                            style: TextStyle(
+                                color: c.textPrimary,
+                                fontWeight: FontWeight.w700)),
                         const SizedBox(height: 8),
                         ElevatedButton(
                           onPressed: provider.loadTrending,
@@ -329,7 +373,8 @@ class _HomeFeedState extends State<_HomeFeed> {
                             return const Padding(
                               padding: EdgeInsets.all(24),
                               child: Center(
-                                  child: CircularProgressIndicator(strokeWidth: 2)),
+                                  child: CircularProgressIndicator(
+                                      strokeWidth: 2)),
                             );
                           }
                           final video = provider.trendingVideos[index];
@@ -349,7 +394,8 @@ class _HomeFeedState extends State<_HomeFeed> {
                           );
                         },
                       ),
-                      if (provider.isLoading && provider.trendingVideos.isNotEmpty)
+                      if (provider.isLoading &&
+                          provider.trendingVideos.isNotEmpty)
                         const Positioned(
                           top: 0,
                           left: 0,
