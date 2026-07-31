@@ -1,548 +1,799 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VibeTube - YouTube Premium Features Unlocked</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: 'Inter', sans-serif;
-            background: #0D0D0D;
-            color: #fff;
-            min-height: 100vh;
-        }
-        .container { max-width: 1200px; margin: 0 auto; padding: 0 24px; }
-        
-        /* Navbar */
-        nav {
-            position: fixed;
-            top: 0;
-            width: 100%;
-            background: rgba(13,13,13,0.95);
-            backdrop-filter: blur(20px);
-            padding: 16px 0;
-            z-index: 1000;
-        }
-        nav .container {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-        .logo {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            font-weight: 800;
-            font-size: 1.3rem;
-            color: #FF6B6B;
-        }
-        .logo-icon {
-            width: 36px;
-            height: 36px;
-            background: linear-gradient(135deg, #FF6B6B, #4ECDC4);
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        .nav-links { display: flex; gap: 32px; }
-        .nav-links a {
-            color: #B0B0B0;
-            text-decoration: none;
-            font-size: 0.9rem;
-            transition: color 0.3s;
-        }
-        .nav-links a:hover { color: #fff; }
-        
-        /* Buttons */
-        .btn {
-            display: inline-flex;
-            align-items: center;
-            gap: 10px;
-            padding: 14px 28px;
-            border-radius: 9999px;
-            font-weight: 700;
-            font-size: 1rem;
-            text-decoration: none;
-            transition: all 0.3s;
-            cursor: pointer;
-            border: none;
-        }
-        .btn-primary {
-            background: linear-gradient(135deg, #FF6B6B, #4ECDC4);
-            color: #fff;
-            box-shadow: 0 4px 20px rgba(255,107,107,0.4);
-        }
-        .btn-primary:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 8px 30px rgba(255,107,107,0.5);
-        }
-        .btn-outline {
-            background: transparent;
-            color: #fff;
-            border: 2px solid #3D3D3D;
-        }
-        .btn-outline:hover { border-color: #FF6B6B; }
-        .btn-sm { padding: 10px 20px; font-size: 0.85rem; }
-        .btn-lg { padding: 18px 36px; font-size: 1.1rem; }
-        
-        /* Hero */
-        .hero {
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            padding-top: 80px;
-        }
-        .hero .container {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 60px;
-            align-items: center;
-        }
-        .hero-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            padding: 8px 16px;
-            background: rgba(255,107,107,0.1);
-            border: 1px solid rgba(255,107,107,0.2);
-            border-radius: 9999px;
-            font-size: 0.85rem;
-            color: #FF6B6B;
-            margin-bottom: 24px;
-        }
-        .hero-title {
-            font-size: 3.5rem;
-            font-weight: 800;
-            line-height: 1.1;
-            margin-bottom: 20px;
-        }
-        .gradient-text {
-            background: linear-gradient(135deg, #FF6B6B, #4ECDC4);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-        .hero-subtitle {
-            font-size: 1.15rem;
-            color: #B0B0B0;
-            line-height: 1.7;
-            margin-bottom: 32px;
-            max-width: 500px;
-        }
-        .hero-actions {
-            display: flex;
-            gap: 16px;
-            flex-wrap: wrap;
-        }
-        .hero-stats {
-            display: flex;
-            gap: 40px;
-            margin-top: 48px;
-        }
-        .stat-number {
-            font-size: 1.8rem;
-            font-weight: 800;
-            background: linear-gradient(135deg, #FF6B6B, #4ECDC4);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-        .stat-label {
-            font-size: 0.8rem;
-            color: #707070;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-        
-        /* Phone Mockup */
-        .phone-mockup {
-            width: 280px;
-            background: #1A1A1A;
-            border-radius: 36px;
-            padding: 12px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.5), 0 0 40px rgba(255,107,107,0.2);
-            margin: 0 auto;
-        }
-        .phone-screen {
-            background: #0D0D0D;
-            border-radius: 28px;
-            padding: 16px;
-            overflow: hidden;
-        }
-        .player-thumb {
-            background: linear-gradient(135deg, #333, #222);
-            border-radius: 12px;
-            height: 160px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin-bottom: 12px;
-            position: relative;
-        }
-        .play-btn {
-            width: 50px;
-            height: 50px;
-            background: rgba(255,107,107,0.9);
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        .player-info h3 { font-size: 14px; margin-bottom: 4px; }
-        .player-info p { font-size: 11px; color: #707070; }
-        .sb-toast {
-            background: rgba(0,212,0,0.9);
-            padding: 8px 16px;
-            border-radius: 8px;
-            font-size: 12px;
-            font-weight: 600;
-            margin-top: 12px;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-        }
-        
-        /* Features */
-        .features {
-            padding: 100px 0;
-            background: #080808;
-        }
-        .section-header { text-align: center; margin-bottom: 60px; }
-        .section-badge {
-            display: inline-block;
-            padding: 6px 16px;
-            background: rgba(255,107,107,0.1);
-            border-radius: 9999px;
-            font-size: 0.8rem;
-            color: #FF6B6B;
-            text-transform: uppercase;
-            letter-spacing: 2px;
-            margin-bottom: 16px;
-        }
-        .section-title { font-size: 2.5rem; font-weight: 800; margin-bottom: 16px; }
-        .section-subtitle { font-size: 1.1rem; color: #B0B0B0; }
-        .features-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 24px;
-        }
-        .feature-card {
-            background: #1A1A1A;
-            border-radius: 20px;
-            padding: 32px;
-            transition: all 0.3s;
-            border: 1px solid transparent;
-        }
-        .feature-card:hover {
-            transform: translateY(-5px);
-            border-color: rgba(255,107,107,0.2);
-        }
-        .feature-icon {
-            width: 56px;
-            height: 56px;
-            border-radius: 12px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 24px;
-            margin-bottom: 20px;
-        }
-        .feature-card h3 { font-size: 1.2rem; margin-bottom: 10px; }
-        .feature-card p { font-size: 0.9rem; color: #B0B0B0; line-height: 1.6; }
-        
-        /* Download Section */
-        .download-section { padding: 100px 0; }
-        .download-card {
-            background: #1A1A1A;
-            border-radius: 28px;
-            padding: 60px;
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 60px;
-            align-items: center;
-            border: 1px solid rgba(255,107,107,0.1);
-        }
-        .download-buttons {
-            display: flex;
-            flex-direction: column;
-            gap: 16px;
-            margin: 32px 0;
-        }
-        .download-info {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 16px;
-            margin-bottom: 32px;
-        }
-        .info-item {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            font-size: 0.9rem;
-            color: #B0B0B0;
-        }
-        .apk-icon {
-            position: relative;
-            display: flex;
-            justify-content: center;
-            margin-bottom: 32px;
-        }
-        .apk-pulse {
-            position: absolute;
-            width: 120px;
-            height: 120px;
-            border-radius: 50%;
-            background: rgba(255,107,107,0.2);
-            animation: pulse 2s infinite;
-        }
-        @keyframes pulse {
-            0%, 100% { transform: scale(1); opacity: 0.5; }
-            50% { transform: scale(1.3); opacity: 0; }
-        }
-        
-        /* Floating Button */
-        .floating-download {
-            position: fixed;
-            bottom: 24px;
-            right: 24px;
-            display: none;
-            align-items: center;
-            gap: 10px;
-            padding: 14px 24px;
-            background: linear-gradient(135deg, #FF6B6B, #4ECDC4);
-            color: #fff;
-            border-radius: 9999px;
-            font-weight: 700;
-            font-size: 0.95rem;
-            box-shadow: 0 8px 32px rgba(255,107,107,0.4);
-            z-index: 999;
-            text-decoration: none;
-            transition: all 0.3s;
-        }
-        .floating-download:hover {
-            transform: translateY(-3px);
-        }
-        
-        /* Footer */
-        footer {
-            background: #080808;
-            padding: 40px 0;
-            border-top: 1px solid rgba(255,255,255,0.05);
-            text-align: center;
-        }
-        footer p { color: #707070; font-size: 0.85rem; }
-        footer a { color: #FF6B6B; text-decoration: none; }
-        
-        /* Responsive */
-        @media (max-width: 768px) {
-            .hero .container { grid-template-columns: 1fr; text-align: center; }
-            .hero-subtitle { margin: 0 auto 32px; }
-            .hero-actions { justify-content: center; }
-            .hero-stats { justify-content: center; }
-            .phone-mockup { display: none; }
-            .features-grid { grid-template-columns: 1fr; }
-            .download-card { grid-template-columns: 1fr; padding: 32px; }
-            .nav-links { display: none; }
-            .hero-title { font-size: 2.5rem; }
-        }
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>VibeTube — Free YouTube Client with Premium Features</title>
+  <meta name="description" content="VibeTube is a free open-source Android YouTube client: ad-free playback, mini player, PiP, background audio, SponsorBlock, Live & Shorts. Download the APK." />
+  <meta name="theme-color" content="#0A0A0B" />
+  <meta property="og:title" content="VibeTube — Premium YouTube Features, Free" />
+  <meta property="og:description" content="Ad-free · Mini player · PiP · Background play · SponsorBlock · Live & Shorts. Open source Flutter app for Android." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://code-stride.github.io/VibeTube/" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #070708;
+      --bg2: #0c0c0e;
+      --surface: #141416;
+      --surface2: #1c1c20;
+      --border: rgba(255,255,255,.08);
+      --text: #f5f5f7;
+      --muted: #a1a1aa;
+      --faint: #71717a;
+      --primary: #ff3b5c;
+      --primary2: #ff6b6b;
+      --cyan: #22d3ee;
+      --green: #22c55e;
+      --grad: linear-gradient(135deg, #ff3b5c 0%, #ff7a59 45%, #22d3ee 100%);
+      --grad-soft: linear-gradient(135deg, rgba(255,59,92,.2), rgba(34,211,238,.12));
+      --shadow: 0 24px 80px rgba(0,0,0,.55);
+      --radius: 20px;
+      --nav-h: 72px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: "Plus Jakarta Sans", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.55;
+      overflow-x: hidden;
+    }
+    a { color: inherit; text-decoration: none; }
+    img { max-width: 100%; display: block; }
+    .wrap { width: min(1120px, calc(100% - 40px)); margin-inline: auto; }
+
+    /* ambient background */
+    .bg-glow {
+      position: fixed; inset: 0; pointer-events: none; z-index: -1;
+      background:
+        radial-gradient(900px 500px at 10% -10%, rgba(255,59,92,.22), transparent 60%),
+        radial-gradient(700px 400px at 90% 10%, rgba(34,211,238,.14), transparent 55%),
+        radial-gradient(600px 400px at 50% 100%, rgba(255,59,92,.08), transparent 50%),
+        var(--bg);
+    }
+    .grid-fx {
+      position: fixed; inset: 0; z-index: -1; pointer-events: none; opacity: .25;
+      background-image:
+        linear-gradient(rgba(255,255,255,.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,.03) 1px, transparent 1px);
+      background-size: 48px 48px;
+      mask-image: radial-gradient(ellipse at center, black 20%, transparent 75%);
+    }
+
+    /* nav */
+    .nav {
+      position: sticky; top: 0; z-index: 50;
+      height: var(--nav-h);
+      display: flex; align-items: center;
+      backdrop-filter: blur(18px) saturate(1.4);
+      background: rgba(7,7,8,.72);
+      border-bottom: 1px solid var(--border);
+    }
+    .nav-inner { display: flex; align-items: center; justify-content: space-between; gap: 16px; width: 100%; }
+    .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 1.15rem; letter-spacing: -.02em; }
+    .brand-mark {
+      width: 36px; height: 36px; border-radius: 12px;
+      background: var(--grad); display: grid; place-items: center;
+      box-shadow: 0 8px 24px rgba(255,59,92,.35);
+    }
+    .brand-mark svg { width: 18px; height: 18px; fill: #fff; }
+    .nav-links { display: flex; gap: 8px; align-items: center; }
+    .nav-links a {
+      color: var(--muted); font-size: .9rem; font-weight: 600;
+      padding: 8px 12px; border-radius: 999px; transition: .2s;
+    }
+    .nav-links a:hover { color: var(--text); background: rgba(255,255,255,.04); }
+    .nav-cta { display: flex; gap: 10px; align-items: center; }
+
+    /* buttons */
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      border: 0; border-radius: 999px; font-weight: 700; font-size: .95rem;
+      padding: 12px 20px; cursor: pointer; transition: transform .2s, box-shadow .2s, background .2s;
+      white-space: nowrap;
+    }
+    .btn:active { transform: translateY(1px) scale(.99); }
+    .btn-primary {
+      background: var(--grad); color: #fff;
+      box-shadow: 0 10px 30px rgba(255,59,92,.35);
+    }
+    .btn-primary:hover { box-shadow: 0 14px 40px rgba(255,59,92,.45); transform: translateY(-2px); }
+    .btn-ghost {
+      background: rgba(255,255,255,.04); color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-ghost:hover { background: rgba(255,255,255,.08); }
+    .btn-lg { padding: 16px 26px; font-size: 1.02rem; }
+    .btn-sm { padding: 9px 14px; font-size: .85rem; }
+    .btn[disabled] { opacity: .55; pointer-events: none; }
+
+    /* hero */
+    .hero { padding: 48px 0 72px; }
+    .hero-grid {
+      display: grid; grid-template-columns: 1.15fr .85fr; gap: 48px; align-items: center;
+    }
+    .pill {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 7px 14px; border-radius: 999px; font-size: .8rem; font-weight: 700;
+      color: #ffb4c0; background: rgba(255,59,92,.1);
+      border: 1px solid rgba(255,59,92,.22); margin-bottom: 18px;
+    }
+    .pill .dot {
+      width: 7px; height: 7px; border-radius: 50%; background: var(--green);
+      box-shadow: 0 0 0 4px rgba(34,197,94,.15); animation: pulse 1.8s infinite;
+    }
+    @keyframes pulse {
+      0%,100% { box-shadow: 0 0 0 0 rgba(34,197,94,.35); }
+      50% { box-shadow: 0 0 0 8px rgba(34,197,94,0); }
+    }
+    .hero h1 {
+      font-size: clamp(2.4rem, 5vw, 3.6rem); line-height: 1.05;
+      letter-spacing: -.04em; font-weight: 800; margin-bottom: 16px;
+    }
+    .grad { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+    .hero-lead { color: var(--muted); font-size: 1.08rem; max-width: 34rem; margin-bottom: 28px; }
+    .hero-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 28px; }
+    .meta-row {
+      display: flex; flex-wrap: wrap; gap: 10px 18px; color: var(--faint); font-size: .88rem; font-weight: 600;
+    }
+    .meta-row strong { color: var(--text); font-weight: 800; }
+    .meta-row span.sep { opacity: .35; }
+
+    /* phone */
+    .phone-stage { position: relative; display: grid; place-items: center; min-height: 520px; }
+    .phone-glow {
+      position: absolute; width: 280px; height: 280px; border-radius: 50%;
+      background: radial-gradient(circle, rgba(255,59,92,.35), transparent 70%);
+      filter: blur(10px); z-index: 0;
+    }
+    .phone {
+      position: relative; z-index: 1; width: 280px;
+      border-radius: 36px; padding: 10px;
+      background: linear-gradient(160deg, #2a2a30, #121214 40%, #0a0a0c);
+      box-shadow: var(--shadow), inset 0 1px 0 rgba(255,255,255,.08);
+      border: 1px solid rgba(255,255,255,.08);
+    }
+    .phone-notch {
+      position: absolute; top: 18px; left: 50%; transform: translateX(-50%);
+      width: 96px; height: 22px; background: #000; border-radius: 0 0 14px 14px; z-index: 3;
+    }
+    .phone-screen {
+      background: #0a0a0b; border-radius: 28px; overflow: hidden; min-height: 520px;
+      position: relative;
+    }
+    .app-top {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 36px 14px 10px; border-bottom: 1px solid rgba(255,255,255,.06);
+    }
+    .app-top .app-name { font-weight: 800; font-size: .95rem; }
+    .app-top .badge-prem {
+      font-size: .62rem; font-weight: 800; letter-spacing: .08em;
+      color: var(--primary); background: rgba(255,59,92,.14);
+      padding: 3px 7px; border-radius: 6px;
+    }
+    .chips { display: flex; gap: 6px; padding: 10px 12px; overflow: hidden; }
+    .chip {
+      flex: 0 0 auto; font-size: .68rem; font-weight: 700;
+      padding: 5px 10px; border-radius: 999px; background: var(--surface2); color: var(--muted);
+    }
+    .chip.on { background: var(--primary); color: #fff; }
+    .vid {
+      margin: 0 0 10px; border-bottom: 1px solid rgba(255,255,255,.05);
+    }
+    .vid-thumb {
+      height: 118px; background:
+        linear-gradient(135deg, rgba(255,59,92,.25), rgba(34,211,238,.15)),
+        linear-gradient(180deg, #222 0%, #111 100%);
+      position: relative; display: grid; place-items: center;
+    }
+    .vid-thumb .play {
+      width: 42px; height: 42px; border-radius: 50%;
+      background: rgba(255,59,92,.9); display: grid; place-items: center;
+      box-shadow: 0 8px 20px rgba(255,59,92,.4);
+    }
+    .vid-thumb .play svg { width: 16px; height: 16px; fill: #fff; margin-left: 2px; }
+    .vid-thumb .dur {
+      position: absolute; right: 8px; bottom: 8px;
+      background: rgba(0,0,0,.8); font-size: .65rem; font-weight: 700;
+      padding: 2px 6px; border-radius: 4px;
+    }
+    .vid-thumb .live {
+      position: absolute; left: 8px; top: 8px;
+      background: #e11d48; font-size: .6rem; font-weight: 800;
+      padding: 2px 6px; border-radius: 4px; letter-spacing: .04em;
+    }
+    .vid-meta { padding: 10px 12px 12px; display: flex; gap: 10px; }
+    .avatar {
+      width: 32px; height: 32px; border-radius: 50%;
+      background: linear-gradient(135deg, #333, #222); flex: 0 0 auto;
+    }
+    .vid-meta h4 { font-size: .78rem; font-weight: 700; line-height: 1.25; margin-bottom: 3px; }
+    .vid-meta p { font-size: .68rem; color: var(--faint); }
+    .sb {
+      margin: 0 12px 12px; display: inline-flex; gap: 6px; align-items: center;
+      background: rgba(0,212,0,.9); color: #041204; font-size: .68rem; font-weight: 800;
+      padding: 6px 10px; border-radius: 8px;
+    }
+    .mini-bar {
+      position: absolute; left: 8px; right: 8px; bottom: 52px;
+      background: rgba(20,20,22,.96); border: 1px solid rgba(255,255,255,.08);
+      border-radius: 12px; overflow: hidden;
+      box-shadow: 0 12px 30px rgba(0,0,0,.45);
+    }
+    .mini-bar .prog { height: 2px; background: rgba(255,255,255,.08); }
+    .mini-bar .prog > i { display: block; width: 62%; height: 100%; background: var(--primary); }
+    .mini-bar .row { display: flex; align-items: center; gap: 8px; padding: 8px; }
+    .mini-thumb {
+      width: 56px; height: 34px; border-radius: 6px;
+      background: linear-gradient(135deg, #ff3b5c55, #22d3ee44); flex: 0 0 auto;
+    }
+    .mini-bar .txt { flex: 1; min-width: 0; }
+    .mini-bar .txt strong { display: block; font-size: .68rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .mini-bar .txt span { font-size: .6rem; color: var(--faint); }
+    .nav-bottom {
+      position: absolute; left: 0; right: 0; bottom: 0; height: 48px;
+      background: #121214; border-top: 1px solid rgba(255,255,255,.06);
+      display: grid; grid-template-columns: repeat(5, 1fr); align-items: center;
+      font-size: .55rem; color: var(--faint); text-align: center; font-weight: 700;
+    }
+    .nav-bottom div.on { color: var(--primary); }
+
+    /* sections */
+    section { padding: 80px 0; }
+    .sec-head { text-align: center; margin-bottom: 40px; }
+    .sec-kicker {
+      display: inline-block; font-size: .75rem; font-weight: 800; letter-spacing: .12em;
+      text-transform: uppercase; color: var(--primary); margin-bottom: 10px;
+    }
+    .sec-head h2 {
+      font-size: clamp(1.8rem, 3.5vw, 2.5rem); font-weight: 800;
+      letter-spacing: -.03em; margin-bottom: 10px;
+    }
+    .sec-head p { color: var(--muted); max-width: 36rem; margin-inline: auto; }
+
+    .features {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;
+    }
+    .card {
+      background: linear-gradient(180deg, rgba(255,255,255,.03), transparent 40%), var(--surface);
+      border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 22px; transition: .25s transform, .25s border-color, .25s box-shadow;
+    }
+    .card:hover {
+      transform: translateY(-4px);
+      border-color: rgba(255,59,92,.28);
+      box-shadow: 0 18px 40px rgba(0,0,0,.35);
+    }
+    .ico {
+      width: 44px; height: 44px; border-radius: 14px; display: grid; place-items: center;
+      font-size: 1.25rem; margin-bottom: 14px; background: var(--grad-soft);
+      border: 1px solid rgba(255,255,255,.06);
+    }
+    .card h3 { font-size: 1.05rem; font-weight: 800; margin-bottom: 6px; letter-spacing: -.02em; }
+    .card p { color: var(--muted); font-size: .9rem; }
+
+    /* steps */
+    .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+    .step {
+      position: relative; padding: 24px; border-radius: var(--radius);
+      background: var(--surface); border: 1px solid var(--border);
+    }
+    .step-num {
+      width: 36px; height: 36px; border-radius: 12px; display: grid; place-items: center;
+      font-weight: 800; background: var(--grad); margin-bottom: 14px; font-size: .95rem;
+    }
+    .step h3 { font-size: 1.05rem; margin-bottom: 6px; font-weight: 800; }
+    .step p { color: var(--muted); font-size: .9rem; }
+
+    /* compare */
+    .compare {
+      overflow: hidden; border-radius: 24px; border: 1px solid var(--border);
+      background: var(--surface);
+    }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 14px 18px; text-align: left; border-bottom: 1px solid var(--border); font-size: .92rem; }
+    th { color: var(--faint); font-size: .75rem; text-transform: uppercase; letter-spacing: .08em; background: rgba(255,255,255,.02); }
+    td:nth-child(2), th:nth-child(2),
+    td:nth-child(3), th:nth-child(3) { text-align: center; width: 22%; }
+    tr:last-child td { border-bottom: 0; }
+    .yes { color: var(--green); font-weight: 800; }
+    .no { color: #52525b; }
+    .hl { color: var(--primary); font-weight: 800; }
+
+    /* download panel */
+    .dl-panel {
+      display: grid; grid-template-columns: 1.2fr .8fr; gap: 28px;
+      padding: 36px; border-radius: 28px;
+      background:
+        radial-gradient(600px 240px at 0% 0%, rgba(255,59,92,.18), transparent 50%),
+        radial-gradient(500px 220px at 100% 100%, rgba(34,211,238,.12), transparent 45%),
+        var(--surface);
+      border: 1px solid rgba(255,59,92,.15);
+      box-shadow: var(--shadow);
+    }
+    .dl-panel h2 { font-size: clamp(1.7rem, 3vw, 2.2rem); font-weight: 800; letter-spacing: -.03em; margin: 8px 0 10px; }
+    .dl-panel .lead { color: var(--muted); margin-bottom: 22px; max-width: 34rem; }
+    .dl-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 20px; }
+    .release-box {
+      display: grid; gap: 10px; padding: 16px; border-radius: 16px;
+      background: rgba(0,0,0,.28); border: 1px solid var(--border); margin-bottom: 18px;
+    }
+    .release-box .row { display: flex; justify-content: space-between; gap: 12px; font-size: .9rem; }
+    .release-box .label { color: var(--faint); font-weight: 600; }
+    .release-box .value { font-weight: 800; text-align: right; word-break: break-all; }
+    .checks { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
+    .checks li {
+      list-style: none; display: flex; gap: 8px; align-items: flex-start;
+      color: var(--muted); font-size: .88rem; font-weight: 600;
+    }
+    .checks li::before {
+      content: "✓"; color: var(--green); font-weight: 900; flex: 0 0 auto;
+    }
+    .side-card {
+      background: rgba(0,0,0,.25); border: 1px solid var(--border);
+      border-radius: 22px; padding: 22px; height: 100%;
+      display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center;
+    }
+    .apk-orb {
+      width: 120px; height: 120px; border-radius: 32px; position: relative;
+      background: var(--grad); display: grid; place-items: center; margin-bottom: 18px;
+      box-shadow: 0 20px 50px rgba(255,59,92,.4);
+    }
+    .apk-orb::after {
+      content: ""; position: absolute; inset: -14px; border-radius: 40px;
+      border: 1px solid rgba(255,59,92,.25); animation: ring 2.4s infinite;
+    }
+    @keyframes ring {
+      0% { transform: scale(.92); opacity: .8; }
+      100% { transform: scale(1.12); opacity: 0; }
+    }
+    .apk-orb svg { width: 48px; height: 48px; fill: #fff; }
+    .side-card h3 { font-size: 1.15rem; font-weight: 800; margin-bottom: 6px; }
+    .side-card p { color: var(--muted); font-size: .9rem; margin-bottom: 16px; }
+    .warn {
+      margin-top: 14px; padding: 12px 14px; border-radius: 12px; font-size: .82rem;
+      background: rgba(251,191,36,.08); border: 1px solid rgba(251,191,36,.2); color: #fbbf24; text-align: left;
+    }
+
+    /* faq */
+    .faq { display: grid; gap: 10px; max-width: 760px; margin-inline: auto; }
+    details.faq-item {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 16px; padding: 4px 16px;
+    }
+    details.faq-item summary {
+      cursor: pointer; list-style: none; padding: 14px 0; font-weight: 800;
+      display: flex; justify-content: space-between; gap: 12px; align-items: center;
+    }
+    details.faq-item summary::-webkit-details-marker { display: none; }
+    details.faq-item summary::after { content: "+"; color: var(--primary); font-size: 1.2rem; font-weight: 700; }
+    details.faq-item[open] summary::after { content: "–"; }
+    details.faq-item p { color: var(--muted); font-size: .92rem; padding: 0 0 14px; }
+
+    /* footer */
+    footer {
+      border-top: 1px solid var(--border); padding: 36px 0 48px; margin-top: 20px;
+    }
+    .foot {
+      display: flex; flex-wrap: wrap; gap: 16px; justify-content: space-between; align-items: center;
+    }
+    .foot p { color: var(--faint); font-size: .88rem; }
+    .foot a { color: var(--primary2); font-weight: 700; }
+    .foot-links { display: flex; flex-wrap: wrap; gap: 14px; }
+    .foot-links a { color: var(--muted); font-size: .88rem; font-weight: 600; }
+    .foot-links a:hover { color: var(--text); }
+
+    /* floating */
+    .float-dl {
+      position: fixed; right: 18px; bottom: 18px; z-index: 40;
+      display: none; align-items: center; gap: 8px;
+      padding: 14px 18px; border-radius: 999px; font-weight: 800;
+      background: var(--grad); color: #fff;
+      box-shadow: 0 12px 40px rgba(255,59,92,.45);
+      transition: .2s transform, .2s opacity;
+    }
+    .float-dl.show { display: inline-flex; }
+    .float-dl:hover { transform: translateY(-3px); }
+
+    /* mobile menu */
+    .menu-btn {
+      display: none; width: 42px; height: 42px; border-radius: 12px;
+      border: 1px solid var(--border); background: rgba(255,255,255,.04);
+      color: var(--text); font-size: 1.2rem; cursor: pointer;
+    }
+
+    @media (max-width: 900px) {
+      .hero-grid, .dl-panel, .features, .steps { grid-template-columns: 1fr; }
+      .phone-stage { min-height: auto; order: -1; }
+      .phone { width: min(260px, 70vw); }
+      .phone-screen { min-height: 460px; }
+      .nav-links { display: none; }
+      .menu-btn { display: grid; place-items: center; }
+      .nav-links.open {
+        display: flex; flex-direction: column; position: absolute;
+        top: var(--nav-h); left: 0; right: 0; padding: 12px 20px 18px;
+        background: rgba(10,10,12,.96); border-bottom: 1px solid var(--border);
+      }
+      .checks { grid-template-columns: 1fr; }
+      td:nth-child(2), th:nth-child(2) { display: none; }
+    }
+  </style>
 </head>
 <body>
-    <nav>
-        <div class="container">
-            <div class="logo">
-                <div class="logo-icon">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
-                        <polygon points="8,5 19,12 8,19"/>
-                    </svg>
-                </div>
-                VibeTube
-            </div>
-            <div class="nav-links">
-                <a href="#features">Features</a>
-                <a href="#download">Download</a>
-                <a href="https://github.com/Code-Stride/VibeTube" target="_blank">GitHub</a>
-            </div>
-            <a href="https://github.com/Code-Stride/VibeTube/releases/latest" class="btn btn-primary btn-sm">
-                ⬇ Download
-            </a>
-        </div>
-    </nav>
+  <div class="bg-glow"></div>
+  <div class="grid-fx"></div>
 
+  <header class="nav">
+    <div class="wrap nav-inner">
+      <a class="brand" href="#">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><polygon points="8,5 19,12 8,19"/></svg>
+        </span>
+        VibeTube
+      </a>
+      <nav class="nav-links" id="navLinks">
+        <a href="#features">Features</a>
+        <a href="#how">Install</a>
+        <a href="#compare">Compare</a>
+        <a href="#download">Download</a>
+        <a href="#faq">FAQ</a>
+        <a href="https://github.com/Code-Stride/VibeTube" target="_blank" rel="noopener">GitHub</a>
+      </nav>
+      <div class="nav-cta">
+        <a class="btn btn-primary btn-sm js-apk-download" href="https://github.com/Code-Stride/VibeTube/releases/latest">⬇ Get APK</a>
+        <button class="menu-btn" id="menuBtn" aria-label="Menu">☰</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
     <section class="hero">
-        <div class="container">
-            <div class="hero-content">
-                <div class="hero-badge">⚡ Flutter + InnerTube • Free & Open Source</div>
-                <h1 class="hero-title">
-                    YouTube <span class="gradient-text">Premium</span><br>
-                    Features <span style="position:relative">Unlocked<span style="position:absolute;bottom:4px;left:0;width:100%;height:12px;background:rgba(255,107,107,0.3);z-index:-1;border-radius:4px"></span></span>
-                </h1>
-                <p class="hero-subtitle">
-                    Built with Flutter & InnerTube API. Ad-free viewing, background playback, 
-                    video downloads, SponsorBlock, and more — completely free.
-                </p>
-                <div class="hero-actions">
-                    <a href="https://github.com/Code-Stride/VibeTube/releases/latest" class="btn btn-primary btn-lg">
-                        ⬇ Download APK
-                    </a>
-                    <a href="https://github.com/Code-Stride/VibeTube" target="_blank" class="btn btn-outline btn-lg">
-                        GitHub
-                    </a>
-                </div>
-                <div class="hero-stats">
-                    <div><span class="stat-number">7+</span><br><span class="stat-label">Features</span></div>
-                    <div><span class="stat-number">0</span><br><span class="stat-label">Ads</span></div>
-                    <div><span class="stat-number">100%</span><br><span class="stat-label">Free</span></div>
-                </div>
-            </div>
-            <div>
-                <div class="phone-mockup">
-                    <div class="phone-screen">
-                        <div class="player-thumb">
-                            <div class="play-btn">▶</div>
-                        </div>
-                        <div class="player-info">
-                            <h3>Amazing Video Title</h3>
-                            <p>Channel Name • 1.2M views</p>
-                        </div>
-                        <div class="sb-toast">⏭ Sponsor skipped ✓</div>
-                    </div>
-                </div>
-            </div>
+      <div class="wrap hero-grid">
+        <div>
+          <div class="pill"><span class="dot"></span> Free · Open source · Android</div>
+          <h1>YouTube, unlocked.<br /><span class="grad">No premium required.</span></h1>
+          <p class="hero-lead">
+            VibeTube is a Flutter YouTube client with mini player, PiP, background media controls,
+            SponsorBlock, Live &amp; Shorts — built for people who want power features without a subscription.
+          </p>
+          <div class="hero-actions">
+            <a class="btn btn-primary btn-lg js-apk-download" id="heroDl" href="https://github.com/Code-Stride/VibeTube/releases/latest">
+              ⬇ Download APK
+              <span id="heroVer" style="opacity:.85;font-weight:700;font-size:.85em"></span>
+            </a>
+            <a class="btn btn-ghost btn-lg" href="https://github.com/Code-Stride/VibeTube" target="_blank" rel="noopener">View source</a>
+          </div>
+          <div class="meta-row">
+            <span><strong id="statVersion">…</strong> latest</span>
+            <span class="sep">·</span>
+            <span><strong id="statSize">…</strong></span>
+            <span class="sep">·</span>
+            <span><strong id="statDownloads">…</strong> downloads</span>
+            <span class="sep">·</span>
+            <span>Android 7.0+</span>
+          </div>
         </div>
+
+        <div class="phone-stage" aria-hidden="true">
+          <div class="phone-glow"></div>
+          <div class="phone">
+            <div class="phone-notch"></div>
+            <div class="phone-screen">
+              <div class="app-top">
+                <div class="app-name">VibeTube</div>
+                <div class="badge-prem">PREMIUM</div>
+              </div>
+              <div class="chips">
+                <span class="chip on">All</span>
+                <span class="chip">Shorts</span>
+                <span class="chip">Live</span>
+                <span class="chip">Music</span>
+              </div>
+              <div class="vid">
+                <div class="vid-thumb">
+                  <span class="live">LIVE</span>
+                  <div class="play"><svg viewBox="0 0 24 24"><polygon points="8,5 19,12 8,19"/></svg></div>
+                  <span class="dur">LIVE</span>
+                </div>
+                <div class="vid-meta">
+                  <div class="avatar"></div>
+                  <div>
+                    <h4>Breaking news livestream</h4>
+                    <p>News Network · watching now</p>
+                  </div>
+                </div>
+              </div>
+              <div class="vid">
+                <div class="vid-thumb" style="height:90px">
+                  <div class="play" style="width:36px;height:36px"><svg viewBox="0 0 24 24"><polygon points="8,5 19,12 8,19"/></svg></div>
+                  <span class="dur">12:48</span>
+                </div>
+                <div class="vid-meta">
+                  <div class="avatar"></div>
+                  <div>
+                    <h4>Trending track · Official video</h4>
+                    <p>1.2M views · 2 days ago</p>
+                  </div>
+                </div>
+                <div class="sb">⏭ Sponsor skipped</div>
+              </div>
+              <div class="mini-bar">
+                <div class="prog"><i></i></div>
+                <div class="row">
+                  <div class="mini-thumb"></div>
+                  <div class="txt">
+                    <strong>Now playing in mini player</strong>
+                    <span>Tap to expand · swipe to close</span>
+                  </div>
+                  ❚❚
+                </div>
+              </div>
+              <div class="nav-bottom">
+                <div class="on">Home</div>
+                <div>Search</div>
+                <div>Library</div>
+                <div>Downloads</div>
+                <div>Settings</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </section>
 
-    <section class="features" id="features">
-        <div class="container">
-            <div class="section-header">
-                <div class="section-badge">Features</div>
-                <h2 class="section-title">Everything Unlocked</h2>
-                <p class="section-subtitle">All YouTube Premium features, completely free</p>
-            </div>
-            <div class="features-grid">
-                <div class="feature-card">
-                    <div class="feature-icon" style="background:rgba(76,175,80,0.15)">🚫</div>
-                    <h3>Ad-Free</h3>
-                    <p>Zero video ads, banner ads, or popup ads. Pure viewing experience.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon" style="background:rgba(255,107,107,0.15)">🎵</div>
-                    <h3>Background Play</h3>
-                    <p>Keep playing when screen is off. Lock screen controls included.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon" style="background:rgba(78,205,196,0.15)">📺</div>
-                    <h3>Picture-in-Picture</h3>
-                    <p>Floating mini player. Watch while using other apps.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon" style="background:rgba(33,150,243,0.15)">⬇️</div>
-                    <h3>Downloads</h3>
-                    <p>Download videos in any quality. Offline viewing support.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon" style="background:rgba(0,212,0,0.15)">⏭️</div>
-                    <h3>SponsorBlock</h3>
-                    <p>Auto-skip sponsored segments, intros, and outros.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon" style="background:rgba(255,152,0,0.15)">👎</div>
-                    <h3>Return Dislike</h3>
-                    <p>See dislike counts on all videos.</p>
-                </div>
-            </div>
+    <section id="features">
+      <div class="wrap">
+        <div class="sec-head">
+          <div class="sec-kicker">Features</div>
+          <h2>Everything you actually wanted</h2>
+          <p>Premium-style controls without the premium bill — open source and free forever.</p>
         </div>
+        <div class="features">
+          <article class="card"><div class="ico">🚫</div><h3>Ad-free streams</h3><p>Watch without in-stream ads via InnerTube clients — cleaner sessions, fewer interruptions.</p></article>
+          <article class="card"><div class="ico">📺</div><h3>YouTube-style mini player</h3><p>Press Back and keep watching in a bottom bar above navigation. Tap to expand anytime.</p></article>
+          <article class="card"><div class="ico">🖼️</div><h3>Picture-in-Picture</h3><p>System PiP while a video is playing — multitask without losing your place.</p></article>
+          <article class="card"><div class="ico">🎧</div><h3>Background play</h3><p>Screen-off audio with MediaSession: lock screen, notification shade, and Bluetooth controls.</p></article>
+          <article class="card"><div class="ico">⏭️</div><h3>SponsorBlock</h3><p>Auto-skip sponsors, intros, outros and more — categories you can toggle in Settings.</p></article>
+          <article class="card"><div class="ico">👎</div><h3>Return YouTube Dislike</h3><p>See community dislike counts again when the API has data for a video.</p></article>
+          <article class="card"><div class="ico">🔴</div><h3>Live &amp; Shorts</h3><p>Live HLS playback and a dedicated Shorts shelf with badges and vertical-friendly player.</p></article>
+          <article class="card"><div class="ico">⚡</div><h3>Speed &amp; player tools</h3><p>0.25×–3× speed, mute, loop, ±10s, next, like, save, share, download, audio-only mode.</p></article>
+          <article class="card"><div class="ico">🎨</div><h3>Dark &amp; light themes</h3><p>Full Material themes that follow your preference — not a half-broken toggle.</p></article>
+        </div>
+      </div>
     </section>
 
-    <section class="download-section" id="download">
-        <div class="container">
-            <div class="download-card">
-                <div>
-                    <div class="section-badge">Download</div>
-                    <h2 style="font-size:2rem;font-weight:800;margin:16px 0">Get VibeTube Now</h2>
-                    <p style="color:#B0B0B0;margin-bottom:16px">Built with Flutter • Uses InnerTube API • No Google account required</p>
-                    
-                    <div class="download-buttons">
-                        <a href="https://github.com/Code-Stride/VibeTube/releases/latest" class="btn btn-primary btn-lg">
-                            ⬇ Download APK
-                        </a>
-                        <a href="https://github.com/Code-Stride/VibeTube/releases" class="btn btn-outline btn-lg" target="_blank">
-                            All Releases
-                        </a>
-                    </div>
-
-                    <div class="download-info">
-                        <div class="info-item">📱 Android 5.0+</div>
-                        <div class="info-item">💾 ~15 MB</div>
-                        <div class="info-item">🛡️ Safe & Open Source</div>
-                        <div class="info-item">🌐 InnerTube API</div>
-                    </div>
-                </div>
-                <div style="text-align:center">
-                    <div class="apk-icon">
-                        <div class="apk-pulse"></div>
-                        <svg width="120" height="120" viewBox="0 0 120 120">
-                            <defs>
-                                <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
-                                    <stop offset="0%" style="stop-color:#FF6B6B"/>
-                                    <stop offset="100%" style="stop-color:#4ECDC4"/>
-                                </linearGradient>
-                            </defs>
-                            <rect x="20" y="10" width="80" height="100" rx="12" fill="url(#g)"/>
-                            <polygon points="48,45 48,78 72,61.5" fill="white"/>
-                        </svg>
-                    </div>
-                    <p style="color:#B0B0B0;font-size:0.9rem">Made with Flutter 💙</p>
-                </div>
-            </div>
+    <section id="how" style="background: rgba(255,255,255,.015); border-block: 1px solid var(--border);">
+      <div class="wrap">
+        <div class="sec-head">
+          <div class="sec-kicker">Install</div>
+          <h2>Three steps to VibeTube</h2>
+          <p>Sideload the official GitHub Release APK in under a minute.</p>
         </div>
+        <div class="steps">
+          <div class="step">
+            <div class="step-num">1</div>
+            <h3>Download the APK</h3>
+            <p>Grab the latest build from this page or GitHub Releases. File name looks like <code style="color:#ffb4c0">VibeTube-vX.Y.Z-release.apk</code>.</p>
+          </div>
+          <div class="step">
+            <div class="step-num">2</div>
+            <h3>Allow install</h3>
+            <p>Android may ask to allow installs from your browser or files app — enable it for that app only.</p>
+          </div>
+          <div class="step">
+            <div class="step-num">3</div>
+            <h3>Open &amp; enjoy</h3>
+            <p>Launch VibeTube, play a video, try Back for mini player, and lock the phone with background play on.</p>
+          </div>
+        </div>
+      </div>
     </section>
 
-    <a href="https://github.com/Code-Stride/VibeTube/releases/latest" class="floating-download" id="floatingBtn">
-        ⬇ Download APK
-    </a>
-
-    <footer>
-        <div class="container">
-            <p>© 2024 VibeTube • Made with ❤️ by <a href="https://github.com/blazenxt">BlazeNXT</a> / <a href="https://github.com/Code-Stride">Code-Stride</a></p>
+    <section id="compare">
+      <div class="wrap">
+        <div class="sec-head">
+          <div class="sec-kicker">Compare</div>
+          <h2>Why people switch</h2>
+          <p>A quick look at what you get versus stock YouTube.</p>
         </div>
-    </footer>
+        <div class="compare">
+          <table>
+            <thead>
+              <tr>
+                <th>Capability</th>
+                <th>YouTube app</th>
+                <th>VibeTube</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td>Ad-free playback</td><td class="no">Paid Premium</td><td class="yes">Included</td></tr>
+              <tr><td>Background audio</td><td class="no">Paid Premium</td><td class="yes">Included</td></tr>
+              <tr><td>Mini player after Back</td><td class="yes">Yes</td><td class="yes">Yes</td></tr>
+              <tr><td>SponsorBlock skip</td><td class="no">No</td><td class="yes">Yes</td></tr>
+              <tr><td>Return dislike counts</td><td class="no">Hidden</td><td class="yes">Yes</td></tr>
+              <tr><td>Open source</td><td class="no">No</td><td class="hl">GPL-3.0</td></tr>
+              <tr><td>Price</td><td class="no">Subscription</td><td class="yes">Free</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
 
-    <script>
-        window.addEventListener('scroll', () => {
-            document.getElementById('floatingBtn').style.display = window.scrollY > 500 ? 'flex' : 'none';
-        });
-    </script>
+    <section id="download">
+      <div class="wrap">
+        <div class="dl-panel">
+          <div>
+            <div class="sec-kicker">Download</div>
+            <h2>Get the latest Android APK</h2>
+            <p class="lead">Always pull builds from the official Code-Stride GitHub Releases. This page auto-links the newest APK asset.</p>
 
-<script>
-async function resolveLatestApk() {
-  try {
-    const res = await fetch('https://api.github.com/repos/Code-Stride/VibeTube/releases/latest');
-    const data = await res.json();
-    const apk = (data.assets || []).find(a => a.name.toLowerCase().endsWith('.apk'));
-    if (apk) {
-      document.querySelectorAll('a.js-apk-download').forEach(a => {
-        a.href = apk.browser_download_url;
-      });
-      const ver = document.getElementById('latest-version');
-      if (ver) ver.textContent = data.tag_name || '';
-      const name = document.getElementById('latest-apk-name');
-      if (name) name.textContent = apk.name;
+            <div class="release-box" id="releaseBox">
+              <div class="row"><span class="label">Version</span><span class="value" id="latest-version">Loading…</span></div>
+              <div class="row"><span class="label">APK file</span><span class="value" id="latest-apk-name">…</span></div>
+              <div class="row"><span class="label">Size</span><span class="value" id="latest-size">…</span></div>
+              <div class="row"><span class="label">Published</span><span class="value" id="latest-date">…</span></div>
+            </div>
+
+            <div class="dl-actions">
+              <a class="btn btn-primary btn-lg js-apk-download" id="mainDl" href="https://github.com/Code-Stride/VibeTube/releases/latest">⬇ Download APK</a>
+              <a class="btn btn-ghost btn-lg" href="https://github.com/Code-Stride/VibeTube/releases" target="_blank" rel="noopener">All releases</a>
+              <a class="btn btn-ghost btn-lg" href="https://github.com/Code-Stride/VibeTube" target="_blank" rel="noopener">Source code</a>
+            </div>
+
+            <ul class="checks">
+              <li>Android 7.0+ (API 24)</li>
+              <li>Open source · GPL-3.0</li>
+              <li>No Google account required to browse</li>
+              <li>In-app update checks via GitHub</li>
+            </ul>
+
+            <div class="warn">
+              <strong>Package conflict?</strong> Uninstall any older VibeTube first. From v1.2.0 onward, CI uses a stable signing key so upgrades should install over previous v1.2+ builds.
+            </div>
+          </div>
+
+          <aside class="side-card">
+            <div class="apk-orb" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><polygon points="8,5 19,12 8,19"/></svg>
+            </div>
+            <h3>Ready to install</h3>
+            <p>One APK. Free updates from GitHub Releases.</p>
+            <a class="btn btn-primary js-apk-download" href="https://github.com/Code-Stride/VibeTube/releases/latest">Get VibeTube</a>
+            <p style="margin-top:16px;font-size:.8rem;color:var(--faint)">Built with Flutter · InnerTube clients</p>
+          </aside>
+        </div>
+      </div>
+    </section>
+
+    <section id="faq">
+      <div class="wrap">
+        <div class="sec-head">
+          <div class="sec-kicker">FAQ</div>
+          <h2>Questions, answered</h2>
+        </div>
+        <div class="faq">
+          <details class="faq-item">
+            <summary>Is VibeTube free?</summary>
+            <p>Yes. The app is free and open source under the GNU GPL v3.0. Download APKs from the official GitHub Releases page.</p>
+          </details>
+          <details class="faq-item">
+            <summary>Is this affiliated with YouTube or Google?</summary>
+            <p>No. VibeTube is an unofficial third-party client. “YouTube” is a trademark of Google LLC. Use the app responsibly and in line with applicable terms and laws.</p>
+          </details>
+          <details class="faq-item">
+            <summary>Background play doesn’t work — what should I try?</summary>
+            <p>Enable <strong>Background play</strong> in Settings, start a video, then lock the phone. Allow notifications if Android asks. Some OEMs aggressively kill background apps — exclude VibeTube from battery optimizations.</p>
+          </details>
+          <details class="faq-item">
+            <summary>Where do I report bugs?</summary>
+            <p>Open an issue on <a href="https://github.com/Code-Stride/VibeTube/issues" style="color:var(--primary2)">GitHub Issues</a>. For security-sensitive reports, see SECURITY.md in the repo.</p>
+          </details>
+          <details class="faq-item">
+            <summary>Can I build it myself?</summary>
+            <p>Yes — clone the repo, run <code style="color:#ffb4c0">flutter pub get</code> and <code style="color:#ffb4c0">flutter build apk --release</code>. See docs/BUILD.md for signing notes.</p>
+          </details>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap foot">
+      <p>© <span id="year">2026</span> VibeTube · Made with ❤️ by <a href="https://github.com/blazenxt" target="_blank" rel="noopener">BlazeNXT</a> / <a href="https://github.com/Code-Stride" target="_blank" rel="noopener">Code-Stride</a></p>
+      <div class="foot-links">
+        <a href="https://github.com/Code-Stride/VibeTube/blob/main/LICENSE" target="_blank" rel="noopener">GPL-3.0</a>
+        <a href="https://github.com/Code-Stride/VibeTube/blob/main/CHANGELOG.md" target="_blank" rel="noopener">Changelog</a>
+        <a href="https://github.com/Code-Stride/VibeTube/releases" target="_blank" rel="noopener">Releases</a>
+        <a href="https://github.com/Code-Stride/VibeTube" target="_blank" rel="noopener">GitHub</a>
+      </div>
+    </div>
+  </footer>
+
+  <a class="float-dl js-apk-download" id="floatDl" href="https://github.com/Code-Stride/VibeTube/releases/latest">⬇ Download APK</a>
+
+  <script>
+    document.getElementById('year').textContent = new Date().getFullYear();
+
+    const menuBtn = document.getElementById('menuBtn');
+    const navLinks = document.getElementById('navLinks');
+    menuBtn?.addEventListener('click', () => navLinks.classList.toggle('open'));
+    navLinks?.querySelectorAll('a').forEach(a => a.addEventListener('click', () => navLinks.classList.remove('open')));
+
+    const floatDl = document.getElementById('floatDl');
+    window.addEventListener('scroll', () => {
+      floatDl.classList.toggle('show', window.scrollY > 560);
+    }, { passive: true });
+
+    function fmtBytes(n) {
+      if (!n && n !== 0) return '—';
+      const mb = n / (1024 * 1024);
+      return mb >= 1 ? mb.toFixed(1) + ' MB' : Math.round(n / 1024) + ' KB';
     }
-  } catch (e) {
-    console.warn('Could not resolve latest APK', e);
-  }
-}
-document.querySelectorAll('a[href*="releases/latest"]').forEach(a => {
-  const text = (a.textContent || '').toLowerCase();
-  if (a.classList.contains('btn-primary') || a.classList.contains('floating-download') || text.includes('download') || text.includes('apk')) {
-    a.classList.add('js-apk-download');
-  }
-});
-resolveLatestApk();
-</script>
+    function fmtDate(iso) {
+      if (!iso) return '—';
+      try {
+        return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+      } catch { return iso; }
+    }
+    function fmtCount(n) {
+      if (n == null) return '—';
+      if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+      if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+      return String(n);
+    }
 
+    async function resolveLatestApk() {
+      try {
+        const res = await fetch('https://api.github.com/repos/Code-Stride/VibeTube/releases?per_page=15');
+        const releases = await res.json();
+        if (!Array.isArray(releases) || !releases.length) return;
+
+        // Prefer newest release that actually has an APK
+        let release = null, apk = null;
+        for (const r of releases) {
+          const asset = (r.assets || []).find(a => /\.apk$/i.test(a.name));
+          if (asset) { release = r; apk = asset; break; }
+        }
+        if (!apk || !release) return;
+
+        document.querySelectorAll('a.js-apk-download').forEach(a => {
+          a.href = apk.browser_download_url;
+          a.setAttribute('download', apk.name);
+        });
+
+        const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+        set('latest-version', release.tag_name || '—');
+        set('latest-apk-name', apk.name || '—');
+        set('latest-size', fmtBytes(apk.size));
+        set('latest-date', fmtDate(release.published_at));
+        set('statVersion', release.tag_name || '—');
+        set('statSize', fmtBytes(apk.size));
+        set('heroVer', release.tag_name ? '(' + release.tag_name + ')' : '');
+
+        // Sum download counts across recent release assets
+        let total = 0;
+        for (const r of releases) {
+          for (const a of (r.assets || [])) total += a.download_count || 0;
+        }
+        set('statDownloads', fmtCount(total));
+      } catch (e) {
+        console.warn('release resolve failed', e);
+        const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+        set('latest-version', 'See Releases');
+        set('latest-apk-name', 'Open GitHub Releases');
+        set('latest-size', '—');
+        set('latest-date', '—');
+        set('statVersion', 'latest');
+        set('statSize', 'APK');
+        set('statDownloads', '—');
+      }
+    }
+
+    resolveLatestApk();
+  </script>
 </body>
 </html>
