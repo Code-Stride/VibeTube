@@ -76,7 +76,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       icon: Icons.headphones,
                       title: 'Background play',
                       subtitle:
-                          'Lock screen / Bluetooth / notification media controls',
+                          'Screen-off audio + lock screen / Bluetooth media controls',
                       value: p.isBackgroundPlayEnabled,
                       onChanged: (_) => p.toggleBackgroundPlay(),
                     ),

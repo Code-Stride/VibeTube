@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:video_player/video_player.dart';
 import '../models/video.dart';
 import '../services/native_player.dart';
+import '../services/audio_helper.dart';
 
 /// App-wide playback session — survives leaving the full player (YouTube-style mini player).
 class MiniPlayerController extends ChangeNotifier {
@@ -106,6 +107,7 @@ class MiniPlayerController extends ChangeNotifier {
     if (c.value.isPlaying) {
       await c.pause();
     } else {
+      await AudioHelper.requestFocus();
       await c.play();
     }
     _syncBackground();
@@ -113,6 +115,7 @@ class MiniPlayerController extends ChangeNotifier {
   }
 
   Future<void> play() async {
+    await AudioHelper.requestFocus();
     await controller?.play();
     _syncBackground();
     notifyListeners();

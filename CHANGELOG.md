@@ -10,6 +10,17 @@ and this project roughly follows [Semantic Versioning](https://semver.org/).
 ### Planned
 - Further video quality selection polish
 
+## [1.5.0] - 2026-07-30
+
+### Fixed
+- **Background play**: audio session + MediaSession; no wakelock fighting screen-off
+- **Shorts feed**: proper InnerTube shorts filter + reel/shorts parsers
+- **Live playback**: prefer ANDROID HLS/DASH (works for live)
+
+### Added
+- YouTube-style player actions: mute, loop, ±10s, next, like, dislike, share, save, download, audio-only, more sheet
+- Shorts / Live discover improvements
+
 ## [1.4.2] - 2026-07-30
 
 ### Fixed
@@ -86,7 +97,8 @@ and this project roughly follows [Semantic Versioning](https://semver.org/).
 ### Added
 - Initial Flutter app + CI APK build
 
-[Unreleased]: https://github.com/Code-Stride/VibeTube/compare/v1.4.2...HEAD
+[Unreleased]: https://github.com/Code-Stride/VibeTube/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/Code-Stride/VibeTube/releases/tag/v1.5.0
 [1.4.2]: https://github.com/Code-Stride/VibeTube/releases/tag/v1.4.2
 [1.4.1]: https://github.com/Code-Stride/VibeTube/releases/tag/v1.4.1
 [1.4.0]: https://github.com/Code-Stride/VibeTube/releases/tag/v1.4.0

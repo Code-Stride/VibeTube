@@ -12,6 +12,7 @@ import '../providers/app_provider.dart';
 import '../utils/theme.dart';
 import '../widgets/video_card.dart';
 import '../services/native_player.dart';
+import '../services/audio_helper.dart';
 import '../providers/mini_player_controller.dart';
 
 class PlayerScreen extends StatefulWidget {
@@ -58,6 +59,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool _handedToMini = false;
   bool _resumed = false;
   bool _lastNativePlaying = false;
+  bool _looping = false;
+  bool _muted = false;
+  bool _watchLater = false;
+  String? _toastMsg;
+  Timer? _toastTimer;
 
   void _onMediaPlay() async {
     final c = _controller;
@@ -109,6 +115,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _quality = provider.defaultQuality.isEmpty ? 'Auto (HLS)' : provider.defaultQuality;
     if (_quality == 'Auto') _quality = 'Auto (HLS)';
     _liked = await provider.isLiked(widget.videoId);
+    try {
+      _watchLater = provider.watchLater.any((e) => e.id == widget.videoId);
+    } catch (_) {}
     _pipSupported = await NativePlayer.isPipSupported();
     await NativePlayer.setAutoPip(provider.isAutoPipEnabled);
     await NativePlayer.setPlaying(false);
@@ -197,14 +206,23 @@ class _PlayerScreenState extends State<PlayerScreen> {
         q == 'Auto (HLS)';
     final target = int.tryParse(q.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
 
-    if (isAuto) {
-      // 1) Master HLS (adaptive)
+    if (details.isLive) {
+      // LIVE: HLS/DASH only (ANDROID HLS verified). No progressive.
       add(details.hlsUrl);
-      // 2) Highest locked HLS variant (forces high quality if adaptive stays low)
+      add(details.dashUrl);
       if (details.hlsVariants.isNotEmpty) {
         final hs = details.hlsVariants.keys.toList()
           ..sort((a, b) => b.compareTo(a));
-        // Prefer 1080 then 720 then rest
+        for (final h in hs) {
+          add(details.hlsVariants[h]);
+        }
+      }
+      add(details.preferredPlayUrl);
+    } else if (isAuto) {
+      add(details.hlsUrl);
+      if (details.hlsVariants.isNotEmpty) {
+        final hs = details.hlsVariants.keys.toList()
+          ..sort((a, b) => b.compareTo(a));
         for (final prefer in [1080, 720, 480, 1440, 2160]) {
           if (details.hlsVariants.containsKey(prefer)) {
             add(details.hlsVariants[prefer]);
@@ -215,7 +233,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
         }
       }
       add(details.preferredPlayUrl);
-      // 3) Progressive last (often only 360p)
       add(details.bestMuxedUrl);
     } else if (q == 'Audio Only') {
       add(details.urlForQuality(q));
@@ -359,8 +376,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
       await c.dispose();
       return;
     }
-    await c.setLooping(false);
+    await c.setLooping(_looping);
     await c.setPlaybackSpeed(_speed);
+    await c.setVolume(_muted ? 0 : 1);
     c.addListener(_onTick);
     setState(() {
       _controller = c;
@@ -369,22 +387,27 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _activeUrl = url;
       _duration = c.value.duration;
     });
+    await AudioHelper.requestFocus();
     await c.play();
     if (!mounted) return;
     await NativePlayer.setPlaying(true);
     final provider = context.read<AppProvider>();
+    final title =
+        provider.currentVideo?.title ?? widget.preview?.title ?? 'VibeTube';
+    final artist = provider.currentVideo?.channelName ??
+        widget.preview?.channelName ??
+        'Playing';
     if (provider.isBackgroundPlayEnabled) {
-      WakelockPlus.enable();
-      final title = provider.currentVideo?.title ?? widget.preview?.title ?? 'VibeTube';
-      final artist = provider.currentVideo?.channelName ??
-          widget.preview?.channelName ??
-          'Playing';
+      // Screen can turn off; MediaSession keeps audio on system output.
+      WakelockPlus.disable();
       await NativePlayer.startBackground(
         title: title,
         artist: artist,
         playing: true,
       );
       _bgActive = true;
+    } else {
+      WakelockPlus.enable();
     }
     if (!mounted) return;
     _armHide();
@@ -479,12 +502,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Future<void> _togglePlay() async {
     final c = _controller;
     if (c == null) return;
+    final provider = context.read<AppProvider>();
     if (c.value.isPlaying) {
       await c.pause();
       WakelockPlus.disable();
     } else {
+      await AudioHelper.requestFocus();
       await c.play();
-      WakelockPlus.enable();
+      if (!provider.isBackgroundPlayEnabled) {
+        WakelockPlus.enable();
+      } else {
+        WakelockPlus.disable();
+      }
     }
     setState(() {});
     await _syncNativePlayback(forceBg: true);
@@ -503,6 +532,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
       }
       return;
     }
+    // Background mode: never hold wakelock (allows screen off)
+    WakelockPlus.disable();
     final title = provider.currentVideo?.title ??
         widget.preview?.title ??
         'VibeTube';
@@ -617,6 +648,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   void dispose() {
     _hideTimer?.cancel();
     _posTimer?.cancel();
+    _toastTimer?.cancel();
     NativePlayer.removeHandlers(
       onPip: _onPipChanged,
       onMediaPlay: _onMediaPlay,
@@ -797,6 +829,29 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 bottom: 0,
                 child: _progressBar(),
               ),
+            if (_toastMsg != null)
+              Positioned(
+                top: 56,
+                left: 0,
+                right: 0,
+                child: Center(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.8),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      _toastMsg!,
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13),
+                    ),
+                  ),
+                ),
+              ),
           ],
         ),
       ),
@@ -809,6 +864,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   Widget _controlsOverlay(bool playing, bool fullscreen) {
+    final detailsIsLive =
+        context.read<AppProvider>().currentVideo?.isLive == true ||
+            widget.preview?.isLive == true;
     return Positioned.fill(
       child: Container(
         decoration: BoxDecoration(
@@ -909,74 +967,130 @@ class _PlayerScreenState extends State<PlayerScreen> {
               ],
             ),
             const Spacer(),
+            // Time + feature controls (YouTube-style)
             Padding(
-              padding: const EdgeInsets.fromLTRB(8, 0, 8, 28),
-              child: Row(
+              padding: const EdgeInsets.fromLTRB(6, 0, 4, 10),
+              child: Column(
                 children: [
-                  Text(
-                    '${_fmt(_position)} / ${_fmt(_duration)}',
-                    style: const TextStyle(color: Colors.white, fontSize: 12),
-                  ),
-                  const Spacer(),
-                  TextButton(
-                    onPressed: _showSpeedSheet,
-                    child: Text(
-                      '${_speed == _speed.roundToDouble() ? _speed.toInt() : _speed}x',
-                      style: const TextStyle(color: Colors.white, fontSize: 13),
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: _showQualitySheet,
-                    child: Text(
-                      _quality,
-                      style: const TextStyle(color: Colors.white, fontSize: 13),
-                    ),
-                  ),
-                  IconButton(
-                    icon: Icon(
-                      _inPip ? Icons.picture_in_picture_alt : Icons.picture_in_picture_alt_outlined,
-                      color: Colors.white,
-                      size: 22,
-                    ),
-                    tooltip: 'Picture-in-Picture',
-                    onPressed: () async {
-                      final playing = _controller?.value.isPlaying == true;
-                      if (!playing) {
-                        if (mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text(
-                                  'PiP only works while the video is playing'),
-                            ),
-                          );
-                        }
-                        return;
-                      }
-                      await NativePlayer.setPlaying(true);
-                      final ok = await NativePlayer.enterPip();
-                      if (!ok && mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(_pipSupported
-                                ? 'Could not enter PiP — try again while playing'
-                                : 'PiP not supported on this device'),
+                  Row(
+                    children: [
+                      Text(
+                        detailsIsLive
+                            ? 'LIVE'
+                            : '${_fmt(_position)} / ${_fmt(_duration)}',
+                        style: TextStyle(
+                          color: detailsIsLive
+                              ? const Color(0xFFFF5555)
+                              : Colors.white,
+                          fontSize: 12,
+                          fontWeight: detailsIsLive
+                              ? FontWeight.w800
+                              : FontWeight.w500,
+                        ),
+                      ),
+                      const Spacer(),
+                      _ctrlIcon(
+                        _muted ? Icons.volume_off : Icons.volume_up,
+                        'Mute',
+                        _toggleMute,
+                      ),
+                      _ctrlIcon(
+                        _looping ? Icons.repeat_one : Icons.repeat,
+                        'Loop',
+                        _toggleLoop,
+                        active: _looping,
+                      ),
+                      TextButton(
+                        onPressed: _showSpeedSheet,
+                        child: Text(
+                          '${_speed == _speed.roundToDouble() ? _speed.toInt() : _speed}x',
+                          style: const TextStyle(
+                              color: Colors.white, fontSize: 13),
+                        ),
+                      ),
+                      if (!detailsIsLive)
+                        TextButton(
+                          onPressed: _showQualitySheet,
+                          child: Text(
+                            _quality.replaceAll(' (HLS)', ''),
+                            style: const TextStyle(
+                                color: Colors.white, fontSize: 13),
                           ),
-                        );
-                      }
-                    },
+                        ),
+                      _ctrlIcon(
+                        Icons.picture_in_picture_alt_outlined,
+                        'PiP',
+                        _enterPipIfPlaying,
+                      ),
+                      _ctrlIcon(
+                        fullscreen
+                            ? Icons.fullscreen_exit
+                            : Icons.fullscreen,
+                        'Fullscreen',
+                        () async {
+                          if (fullscreen) {
+                            await _exitFullscreen();
+                          } else {
+                            await _enterFullscreen();
+                          }
+                        },
+                      ),
+                    ],
                   ),
-                  IconButton(
-                    icon: Icon(
-                      fullscreen ? Icons.fullscreen_exit : Icons.fullscreen,
-                      color: Colors.white,
+                  // Secondary actions row
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        _chipBtn(Icons.replay_10, '-10s', () => _seekBy(-10)),
+                        _chipBtn(Icons.forward_10, '+10s', () => _seekBy(10)),
+                        _chipBtn(
+                          Icons.skip_next,
+                          'Next',
+                          _playNextRelated,
+                        ),
+                        _chipBtn(
+                          _liked ? Icons.thumb_up : Icons.thumb_up_outlined,
+                          'Like',
+                          _toggleLike,
+                          active: _liked,
+                        ),
+                        _chipBtn(
+                          Icons.thumb_down_outlined,
+                          'Dislike',
+                          _showDislikes,
+                        ),
+                        _chipBtn(Icons.share_outlined, 'Share', _shareVideo),
+                        _chipBtn(
+                          _watchLater
+                              ? Icons.watch_later
+                              : Icons.watch_later_outlined,
+                          'Save',
+                          _toggleWatchLater,
+                          active: _watchLater,
+                        ),
+                        _chipBtn(
+                          Icons.download_outlined,
+                          'Download',
+                          _downloadCurrent,
+                        ),
+                        _chipBtn(
+                          Icons.closed_caption_outlined,
+                          'CC',
+                          () => _toast('Captions coming soon'),
+                        ),
+                        _chipBtn(
+                          Icons.headphones,
+                          'Audio',
+                          _audioOnlyMode,
+                        ),
+                        _chipBtn(
+                          Icons.settings_outlined,
+                          'More',
+                          _showMoreSheet,
+                        ),
+                      ],
                     ),
-                    onPressed: () {
-                      if (fullscreen) {
-                        _exitFullscreen();
-                      } else {
-                        _enterFullscreen();
-                      }
-                    },
                   ),
                 ],
               ),
@@ -1655,6 +1769,278 @@ class _PlayerScreenState extends State<PlayerScreen> {
     );
   }
 
+
+
+  Widget _ctrlIcon(IconData icon, String tip, dynamic onTap,
+      {bool active = false}) {
+    return IconButton(
+      tooltip: tip,
+      icon: Icon(icon,
+          color: active ? AppTheme.primary : Colors.white, size: 22),
+      onPressed: () {
+        final r = onTap is Function ? onTap() : null;
+        if (r is Future) {
+          r.catchError((_) {});
+        }
+      },
+      visualDensity: VisualDensity.compact,
+    );
+  }
+
+  Widget _chipBtn(IconData icon, String label, VoidCallback onTap,
+      {bool active = false}) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 6, top: 2, bottom: 4),
+      child: Material(
+        color: active
+            ? AppTheme.primary.withValues(alpha: 0.25)
+            : Colors.white.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(18),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(18),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon,
+                    size: 16,
+                    color: active ? AppTheme.primary : Colors.white),
+                const SizedBox(width: 4),
+                Text(label,
+                    style: TextStyle(
+                      color: active ? AppTheme.primary : Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    )),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _toast(String msg) {
+    _toastTimer?.cancel();
+    setState(() => _toastMsg = msg);
+    _toastTimer = Timer(const Duration(seconds: 2), () {
+      if (mounted) setState(() => _toastMsg = null);
+    });
+  }
+
+  Future<void> _toggleMute() async {
+    final c = _controller;
+    if (c == null) return;
+    setState(() => _muted = !_muted);
+    await c.setVolume(_muted ? 0 : 1);
+    _toast(_muted ? 'Muted' : 'Unmuted');
+  }
+
+  Future<void> _toggleLoop() async {
+    setState(() => _looping = !_looping);
+    await _controller?.setLooping(_looping);
+    _toast(_looping ? 'Loop on' : 'Loop off');
+  }
+
+  Future<void> _enterPipIfPlaying() async {
+    if (_controller?.value.isPlaying != true) {
+      _toast('Play the video to use PiP');
+      return;
+    }
+    await NativePlayer.setPlaying(true);
+    final ok = await NativePlayer.enterPip();
+    if (!ok) {
+      _toast(_pipSupported ? 'PiP unavailable' : 'PiP not supported');
+    }
+  }
+
+  Future<void> _toggleLike() async {
+    final provider = context.read<AppProvider>();
+    final meta = provider.currentVideo;
+    final preview = widget.preview;
+    final v = Video(
+      id: widget.videoId,
+      title: meta?.title ?? preview?.title ?? '',
+      thumbnailUrl: meta?.thumbnailUrl ?? preview?.thumbnailUrl ?? '',
+      channelName: meta?.channelName ?? preview?.channelName ?? '',
+      channelId: meta?.channelId ?? preview?.channelId ?? '',
+      viewCount: meta?.viewCount ?? preview?.viewCount ?? 0,
+      duration: meta?.duration ?? preview?.duration ?? Duration.zero,
+      isLive: meta?.isLive ?? preview?.isLive ?? false,
+      isShort: meta?.isShort ?? preview?.isShort ?? false,
+    );
+    final liked = await provider.toggleLike(v);
+    if (!mounted) return;
+    setState(() => _liked = liked);
+    _toast(liked ? 'Added to Liked' : 'Removed like');
+  }
+
+  Future<void> _toggleWatchLater() async {
+    final provider = context.read<AppProvider>();
+    final meta = provider.currentVideo;
+    final preview = widget.preview;
+    final v = Video(
+      id: widget.videoId,
+      title: meta?.title ?? preview?.title ?? '',
+      thumbnailUrl: meta?.thumbnailUrl ?? preview?.thumbnailUrl ?? '',
+      channelName: meta?.channelName ?? preview?.channelName ?? '',
+      channelId: meta?.channelId ?? preview?.channelId ?? '',
+      viewCount: meta?.viewCount ?? preview?.viewCount ?? 0,
+      duration: meta?.duration ?? preview?.duration ?? Duration.zero,
+      isLive: meta?.isLive ?? preview?.isLive ?? false,
+      isShort: meta?.isShort ?? preview?.isShort ?? false,
+    );
+    final saved = await provider.toggleWatchLater(v);
+    if (!mounted) return;
+    setState(() => _watchLater = saved);
+    _toast(saved ? 'Saved to Watch Later' : 'Removed');
+  }
+
+  void _showDislikes() {
+    final n = _dislikes;
+    _toast(n == null
+        ? 'Dislike count unavailable'
+        : '${_short(n)} dislikes');
+  }
+
+  Future<void> _shareVideo() async {
+    final title = context.read<AppProvider>().currentVideo?.title ??
+        widget.preview?.title ??
+        'VibeTube';
+    await Share.share('https://youtu.be/${widget.videoId}', subject: title);
+  }
+
+  Future<void> _downloadCurrent() async {
+    final provider = context.read<AppProvider>();
+    if (provider.currentVideo?.isLive == true) {
+      _toast('Cannot download live streams');
+      return;
+    }
+    final meta = provider.currentVideo;
+    final preview = widget.preview;
+    final v = Video(
+      id: widget.videoId,
+      title: meta?.title ?? preview?.title ?? 'Video',
+      thumbnailUrl: meta?.thumbnailUrl ?? preview?.thumbnailUrl ?? '',
+      channelName: meta?.channelName ?? preview?.channelName ?? '',
+      duration: meta?.duration ?? preview?.duration ?? Duration.zero,
+    );
+    _toast('Downloading…');
+    try {
+      await provider.downloadVideo(v);
+      if (mounted) _toast('Download complete');
+    } catch (_) {
+      if (mounted) _toast('Download failed');
+    }
+  }
+
+  Future<void> _audioOnlyMode() async {
+    final d = context.read<AppProvider>().currentVideo;
+    if (d == null) return;
+    if (d.isLive) {
+      _toast('Not available on live');
+      return;
+    }
+    setState(() => _quality = 'Audio Only');
+    final pos = _controller?.value.position;
+    await _startPlayback(d, quality: 'Audio Only');
+    if (pos != null) {
+      await _controller?.seekTo(pos);
+      await _controller?.play();
+    }
+    _toast('Audio only');
+  }
+
+  void _playNextRelated() {
+    final related = context.read<AppProvider>().relatedVideos;
+    if (related.isEmpty) {
+      _toast('No related videos');
+      return;
+    }
+    final next = related.first;
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PlayerScreen(videoId: next.id, preview: next),
+      ),
+    );
+  }
+
+  void _showMoreSheet() {
+    final c = VibeColors.of(context);
+    final provider = context.read<AppProvider>();
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: c.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SwitchListTile(
+              secondary: Icon(Icons.headphones, color: c.textPrimary),
+              title: Text('Background play',
+                  style: TextStyle(color: c.textPrimary)),
+              subtitle: Text(
+                'Keep audio when screen is off (media notification)',
+                style: TextStyle(color: c.textSecondary, fontSize: 12),
+              ),
+              value: provider.isBackgroundPlayEnabled,
+              onChanged: (_) async {
+                provider.toggleBackgroundPlay();
+                Navigator.pop(ctx);
+                if (provider.isBackgroundPlayEnabled) {
+                  WakelockPlus.disable();
+                  await AudioHelper.requestFocus();
+                  await _syncNativePlayback(forceBg: true);
+                  _toast('Background play ON — lock phone to test');
+                } else {
+                  await NativePlayer.stopBackground();
+                  _bgActive = false;
+                  _toast('Background play OFF');
+                }
+              },
+            ),
+            SwitchListTile(
+              secondary:
+                  Icon(Icons.picture_in_picture_alt, color: c.textPrimary),
+              title:
+                  Text('Auto PiP', style: TextStyle(color: c.textPrimary)),
+              value: provider.isAutoPipEnabled,
+              onChanged: (_) {
+                provider.toggleAutoPip();
+                Navigator.pop(ctx);
+              },
+            ),
+            SwitchListTile(
+              secondary: Icon(Icons.skip_next, color: c.textPrimary),
+              title: Text('SponsorBlock',
+                  style: TextStyle(color: c.textPrimary)),
+              value: provider.isSponsorBlockEnabled,
+              onChanged: (_) {
+                provider.toggleSponsorBlock();
+                Navigator.pop(ctx);
+              },
+            ),
+            ListTile(
+              leading: Icon(Icons.open_in_new, color: c.textPrimary),
+              title: Text('Share YouTube link',
+                  style: TextStyle(color: c.textPrimary)),
+              onTap: () {
+                Navigator.pop(ctx);
+                _shareVideo();
+              },
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
 
   String _maxQualityLabel(VideoDetails? d) {
     if (d == null) return '720p';

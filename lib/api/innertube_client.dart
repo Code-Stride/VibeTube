@@ -128,12 +128,40 @@ class InnerTubeClient {
   }
 
   /// Category chip feed.
+  /// InnerTube search filter params (base64 protobuf-ish).
+  static const String kFilterVideos = 'EgIQAQ%3D%3D';
+  static const String kFilterShorts = 'EgIYAQ%3D%3D';
+  static const String kFilterLive = 'EgJAAQ%3D%3D';
+
   Future<List<Video>> getCategoryFeed(String category, {String region = 'IN'}) async {
+    final c = category.trim().toLowerCase();
+    final isIn = region.toUpperCase() == 'IN';
+
+    if (c == 'shorts') {
+      final q = isIn ? 'shorts india' : 'shorts';
+      var result = await search(q, params: kFilterShorts);
+      if (result.videos.isEmpty) {
+        result = await search('#shorts', params: kFilterShorts);
+      }
+      if (result.videos.isEmpty) {
+        result = await search('youtube shorts', params: kFilterShorts);
+      }
+      return result.videos;
+    }
+
+    if (c == 'live') {
+      final q = isIn ? 'live news india' : 'live news';
+      var result = await search(q, params: kFilterLive);
+      if (result.videos.isEmpty) {
+        result = await search('live', params: kFilterLive);
+      }
+      return result.videos;
+    }
+
     final q = _categoryQuery(category, region);
-    final result = await search(q);
+    final result = await search(q, params: kFilterVideos);
     if (result.videos.isNotEmpty) return result.videos;
-    // fallback broader
-    final alt = await search(category);
+    final alt = await search(category, params: kFilterVideos);
     return alt.videos;
   }
 
@@ -153,10 +181,6 @@ class InnerTubeClient {
         return isIn ? 'cricket highlights' : 'sports highlights';
       case 'movies':
         return isIn ? 'bollywood movie trailers' : 'movie trailers';
-      case 'live':
-        return 'live';
-      case 'shorts':
-        return '#shorts';
       case 'education':
         return isIn ? 'study with me india' : 'education';
       case 'technology':
@@ -232,12 +256,12 @@ class InnerTubeClient {
     return out;
   }
 
-  Future<SearchResult> search(String query, {String? continuation}) async {
+  Future<SearchResult> search(String query, {String? continuation, String? params}) async {
     final client = Map<String, dynamic>.from(_webClient);
     final body = <String, dynamic>{
       'query': query,
       'context': {'client': client},
-      'params': 'EgIQAQ%3D%3D', // videos only
+      'params': params ?? kFilterVideos,
     };
     if (continuation != null) body['continuation'] = continuation;
 
@@ -268,7 +292,7 @@ class InnerTubeClient {
         {
           'query': query,
           'context': {'client': androidClient},
-          'params': 'EgIQAQ%3D%3D',
+          'params': params ?? kFilterVideos,
         },
         userAgent:
             'com.google.android.youtube/20.10.38 (Linux; U; Android 14) gzip',
@@ -327,7 +351,16 @@ class InnerTubeClient {
 
     final formatsFinal =
         mergedFormats.isNotEmpty ? mergedFormats : base.formats;
-    final hls = iosDetails?.hlsUrl ?? base.hlsUrl;
+    // Live: ANDROID HLS is more reliable; VOD: prefer IOS multi-quality HLS
+    String? hls;
+    final liveGuess = (iosDetails?.isLive ?? false) ||
+        (androidDetails?.isLive ?? false) ||
+        (base.isLive);
+    if (liveGuess) {
+      hls = androidDetails?.hlsUrl ?? iosDetails?.hlsUrl ?? base.hlsUrl;
+    } else {
+      hls = iosDetails?.hlsUrl ?? androidDetails?.hlsUrl ?? base.hlsUrl;
+    }
 
     // Progressive muxed by height
     final progressive = <int, String>{};
@@ -409,7 +442,10 @@ class InnerTubeClient {
       hlsUrl: hls,
       dashUrl: base.dashUrl ?? androidDetails?.dashUrl,
       likeCount: base.likeCount,
-      isLive: base.isLive || (androidDetails?.isLive ?? false) || (iosDetails?.isLive ?? false),
+      isLive: liveGuess ||
+          base.isLive ||
+          (androidDetails?.isLive ?? false) ||
+          (iosDetails?.isLive ?? false),
       isShort: base.isShort || (androidDetails?.isShort ?? false),
       hlsVariants: hlsVariants,
       progressiveByHeight: progressive,
@@ -544,8 +580,10 @@ class InnerTubeClient {
       dashUrl: sd['dashManifestUrl']?.toString(),
       isLive: vd['isLiveContent'] == true ||
           vd['isLive'] == true ||
-          (sd['hlsManifestUrl'] != null &&
-              (vd['isLiveContent'] == true || vd['lengthSeconds'] == '0')),
+          vd['isUpcoming'] != true &&
+              ((vd['lengthSeconds']?.toString() == '0') ||
+                  (int.tryParse(vd['lengthSeconds']?.toString() ?? '-1') == 0)) &&
+              (sd['hlsManifestUrl'] != null || sd['dashManifestUrl'] != null),
       isShort: (int.tryParse(vd['lengthSeconds']?.toString() ?? '0') ?? 0) > 0 &&
           (int.tryParse(vd['lengthSeconds']?.toString() ?? '0') ?? 0) <= 60 &&
           (vd['title']?.toString().toLowerCase().contains('#shorts') == true),
@@ -599,11 +637,25 @@ class InnerTubeClient {
           'compactVideoRenderer',
           'gridVideoRenderer',
           'playlistVideoRenderer',
+          'reelItemRenderer',
+          'shortsLockupViewModel',
+          'gridVideoRenderer',
         ]) {
           if (node[key] is Map) {
-            final v = _extractVideo(Map<String, dynamic>.from(node[key] as Map));
+            final map = Map<String, dynamic>.from(node[key] as Map);
+            Video? v;
+            if (key == 'reelItemRenderer' || key == 'shortsLockupViewModel') {
+              v = _extractShort(map, key);
+            } else {
+              v = _extractVideo(map);
+            }
             if (v != null) videos.add(v);
           }
+        }
+        // lockupViewModel (newer YT UI) — try extract video id from entity
+        if (node['lockupViewModel'] is Map) {
+          final v = _extractLockup(Map<String, dynamic>.from(node['lockupViewModel'] as Map));
+          if (v != null) videos.add(v);
         }
         if (node['richItemRenderer'] is Map) {
           walk(node['richItemRenderer']['content']);
@@ -621,6 +673,102 @@ class InnerTubeClient {
     walk(response);
     final seen = <String>{};
     return videos.where((v) => v.id.isNotEmpty && seen.add(v.id)).toList();
+  }
+
+  Video? _extractShort(Map<String, dynamic> r, String kind) {
+    try {
+      String id = '';
+      String title = '';
+      String thumb = '';
+      String channel = '';
+
+      if (kind == 'reelItemRenderer') {
+        id = r['videoId']?.toString() ??
+            r['navigationEndpoint']?['reelWatchEndpoint']?['videoId']?.toString() ??
+            '';
+        title = _text(r['headline']) ;
+        if (title.isEmpty) title = _text(r['overlayMetadata']?['primaryText']);
+        final th = r['thumbnail']?['thumbnails'] as List? ??
+            r['thumbnails'] as List? ??
+            const [];
+        if (th.isNotEmpty) thumb = th.last['url']?.toString() ?? '';
+        channel = _text(r['overlayMetadata']?['secondaryText']);
+      } else {
+        // shortsLockupViewModel
+        id = r['onTap']?['innertubeCommand']?['reelWatchEndpoint']?['videoId']
+                ?.toString() ??
+            r['entityId']?.toString().replaceAll('shorts-shelf-item-', '') ??
+            '';
+        // entity id sometimes "shorts-shelf-item-VIDEOID"
+        if (id.contains('-')) {
+          final parts = id.split('-');
+          if (parts.last.length == 11) id = parts.last;
+        }
+        title = _text(r['overlayMetadata']?['primaryText']) ;
+        if (title.isEmpty) title = r['accessibilityText']?.toString() ?? '';
+        final th = r['thumbnail']?['sources'] as List? ??
+            r['thumbnailViewModel']?['image']?['sources'] as List? ??
+            const [];
+        if (th.isNotEmpty) thumb = th.last['url']?.toString() ?? '';
+      }
+
+      if (id.isEmpty || id.length < 10) return null;
+      if (thumb.startsWith('//')) thumb = 'https:$thumb';
+      if (thumb.isEmpty) thumb = 'https://i.ytimg.com/vi/$id/hqdefault.jpg';
+
+      return Video(
+        id: id,
+        title: title.isEmpty ? 'Short' : title,
+        thumbnailUrl: thumb,
+        channelName: channel,
+        duration: const Duration(seconds: 30),
+        isShort: true,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Video? _extractLockup(Map<String, dynamic> r) {
+    try {
+      // Nested contentId / metadata
+      String id = r['contentId']?.toString() ?? '';
+      if (id.isEmpty) {
+        final s = r.toString();
+        final m = RegExp(r'[\?&/]v=([\w-]{11})|shorts/([\w-]{11})|watch\?v=([\w-]{11})').firstMatch(s);
+        if (m != null) {
+          id = m.group(1) ?? m.group(2) ?? m.group(3) ?? '';
+        }
+      }
+      if (id.length != 11) return null;
+      String title = '';
+      String channel = '';
+      String thumb = 'https://i.ytimg.com/vi/$id/hqdefault.jpg';
+      // try metadata rows
+      void scan(dynamic n) {
+        if (n is Map) {
+          if (n['text'] is Map) {
+            final tx = _text(n['text']);
+            if (title.isEmpty && tx.length > 3) title = tx;
+          }
+          for (final v in n.values) scan(v);
+        } else if (n is List) {
+          for (final i in n) scan(i);
+        }
+      }
+      scan(r['metadata']);
+      final blob = r.toString().toUpperCase();
+      final live = blob.contains('LIVE') || blob.contains('BADGE_STYLE_TYPE_LIVE');
+      return Video(
+        id: id,
+        title: title.isEmpty ? 'Video' : title,
+        thumbnailUrl: thumb,
+        channelName: channel,
+        isLive: live,
+      );
+    } catch (_) {
+      return null;
+    }
   }
 
   List<Comment> _parseCommentsDeep(Map<String, dynamic> response) {

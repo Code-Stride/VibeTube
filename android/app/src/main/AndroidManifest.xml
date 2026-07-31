@@ -53,7 +53,9 @@
         <service
             android:name=".PlaybackService"
             android:exported="false"
-            android:foregroundServiceType="mediaPlayback" />
+            android:enabled="true"
+            android:foregroundServiceType="mediaPlayback"
+            android:stopWithTask="false" />
 
         <meta-data
             android:name="flutterEmbedding"

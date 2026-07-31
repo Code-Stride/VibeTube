@@ -1,7 +1,7 @@
 name: vibetube
 description: Open-source Flutter YouTube client with mini player, PiP, background media controls, SponsorBlock, and more.
 publish_to: 'none'
-version: 1.4.2+10
+version: 1.5.0+11
 homepage: https://github.com/Code-Stride/VibeTube
 repository: https://github.com/Code-Stride/VibeTube
 issue_tracker: https://github.com/Code-Stride/VibeTube/issues
@@ -26,6 +26,7 @@ dependencies:
   wakelock_plus: ^1.2.10
   path_provider: ^2.1.5
   permission_handler: ^11.3.1
+  audio_session: ^0.1.21
 
 dev_dependencies:
   flutter_test:
