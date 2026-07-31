@@ -36,12 +36,28 @@ jobs:
       - name: Get Dependencies
         run: flutter pub get
 
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test
+
       - name: Verify release keystore
+        env:
+          VIBETUBE_STORE_PASSWORD: ${{ secrets.VIBETUBE_STORE_PASSWORD || 'vibetube2026' }}
         run: |
           ls -la android/app/vibetube-release.jks
-          keytool -list -keystore android/app/vibetube-release.jks -storepass vibetube2026 | head -20
+          keytool -list -keystore android/app/vibetube-release.jks \
+            -storepass "$VIBETUBE_STORE_PASSWORD" | head -20
 
       - name: Build APK
+        env:
+          # Gradle reads these for signingConfigs.release. Configure repository
+          # secrets to sign with your own credentials; the fallbacks match the
+          # keystore committed in this repo so CI stays green without them.
+          VIBETUBE_STORE_PASSWORD: ${{ secrets.VIBETUBE_STORE_PASSWORD || 'vibetube2026' }}
+          VIBETUBE_KEY_ALIAS: ${{ secrets.VIBETUBE_KEY_ALIAS || 'vibetube' }}
+          VIBETUBE_KEY_PASSWORD: ${{ secrets.VIBETUBE_KEY_PASSWORD || 'vibetube2026' }}
         run: flutter build apk --release
 
       - name: Rename APK

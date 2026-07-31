@@ -10,7 +10,11 @@ def storeToUse = releaseStoreFile.exists() ? releaseStoreFile : (ciStoreFile.exi
 
 android {
     namespace "com.blazenxt.vibetube"
-    compileSdk 35
+    // AndroidX (androidx.core 1.17, androidx.browser 1.9) requires compiling
+    // against API 36; staying on 35 fails :app:checkReleaseAarMetadata.
+    // compileSdk only controls which APIs are visible — targetSdk below still
+    // governs runtime behaviour, so this is a safe bump.
+    compileSdk 36
     ndkVersion flutter.ndkVersion
 
     defaultConfig {
