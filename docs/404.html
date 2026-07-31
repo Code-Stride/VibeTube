@@ -4,156 +4,234 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Watch on VibeTube</title>
-<!-- Also serves /VibeTube/w/<id>: GitHub Pages has no rewrites, so this
-     404 page doubles as the watch-link handler. Keep in sync with w/index.html. -->
+<!-- Also serves /VibeTube/w/<id>: GitHub Pages has no rewrites, so this 404
+     page doubles as the watch-link handler. Keep in sync with w/index.html. -->
 <meta name="robots" content="noindex">
 
 <meta property="og:title" content="Watch on VibeTube">
-<meta property="og:description" content="Ad-free YouTube with background play, PiP, SponsorBlock and downloads. Free and open source.">
+<meta property="og:description" content="Ad-free YouTube with background play, PiP, SponsorBlock and offline downloads. Free and open source.">
 <meta property="og:type" content="video.other">
-<meta name="theme-color" content="#12141a">
+<meta name="theme-color" content="#0d0f14">
 
 <style>
-  :root { --bg:#12141a; --surface:#1a1d26; --surface2:#20242f; --text:#e8eaf0;
-          --muted:#8b93a7; --primary:#ff4d2e; --accent:#ff8a5b;
-          --border:#2a2f3d; --green:#4ade80; }
-  * { box-sizing:border-box; }
-  body { margin:0; background:var(--bg); color:var(--text);
-         font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
-         padding:28px 20px 40px; -webkit-font-smoothing:antialiased; }
-  .wrap { width:100%; max-width:430px; margin:0 auto; }
+  :root{
+    --bg:#0d0f14; --surface:#151821; --surface2:#1c2029; --text:#eef0f6;
+    --muted:#8b93a7; --primary:#ff4d2e; --primary2:#ff8a5b; --border:#252a36;
+    --green:#4ade80;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased; padding:0 20px 48px;
+    position:relative; overflow-x:hidden;
+  }
+  /* Ambient glow so the page doesn't read as a flat dark rectangle. */
+  body::before{
+    content:""; position:fixed; inset:-30% -30% auto -30%; height:70vh; z-index:-1;
+    background:
+      radial-gradient(48% 42% at 50% 0%, rgba(255,77,46,.16), transparent 70%),
+      radial-gradient(38% 36% at 85% 8%, rgba(255,138,91,.10), transparent 70%);
+    pointer-events:none;
+  }
+  .wrap{width:100%; max-width:440px; margin:0 auto; padding-top:30px}
 
-  .brand { display:flex; align-items:center; gap:10px; justify-content:center;
-           margin-bottom:22px; }
-  .logo { width:38px; height:38px; border-radius:50%;
-          background:linear-gradient(135deg,var(--primary),var(--accent));
-          display:grid; place-items:center; flex:none; }
-  .logo svg { width:20px; height:20px; fill:#fff; }
-  .brand b { font-size:17px; letter-spacing:-.2px; }
+  .icon{width:1.15em;height:1.15em;display:inline-block;vertical-align:-.15em;
+        fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;
+        stroke-linejoin:round;flex:0 0 auto}
+  .icon-fill{fill:currentColor;stroke:none}
 
-  .thumb { width:100%; aspect-ratio:16/9; border-radius:14px; margin-bottom:18px;
-           background:#000 center/cover no-repeat; border:1px solid var(--border);
-           display:none; position:relative; overflow:hidden; }
-  .thumb::after { content:""; position:absolute; inset:0;
-                  background:radial-gradient(circle at 50% 50%,transparent 40%,rgba(0,0,0,.45)); }
-  .play { position:absolute; inset:0; margin:auto; width:54px; height:54px;
-          border-radius:50%; background:rgba(0,0,0,.55); display:grid;
-          place-items:center; z-index:2; backdrop-filter:blur(2px); }
-  .play svg { width:26px; height:26px; fill:#fff; margin-left:3px; }
+  /* ---- brand ---- */
+  .brand{display:flex;align-items:center;gap:10px;justify-content:center;
+         margin-bottom:24px}
+  .brand-mark{width:40px;height:40px;border-radius:12px;flex:none;
+    background:linear-gradient(140deg,var(--primary),var(--primary2));
+    display:grid;place-items:center;color:#fff;
+    box-shadow:0 6px 20px rgba(255,77,46,.34)}
+  .brand-mark .icon{width:20px;height:20px}
+  .brand b{font-size:18px;letter-spacing:-.3px}
+  .brand .tag{font-size:10px;font-weight:800;letter-spacing:.7px;
+    color:var(--primary);background:rgba(255,77,46,.13);
+    border:1px solid rgba(255,77,46,.28);padding:3px 7px;border-radius:6px}
 
-  h1 { font-size:20px; margin:0 0 6px; text-align:center; letter-spacing:-.3px; }
-  .sub { color:var(--muted); font-size:14px; line-height:1.5; margin:0 0 20px;
-         text-align:center; }
+  /* ---- video card ---- */
+  .vid{position:relative;width:100%;aspect-ratio:16/9;border-radius:16px;
+    overflow:hidden;border:1px solid var(--border);background:#000 center/cover no-repeat;
+    margin-bottom:20px;display:none;box-shadow:0 16px 40px rgba(0,0,0,.5)}
+  .vid::after{content:"";position:absolute;inset:0;
+    background:linear-gradient(180deg,transparent 45%,rgba(0,0,0,.55))}
+  .vid .play{position:absolute;inset:0;margin:auto;width:58px;height:58px;
+    border-radius:50%;background:rgba(13,15,20,.62);border:1px solid rgba(255,255,255,.16);
+    display:grid;place-items:center;z-index:2;color:#fff;backdrop-filter:blur(3px)}
+  .vid .play .icon{width:22px;height:22px;margin-left:3px}
 
-  .btn { display:flex; align-items:center; justify-content:center; gap:8px;
-         width:100%; padding:15px 18px; border-radius:26px; font-size:15px;
-         font-weight:700; text-decoration:none; border:0; cursor:pointer;
-         margin-bottom:10px; font-family:inherit; }
-  .primary { background:var(--primary); color:#fff; }
-  .primary:active { background:#e63e20; }
-  .ghost { background:transparent; color:var(--text); border:1px solid var(--border); }
-  .btn svg { width:18px; height:18px; fill:currentColor; }
-  .meta { text-align:center; font-size:12px; color:var(--muted); margin:0 0 26px; }
+  h1{font-size:22px;line-height:1.25;margin:0 0 8px;text-align:center;
+     letter-spacing:-.4px}
+  .sub{color:var(--muted);font-size:14px;line-height:1.55;margin:0 0 22px;
+       text-align:center}
 
-  .why { border-top:1px solid var(--border); padding-top:24px; }
-  .why h2 { font-size:13px; text-transform:uppercase; letter-spacing:.7px;
-            color:var(--muted); margin:0 0 16px; text-align:center;
-            font-weight:700; }
-  .feat { display:flex; gap:12px; align-items:flex-start; margin-bottom:15px; }
-  .fi { width:34px; height:34px; border-radius:10px; background:var(--surface2);
-        display:grid; place-items:center; flex:none; }
-  .fi svg { width:17px; height:17px; fill:var(--primary); }
-  .ft { font-size:14px; font-weight:650; margin:0 0 2px; line-height:1.3; }
-  .fd { font-size:12.5px; color:var(--muted); margin:0; line-height:1.45; }
+  /* ---- buttons ---- */
+  .btn{display:flex;align-items:center;justify-content:center;gap:9px;width:100%;
+    padding:15px 18px;border-radius:14px;font-size:15px;font-weight:700;
+    text-decoration:none;border:0;cursor:pointer;margin-bottom:10px;
+    font-family:inherit;transition:transform .12s ease,filter .12s ease}
+  .btn:active{transform:scale(.985)}
+  .btn .icon{width:1.15em;height:1.15em}
+  .primary{background:linear-gradient(135deg,var(--primary),var(--primary2));
+    color:#fff;box-shadow:0 8px 24px rgba(255,77,46,.3)}
+  .ghost{background:var(--surface);color:var(--text);border:1px solid var(--border)}
+  .meta{text-align:center;font-size:12px;color:var(--muted);margin:0 0 8px}
 
-  .foot { margin-top:26px; padding-top:20px; border-top:1px solid var(--border);
-          text-align:center; }
-  .badges { display:flex; gap:6px; justify-content:center; flex-wrap:wrap;
-            margin-bottom:14px; }
-  .badge { font-size:11px; color:var(--green); background:rgba(74,222,128,.1);
-           border:1px solid rgba(74,222,128,.25); padding:4px 10px;
-           border-radius:20px; font-weight:600; }
-  .foot a { color:var(--muted); font-size:12px; text-decoration:none; }
-  .foot a:hover { color:var(--text); }
-  .err { color:var(--primary); }
+  .trust{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;
+    margin:0 0 30px;font-size:11.5px;color:var(--muted)}
+  .trust span{display:inline-flex;align-items:center;gap:5px}
+  .trust .icon{width:13px;height:13px;color:var(--green)}
+
+  /* ---- features ---- */
+  .why{border-top:1px solid var(--border);padding-top:26px}
+  .why h2{font-size:11px;text-transform:uppercase;letter-spacing:1.1px;
+    color:var(--muted);margin:0 0 18px;text-align:center;font-weight:800}
+  .feat{display:flex;gap:13px;align-items:flex-start;padding:11px 12px;
+    border-radius:13px;margin-bottom:7px;background:var(--surface);
+    border:1px solid transparent}
+  .feat.hero{border-color:rgba(255,77,46,.28);
+    background:linear-gradient(135deg,rgba(255,77,46,.10),var(--surface))}
+  .ico{width:38px;height:38px;border-radius:11px;background:var(--surface2);
+    display:grid;place-items:center;flex:none;color:var(--primary2)}
+  .feat.hero .ico{background:linear-gradient(135deg,var(--primary),var(--primary2));
+    color:#fff;box-shadow:0 4px 14px rgba(255,77,46,.3)}
+  .ico .icon{width:19px;height:19px}
+  .ft{font-size:14.5px;font-weight:680;margin:1px 0 3px;line-height:1.25}
+  .fd{font-size:12.5px;color:var(--muted);margin:0;line-height:1.5}
+
+  /* ---- closing ---- */
+  .cta{margin-top:26px;padding:22px 18px;border-radius:16px;text-align:center;
+    background:linear-gradient(150deg,rgba(255,77,46,.13),var(--surface));
+    border:1px solid rgba(255,77,46,.22)}
+  .cta p{margin:0 0 14px;font-size:14.5px;font-weight:650;line-height:1.4}
+  .cta .btn{margin-bottom:0}
+
+  .foot{margin-top:24px;text-align:center}
+  .foot a{color:var(--muted);font-size:12.5px;text-decoration:none;
+    display:inline-flex;align-items:center;gap:6px}
+  .foot a:hover{color:var(--text)}
+  .foot .icon{width:14px;height:14px}
+  .err{color:var(--primary)}
 </style>
 </head>
 <body>
+
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+  <symbol id="i-play" viewBox="0 0 24 24"><polygon class="icon-fill" points="8,5 19,12 8,19"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12"/><path d="m7 11 5 5 5-5"/><path d="M5 21h14"/></symbol>
+  <symbol id="i-ban" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M5.5 5.5 18.5 18.5"/></symbol>
+  <symbol id="i-headphones" viewBox="0 0 24 24"><path d="M3 14v-2a9 9 0 0 1 18 0v2"/><rect x="2" y="14" width="4" height="7" rx="1"/><rect x="18" y="14" width="4" height="7" rx="1"/></symbol>
+  <symbol id="i-pip" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="14" rx="2"/><rect x="12" y="11" width="8" height="6" rx="1"/></symbol>
+  <symbol id="i-skip" viewBox="0 0 24 24"><path d="M5 5v14l9-7-9-7z"/><path d="M19 5v14"/></symbol>
+  <symbol id="i-zap" viewBox="0 0 24 24"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z"/></symbol>
+  <symbol id="i-panel" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M3 18h7v2H3z"/><path d="M8 18v2"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 5 3.5 8.5 8 9 4.5-.5 8-4 8-9V6l-8-3z"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 5 5L20 7"/></symbol>
+  <symbol id="i-github" viewBox="0 0 24 24"><path class="icon-fill" d="M12 .5C5.73.5.5 5.73.5 12c0 5.08 3.29 9.39 7.86 10.91.58.1.79-.25.79-.56 0-.28-.01-1.02-.02-2-3.2.7-3.88-1.54-3.88-1.54-.53-1.34-1.28-1.7-1.28-1.7-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.23-1.28-5.23-5.68 0-1.25.45-2.28 1.18-3.08-.12-.29-.51-1.46.11-3.04 0 0 .97-.31 3.18 1.18a11.1 11.1 0 0 1 2.9-.39c.98 0 1.97.13 2.9.39 2.2-1.49 3.17-1.18 3.17-1.18.62 1.58.23 2.75.12 3.04.74.8 1.18 1.83 1.18 3.08 0 4.41-2.69 5.39-5.25 5.67.41.36.78 1.06.78 2.14 0 1.55-.01 2.8-.01 3.18 0 .31.21.67.8.56A10.52 10.52 0 0 0 23.5 12C23.5 5.73 18.27.5 12 .5z"/></symbol>
+</svg>
+
 <div class="wrap">
 
   <div class="brand">
-    <div class="logo" aria-hidden="true">
-      <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-    </div>
+    <div class="brand-mark"><svg class="icon"><use href="#i-play"/></svg></div>
     <b>VibeTube</b>
+    <span class="tag">PREMIUM</span>
   </div>
 
-  <div class="thumb" id="thumb">
-    <div class="play" aria-hidden="true">
-      <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-    </div>
+  <div class="vid" id="thumb">
+    <div class="play" aria-hidden="true"><svg class="icon"><use href="#i-play"/></svg></div>
   </div>
 
   <h1 id="title">Opening in VibeTube…</h1>
   <p class="sub" id="sub">If the app doesn’t open automatically, tap below.</p>
 
   <a class="btn primary" id="open" href="#">
-    <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-    Open in VibeTube
+    <svg class="icon"><use href="#i-play"/></svg> Open in VibeTube
   </a>
   <a class="btn ghost js-apk" id="get"
      href="https://github.com/Code-Stride/VibeTube/releases/latest">
-    <svg viewBox="0 0 24 24"><path d="M5 20h14v-2H5v2zM19 9h-4V3H9v6H5l7 7 7-7z"/></svg>
+    <svg class="icon"><use href="#i-download"/></svg>
     <span id="getLabel">Download the app</span>
   </a>
   <p class="meta" id="meta">Free · Open source · Android</p>
 
+  <div class="trust">
+    <span><svg class="icon"><use href="#i-check"/></svg> No ads</span>
+    <span><svg class="icon"><use href="#i-check"/></svg> No tracking</span>
+    <span><svg class="icon"><use href="#i-check"/></svg> No account</span>
+  </div>
+
   <section class="why">
-    <h2>Why VibeTube</h2>
+    <h2>Everything unlocked, free</h2>
 
-    <div class="feat">
-      <div class="fi"><svg viewBox="0 0 24 24"><path d="M12 2L4 5v6c0 5 3.4 9.7 8 11 4.6-1.3 8-6 8-11V5l-8-3zm-1 14l-4-4 1.4-1.4L11 13.2l4.6-4.6L17 10l-6 6z"/></svg></div>
-      <div><p class="ft">No ads, ever</p><p class="fd">Every video plays straight through. No pre-rolls, no mid-rolls, no banners.</p></div>
+    <div class="feat hero">
+      <div class="ico"><svg class="icon"><use href="#i-ban"/></svg></div>
+      <div><p class="ft">No ads, ever</p>
+      <p class="fd">Every video plays straight through — no pre-rolls, no mid-rolls, no banners.</p></div>
+    </div>
+
+    <div class="feat hero">
+      <div class="ico"><svg class="icon"><use href="#i-headphones"/></svg></div>
+      <div><p class="ft">Background play</p>
+      <p class="fd">Lock your screen and the audio keeps going, with lock-screen and Bluetooth controls.</p></div>
     </div>
 
     <div class="feat">
-      <div class="fi"><svg viewBox="0 0 24 24"><path d="M12 3v10.6a4 4 0 100 2V7h5V3h-5z"/></svg></div>
-      <div><p class="ft">Background play</p><p class="fd">Lock your screen and the audio keeps going, with lock-screen and Bluetooth controls.</p></div>
+      <div class="ico"><svg class="icon"><use href="#i-pip"/></svg></div>
+      <div><p class="ft">Picture-in-Picture</p>
+      <p class="fd">Float the video in a small window while you use other apps.</p></div>
     </div>
 
     <div class="feat">
-      <div class="fi"><svg viewBox="0 0 24 24"><path d="M19 11h-8v6h8v-6zm4 8V5a2 2 0 00-2-2H3a2 2 0 00-2 2v14a2 2 0 002 2h18a2 2 0 002-2zm-2 .02H3V4.98h18v14.04z"/></svg></div>
-      <div><p class="ft">Picture-in-Picture</p><p class="fd">Pop the video into a floating window and keep watching while you use other apps.</p></div>
+      <div class="ico"><svg class="icon"><use href="#i-skip"/></svg></div>
+      <div><p class="ft">SponsorBlock built in</p>
+      <p class="fd">Sponsor reads, intros and self-promo segments are skipped automatically.</p></div>
     </div>
 
     <div class="feat">
-      <div class="fi"><svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg></div>
-      <div><p class="ft">SponsorBlock built in</p><p class="fd">Sponsor reads, intros and self-promo are skipped automatically.</p></div>
+      <div class="ico"><svg class="icon"><use href="#i-download"/></svg></div>
+      <div><p class="ft">Download and watch offline</p>
+      <p class="fd">Save videos to your phone for flights, commutes or patchy signal.</p></div>
     </div>
 
     <div class="feat">
-      <div class="fi"><svg viewBox="0 0 24 24"><path d="M5 20h14v-2H5v2zM19 9h-4V3H9v6H5l7 7 7-7z"/></svg></div>
-      <div><p class="ft">Download and watch offline</p><p class="fd">Save videos to your phone for flights, commutes or patchy signal.</p></div>
+      <div class="ico"><svg class="icon"><use href="#i-zap"/></svg></div>
+      <div><p class="ft">Full quality, up to 4K</p>
+      <p class="fd">Lock any resolution you like instead of being pushed down to 360p.</p></div>
     </div>
 
     <div class="feat">
-      <div class="fi"><svg viewBox="0 0 24 24"><path d="M21 3H3a2 2 0 00-2 2v14a2 2 0 002 2h18a2 2 0 002-2V5a2 2 0 00-2-2zm0 16H3V5h18v14zM8 15l3-4 2 3 3-4 3 5H8z"/></svg></div>
-      <div><p class="ft">Full quality, up to 4K</p><p class="fd">Lock any resolution you like instead of being pushed down to 360p.</p></div>
+      <div class="ico"><svg class="icon"><use href="#i-panel"/></svg></div>
+      <div><p class="ft">Mini player, Shorts &amp; Live</p>
+      <p class="fd">Keep browsing while a video plays. Shorts and live streams both supported.</p></div>
     </div>
 
     <div class="feat">
-      <div class="fi"><svg viewBox="0 0 24 24"><path d="M4 6h16v2H4V6zm0 5h16v2H4v-2zm0 5h10v2H4v-2z"/></svg></div>
-      <div><p class="ft">Mini player, Shorts and Live</p><p class="fd">Keep browsing while a video plays, with Shorts and live streams supported.</p></div>
+      <div class="ico"><svg class="icon"><use href="#i-shield"/></svg></div>
+      <div><p class="ft">No account, no tracking</p>
+      <p class="fd">No sign-in, no profile, no analytics. Your watch history stays on your device.</p></div>
     </div>
   </section>
 
+  <div class="cta">
+    <p>Watch this video the way it should be.</p>
+    <a class="btn primary js-apk"
+       href="https://github.com/Code-Stride/VibeTube/releases/latest">
+      <svg class="icon"><use href="#i-download"/></svg>
+      <span class="js-apk-label">Download the app</span>
+    </a>
+  </div>
+
   <div class="foot">
-    <div class="badges">
-      <span class="badge">No tracking</span>
-      <span class="badge">No account</span>
-      <span class="badge">GPL-3.0</span>
-    </div>
-    <a href="https://github.com/Code-Stride/VibeTube">View source on GitHub →</a>
+    <a href="https://github.com/Code-Stride/VibeTube">
+      <svg class="icon"><use href="#i-github"/></svg> Open source · GPL-3.0
+    </a>
   </div>
 </div>
 
@@ -169,7 +247,6 @@
   var titleEl = document.getElementById('title');
   var subEl   = document.getElementById('sub');
   var openEl  = document.getElementById('open');
-  var getLbl  = document.getElementById('getLabel');
 
   if (!valid) {
     // A genuine 404 rather than a watch link.
@@ -188,12 +265,12 @@
 
     // On Android the App Link should have opened the app before this page
     // rendered. Reaching here usually means it isn't installed, so try the
-    // custom scheme once then settle into the install pitch.
+    // custom scheme once, then settle into the install pitch.
     if (/android/i.test(navigator.userAgent)) {
       var t = setTimeout(function () {
         titleEl.textContent = 'Watch this in VibeTube';
-        subEl.textContent = 'VibeTube plays it ad-free, in the background, ' +
-                            'and lets you save it offline.';
+        subEl.textContent = 'Ad-free, plays in the background, and you can ' +
+                            'save it to watch offline.';
       }, 1500);
       document.addEventListener('visibilitychange', function () {
         if (document.hidden) clearTimeout(t);   // app opened
@@ -206,8 +283,8 @@
     }
   }
 
-  // Point the button at the actual APK rather than the releases page, so it
-  // is one tap instead of three. Mirrors the main site's resolver.
+  // Point downloads at the actual APK rather than the releases list, so it is
+  // one tap instead of three. Mirrors the resolver on the main site.
   fetch('https://api.github.com/repos/Code-Stride/VibeTube/releases?per_page=20')
     .then(function (r) { return r.json(); })
     .then(function (rs) {
@@ -216,16 +293,19 @@
         var a = (rs[j].assets || []).filter(function (x) {
           return /\.apk$/i.test(x.name);
         })[0];
-        if (a) {
-          var el = document.getElementById('get');
+        if (!a) continue;
+        document.querySelectorAll('a.js-apk').forEach(function (el) {
           el.href = a.browser_download_url;
           el.setAttribute('download', a.name);
-          getLbl.textContent = 'Download APK';
-          document.getElementById('meta').textContent =
-            rs[j].tag_name + ' · ' + (a.size / 1048576).toFixed(0) +
-            ' MB · Free · Open source';
-          return;
-        }
+        });
+        document.getElementById('getLabel').textContent = 'Download APK';
+        document.querySelectorAll('.js-apk-label').forEach(function (el) {
+          el.textContent = 'Download APK · free';
+        });
+        document.getElementById('meta').textContent =
+          rs[j].tag_name + ' · ' + (a.size / 1048576).toFixed(0) +
+          ' MB · Android 7+';
+        return;
       }
     })
     .catch(function () { /* keep the releases-page fallback */ });
