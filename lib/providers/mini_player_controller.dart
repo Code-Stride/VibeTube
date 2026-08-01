@@ -112,7 +112,9 @@ class MiniPlayerController extends ChangeNotifier {
   }
 
   void _onMediaPause() {
+    _requestingFocus = true;
     pause();
+    _requestingFocus = false;
   }
 
   void _onMediaStop() {
@@ -123,19 +125,27 @@ class MiniPlayerController extends ChangeNotifier {
     final c = controller;
     if (c == null || !c.value.isInitialized) return;
     if (c.value.isPlaying) {
-      _pausedByInterruption = false;
+      _requestingFocus = true;
       await c.pause();
+      _requestingFocus = false;
+      _pausedByInterruption = false;
     } else {
+      _requestingFocus = true;
+      _lastPlayTime = DateTime.now();
       await AudioHelper.requestFocus();
       await c.play();
+      Future.delayed(const Duration(seconds: 1), () { _requestingFocus = false; });
     }
     _syncBackground();
     notifyListeners();
   }
 
   Future<void> play() async {
+    _requestingFocus = true;
+    _lastPlayTime = DateTime.now();
     await AudioHelper.requestFocus();
     await controller?.play();
+    Future.delayed(const Duration(seconds: 1), () { _requestingFocus = false; });
     _syncBackground();
     notifyListeners();
   }
@@ -155,8 +165,12 @@ class MiniPlayerController extends ChangeNotifier {
 
   /// Paused by the OS rather than the user, so auto-resume is appropriate.
   bool _pausedByInterruption = false;
+  bool _requestingFocus = false;
+  DateTime _lastPlayTime = DateTime.fromMillisecondsSinceEpoch(0);
 
   void _onBecomingNoisy() {
+    if (_requestingFocus) return;
+    if (DateTime.now().difference(_lastPlayTime).inMilliseconds < 1000) return;
     final c = controller;
     if (c == null || !c.value.isInitialized || !c.value.isPlaying) return;
     _pausedByInterruption = false;
@@ -164,6 +178,8 @@ class MiniPlayerController extends ChangeNotifier {
   }
 
   void _onShouldPause(bool permanent) {
+    if (_requestingFocus) return;
+    if (DateTime.now().difference(_lastPlayTime).inMilliseconds < 1000) return;
     final c = controller;
     if (c == null || !c.value.isInitialized || !c.value.isPlaying) return;
     _pausedByInterruption = !permanent;
@@ -171,7 +187,7 @@ class MiniPlayerController extends ChangeNotifier {
   }
 
   void _onMayResume() {
-    if (!_pausedByInterruption) return;
+    if (!_pausedByInterruption || _requestingFocus) return;
     _pausedByInterruption = false;
     final c = controller;
     if (c == null || !c.value.isInitialized || c.value.isPlaying) return;
