@@ -196,13 +196,13 @@ class VideoDetails extends Video {
     return null;
   }
 
-  /// Auto: master HLS (player picks best) → else best progressive.
+  /// Auto: best quality HLS variant → master HLS → best progressive.
   String? get preferredPlayUrl {
-    if (hlsUrl != null && hlsUrl!.isNotEmpty) return hlsUrl;
     if (hlsVariants.isNotEmpty) {
       final h = hlsVariants.keys.toList()..sort((a, b) => b.compareTo(a));
       return hlsVariants[h.first];
     }
+    if (hlsUrl != null && hlsUrl!.isNotEmpty) return hlsUrl;
     return bestMuxedUrl;
   }
 
@@ -211,7 +211,12 @@ class VideoDetails extends Video {
   /// Resolve a concrete playable URL for the chosen quality label.
   String? urlForQuality(String quality) {
     final q = quality.trim();
-    if (q == 'Auto' || q == 'Best' || q == 'Auto (HLS)' || q == 'Auto') {
+    if (q == 'Auto' || q == 'Best') {
+      return preferredPlayUrl;
+    }
+    if (q == 'Auto (HLS)') {
+      // Auto (HLS) = adaptive master playlist (for adaptive streaming)
+      if (hlsUrl != null && hlsUrl!.isNotEmpty) return hlsUrl;
       return preferredPlayUrl;
     }
     if (q == 'Audio Only') {

@@ -193,8 +193,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
     mini.setExpanded(true);
 
     _speed = provider.defaultSpeed;
-    _quality = provider.defaultQuality.isEmpty ? 'Auto (HLS)' : provider.defaultQuality;
-    if (_quality == 'Auto') _quality = 'Auto (HLS)';
+    _quality = provider.defaultQuality.isEmpty ? '1080p' : provider.defaultQuality;
+    if (_quality == 'Auto') _quality = '1080p';
     _liked = await provider.isLiked(widget.videoId);
     try {
       _watchLater = provider.watchLater.any((e) => e.id == widget.videoId);
@@ -309,11 +309,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
       }
       add(details.preferredPlayUrl);
     } else if (isAuto) {
-      add(details.hlsUrl);
+      // Try highest quality HLS variants FIRST (not master playlist)
       if (details.hlsVariants.isNotEmpty) {
         final hs = details.hlsVariants.keys.toList()
           ..sort((a, b) => b.compareTo(a));
-        for (final prefer in [1080, 720, 480, 1440, 2160]) {
+        for (final prefer in [2160, 1440, 1080, 720, 480]) {
           if (details.hlsVariants.containsKey(prefer)) {
             add(details.hlsVariants[prefer]);
           }
@@ -322,6 +322,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
           add(details.hlsVariants[h]);
         }
       }
+      add(details.hlsUrl);
       add(details.preferredPlayUrl);
       add(details.bestMuxedUrl);
     } else if (q == 'Audio Only') {

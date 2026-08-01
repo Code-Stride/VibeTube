@@ -131,15 +131,15 @@ class _ShortPlayerState extends State<_ShortPlayer> with SingleTickerProviderSta
       if (!mounted) return;
 
       String? playUrl;
-      if (details.hlsUrl != null && details.hlsUrl!.isNotEmpty) {
-        playUrl = details.hlsUrl;
-      } else if (details.hlsVariants.isNotEmpty) {
-        final sorted = details.hlsVariants.keys.toList()..sort();
+      if (details.hlsVariants.isNotEmpty) {
+        final sorted = details.hlsVariants.keys.toList()..sort((a, b) => b.compareTo(a));
         playUrl = details.hlsVariants[sorted.first];
-      } else if (details.bestMuxedUrl != null) {
-        playUrl = details.bestMuxedUrl;
+      } else if (details.hlsUrl != null && details.hlsUrl!.isNotEmpty) {
+        playUrl = details.hlsUrl;
       } else if (details.preferredPlayUrl != null) {
         playUrl = details.preferredPlayUrl;
+      } else if (details.bestMuxedUrl != null) {
+        playUrl = details.bestMuxedUrl;
       }
 
       if (playUrl == null || playUrl.isEmpty || !mounted) return;

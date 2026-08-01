@@ -365,8 +365,11 @@ void main() {
     });
 
     test('Auto resolves to the adaptive master', () {
+      // Auto (HLS) = master playlist for adaptive streaming
       expect(details.urlForQuality('Auto (HLS)'), details.hlsUrl);
-      expect(details.urlForQuality('Auto'), details.hlsUrl);
+      // Auto / Best = highest quality variant (not master)
+      expect(details.urlForQuality('Auto'), isNot(details.hlsUrl));
+      expect(details.urlForQuality('Best'), isNot(details.hlsUrl));
     });
 
     test('a locked height never resolves to the master playlist', () {

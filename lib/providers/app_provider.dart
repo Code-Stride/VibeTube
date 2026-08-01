@@ -74,7 +74,7 @@ class AppProvider extends ChangeNotifier {
     isSponsorBlockEnabled = s['isSponsorBlockEnabled'] ?? true;
     isBackgroundPlayEnabled = s['isBackgroundPlayEnabled'] ?? true;
     isAutoPipEnabled = s['isAutoPipEnabled'] ?? true;
-    defaultQuality = s['defaultQuality'] ?? 'Auto (HLS)';
+    defaultQuality = s['defaultQuality'] ?? '1080p';
     defaultSpeed = (s['defaultSpeed'] as num?)?.toDouble() ?? 1.0;
     region = s['region'] ?? 'IN';
     isCaptionsEnabled = s['isCaptionsEnabled'] ?? false;

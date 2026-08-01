@@ -117,6 +117,7 @@ class HlsParser {
       if (preferNew) byHeight[v.height] = v;
     }
 
+    // Sort by height DESCENDING (highest quality first)
     final list = byHeight.values.toList()
       ..sort((a, b) => b.height.compareTo(a.height));
     return list;
