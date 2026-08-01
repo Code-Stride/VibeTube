@@ -26,6 +26,8 @@ class AppProvider extends ChangeNotifier {
   List<Comment> comments = [];
   List<SponsorSegment> sponsorSegments = [];
 
+  List<String> searchHistory = [];
+
   VideoDetails? currentVideo;
   int? dislikeCount;
 
@@ -84,6 +86,7 @@ class AppProvider extends ChangeNotifier {
     sbOutro = s['sbOutro'] ?? false;
     sbFiller = s['sbFiller'] ?? false;
     await refreshLibrary();
+    searchHistory = await storage.getSearchHistory();
     notifyListeners();
     loadTrending();
     checkUpdate();
@@ -265,6 +268,8 @@ class AppProvider extends ChangeNotifier {
       notifyListeners();
       return;
     }
+    await storage.addSearchQuery(query.trim());
+    searchHistory = await storage.getSearchHistory();
     isLoading = true;
     error = null;
     notifyListeners();
@@ -286,6 +291,18 @@ class AppProvider extends ChangeNotifier {
   void clearSearch() {
     searchQuery = '';
     searchResults = [];
+    notifyListeners();
+  }
+
+  Future<void> removeSearchQuery(String query) async {
+    await storage.removeSearchQuery(query);
+    searchHistory = await storage.getSearchHistory();
+    notifyListeners();
+  }
+
+  Future<void> clearSearchHistory() async {
+    await storage.clearSearchHistory();
+    searchHistory = [];
     notifyListeners();
   }
 

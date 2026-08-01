@@ -158,19 +158,62 @@ class _SearchScreenState extends State<SearchScreen> {
     return ListView(
       padding: const EdgeInsets.symmetric(vertical: 8),
       children: [
+        // Search History (YouTube-style)
+        if (provider.searchHistory.isNotEmpty) ...[
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 8, 4),
+            child: Row(
+              children: [
+                Icon(Icons.history, size: 20, color: c.textPrimary),
+                const SizedBox(width: 12),
+                Expanded(child: Text('Recent searches', style: TextStyle(fontWeight: FontWeight.w500, fontSize: 16, color: c.textPrimary))),
+                TextButton(
+                  onPressed: () => _showClearSearchHistoryDialog(provider, c),
+                  child: Text('Clear all', style: TextStyle(color: AppTheme.secondary, fontSize: 14)),
+                ),
+              ],
+            ),
+          ),
+          ...provider.searchHistory.take(10).map((query) => ListTile(
+            leading: Icon(Icons.history, size: 20, color: c.textSecondary),
+            title: Text(query, style: TextStyle(color: c.textPrimary, fontSize: 16)),
+            trailing: IconButton(
+              icon: Icon(Icons.close, size: 18, color: c.textMuted),
+              onPressed: () => provider.removeSearchQuery(query),
+            ),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+            onTap: () { _controller.text = query; _submit(query); },
+          )),
+          Divider(height: 1, color: c.border),
+        ],
+        // Trending
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-          child: Text('Trending searches', style: TextStyle(fontWeight: FontWeight.w500, fontSize: 16, color: c.textPrimary)),
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+          child: Row(
+            children: [
+              Icon(Icons.trending_up, size: 20, color: c.textPrimary),
+              const SizedBox(width: 12),
+              Text('Trending searches', style: TextStyle(fontWeight: FontWeight.w500, fontSize: 16, color: c.textPrimary)),
+            ],
+          ),
         ),
         ...trending.map((t) => ListTile(
           leading: Icon(Icons.trending_up, size: 20, color: c.textSecondary),
           title: Text(t, style: TextStyle(color: c.textPrimary, fontSize: 16)),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16),
           onTap: () { _controller.text = t; _submit(t); },
         )),
+        // Continue watching
         if (provider.history.isNotEmpty) ...[
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-            child: Text('Continue watching', style: TextStyle(fontWeight: FontWeight.w500, fontSize: 16, color: c.textPrimary)),
+            child: Row(
+              children: [
+                Icon(Icons.play_circle_outline, size: 20, color: c.textPrimary),
+                const SizedBox(width: 12),
+                Text('Continue watching', style: TextStyle(fontWeight: FontWeight.w500, fontSize: 16, color: c.textPrimary)),
+              ],
+            ),
           ),
           ...provider.history.take(6).map((v) => VideoCard(
             video: v, compact: true,
@@ -179,6 +222,25 @@ class _SearchScreenState extends State<SearchScreen> {
           )),
         ],
       ],
+    );
+  }
+
+  void _showClearSearchHistoryDialog(AppProvider provider, VibeColors c) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: c.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        title: Text('Clear search history?', style: TextStyle(color: c.textPrimary, fontSize: 20)),
+        content: Text('Your search history will be cleared from this device.', style: TextStyle(color: c.textSecondary, fontSize: 14)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: Text('Cancel', style: TextStyle(color: c.textSecondary))),
+          TextButton(
+            onPressed: () { provider.clearSearchHistory(); Navigator.pop(ctx); },
+            child: const Text('Clear all', style: TextStyle(color: AppTheme.secondary)),
+          ),
+        ],
+      ),
     );
   }
 }

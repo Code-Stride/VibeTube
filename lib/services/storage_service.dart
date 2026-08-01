@@ -8,6 +8,7 @@ class StorageService {
   static const _kWatchLater = 'watch_later';
   static const _kDownloads = 'downloads_meta';
   static const _kSettings = 'app_settings';
+  static const _kSearchHistory = 'search_history';
 
   SharedPreferences? _prefs;
   Future<SharedPreferences> get prefs async =>
@@ -112,4 +113,32 @@ class StorageService {
   }
 
   Future<void> clearHistory() async => setList(_kHistory, []);
+
+  // ---- Search History ----
+
+  Future<List<String>> getSearchHistory() async {
+    final p = await prefs;
+    return p.getStringList(_kSearchHistory) ?? [];
+  }
+
+  Future<void> addSearchQuery(String query) async {
+    final p = await prefs;
+    final list = p.getStringList(_kSearchHistory) ?? [];
+    list.remove(query);
+    list.insert(0, query);
+    if (list.length > 30) list.removeRange(30, list.length);
+    await p.setStringList(_kSearchHistory, list);
+  }
+
+  Future<void> removeSearchQuery(String query) async {
+    final p = await prefs;
+    final list = p.getStringList(_kSearchHistory) ?? [];
+    list.remove(query);
+    await p.setStringList(_kSearchHistory, list);
+  }
+
+  Future<void> clearSearchHistory() async {
+    final p = await prefs;
+    await p.remove(_kSearchHistory);
+  }
 }
