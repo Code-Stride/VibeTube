@@ -5,6 +5,7 @@ import '../models/video.dart';
 import '../providers/app_provider.dart';
 import '../utils/theme.dart';
 
+/// YouTube-exact video card — matches YouTube's layout pixel-for-pixel.
 class VideoCard extends StatelessWidget {
   final Video video;
   final VoidCallback onTap;
@@ -19,8 +20,13 @@ class VideoCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (compact) return _compactCard(context);
+    return _fullCard(context);
+  }
+
+  /// YouTube full card (home feed): thumbnail → title → channel row
+  Widget _fullCard(BuildContext context) {
     final c = VibeColors.of(context);
-    if (compact) return _compact(context, c);
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -28,40 +34,30 @@ class VideoCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Thumbnail with duration badge
             AspectRatio(
               aspectRatio: 16 / 9,
               child: Stack(
                 fit: StackFit.expand,
                 children: [
                   _thumb(video.thumbnailUrl, c.surfaceLight),
-                  if (video.isLive)
-                    Positioned(
-                      left: 8,
-                      top: 8,
-                      child: _liveBadge(),
-                    )
-                  else if (video.isShort)
-                    Positioned(
-                      left: 8,
-                      top: 8,
-                      child: _shortBadge(),
-                    ),
+                  if (video.isLive) Positioned(left: 8, bottom: 8, child: _liveBadge()),
                   if (!video.isLive && video.formattedDuration.isNotEmpty)
-                    Positioned(
-                      right: 8,
-                      bottom: 8,
-                      child: _badge(video.formattedDuration),
-                    ),
+                    Positioned(right: 8, bottom: 8, child: _durationBadge(video.formattedDuration)),
+                  if (video.isShort) Positioned(left: 8, top: 8, child: _shortBadge()),
                 ],
               ),
             ),
+            // Info row: avatar + title/channel/views
             Padding(
-              padding: const EdgeInsets.fromLTRB(12, 10, 4, 14),
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // Channel avatar
                   _avatar(video, c),
                   const SizedBox(width: 12),
+                  // Title + metadata
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -71,31 +67,40 @@ class VideoCard extends StatelessWidget {
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            fontSize: 14.5,
-                            fontWeight: FontWeight.w600,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
                             height: 1.3,
                             color: c.textPrimary,
                           ),
                         ),
                         const SizedBox(height: 4),
+                        // Channel name
                         Text(
-                          [
-                            if (video.channelName.isNotEmpty) video.channelName,
-                            if (video.viewCount > 0)
-                              '${video.formattedViewCount} views',
-                            if (video.publishedAt.isNotEmpty) video.publishedAt,
-                          ].join(' • '),
+                          video.channelName.isEmpty ? 'VibeTube' : video.channelName,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(fontSize: 12.5, color: c.textSecondary),
+                          style: TextStyle(fontSize: 14, color: c.textSecondary),
                         ),
+                        // Views + time
+                        if (video.viewCount > 0 || video.publishedAt.isNotEmpty)
+                          Text(
+                            [
+                              if (video.viewCount > 0) '${video.formattedViewCount} views',
+                              if (video.publishedAt.isNotEmpty) video.publishedAt,
+                            ].join(' · '),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(fontSize: 14, color: c.textSecondary),
+                          ),
                       ],
                     ),
                   ),
+                  // More button
                   IconButton(
-                    visualDensity: VisualDensity.compact,
                     icon: Icon(Icons.more_vert, size: 20, color: c.textSecondary),
-                    onPressed: () => _options(context, c),
+                    onPressed: () => _showOptions(context, c),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
                   ),
                 ],
               ),
@@ -106,74 +111,84 @@ class VideoCard extends StatelessWidget {
     );
   }
 
-  Widget _compact(BuildContext context, VibeColors c) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
-        child: Row(
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(10),
-              child: SizedBox(
-                width: 168,
-                height: 94,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    _thumb(video.thumbnailUrl, c.surfaceLight),
-                    if (video.isLive)
-                      Positioned(left: 6, top: 6, child: _liveBadge())
-                    else if (video.isShort)
-                      Positioned(left: 6, top: 6, child: _shortBadge()),
-                    if (!video.isLive && video.formattedDuration.isNotEmpty)
-                      Positioned(
-                        right: 6,
-                        bottom: 6,
-                        child: _badge(video.formattedDuration),
-                      ),
-                  ],
+  /// YouTube compact card (search/related): horizontal layout
+  Widget _compactCard(BuildContext context) {
+    final c = VibeColors.of(context);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 0),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Thumbnail
+              ClipRRect(
+                borderRadius: BorderRadius.circular(0),
+                child: SizedBox(
+                  width: 168,
+                  height: 94,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      _thumb(video.thumbnailUrl, c.surfaceLight),
+                      if (video.isLive) Positioned(left: 6, bottom: 6, child: _liveBadge()),
+                      if (!video.isLive && video.formattedDuration.isNotEmpty)
+                        Positioned(right: 6, bottom: 6, child: _durationBadge(video.formattedDuration)),
+                      if (video.isShort) Positioned(left: 6, top: 6, child: _shortBadge()),
+                    ],
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    video.title,
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 13.5,
-                      fontWeight: FontWeight.w600,
-                      color: c.textPrimary,
-                      height: 1.25,
-                    ),
+              const SizedBox(width: 8),
+              // Info
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.only(right: 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        video.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w500,
+                          color: c.textPrimary,
+                          height: 1.25,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        video.channelName.isEmpty ? 'VibeTube' : video.channelName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontSize: 12, color: c.textSecondary),
+                      ),
+                      Text(
+                        [
+                          if (video.viewCount > 0) '${video.formattedViewCount} views',
+                          if (video.publishedAt.isNotEmpty) video.publishedAt,
+                        ].join(' · '),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontSize: 12, color: c.textSecondary),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 6),
-                  Text(
-                    video.channelName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 12, color: c.textSecondary),
-                  ),
-                  Text(
-                    [
-                      if (video.viewCount > 0)
-                        '${video.formattedViewCount} views',
-                      if (video.publishedAt.isNotEmpty) video.publishedAt,
-                    ].join(' • '),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 12, color: c.textMuted),
-                  ),
-                ],
+                ),
               ),
-            ),
-          ],
+              // More button
+              IconButton(
+                icon: Icon(Icons.more_vert, size: 20, color: c.textSecondary),
+                onPressed: () => _showOptions(context, c),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -183,85 +198,52 @@ class VideoCard extends StatelessWidget {
     if (url.isEmpty) {
       return Container(
         color: bg,
-        child: Icon(Icons.play_circle_outline, color: bg.computeLuminance() > 0.5 ? Colors.black38 : Colors.white38, size: 42),
+        child: Center(child: Icon(Icons.play_circle_outline, color: bg.computeLuminance() > 0.5 ? Colors.black38 : Colors.white38, size: 42)),
       );
     }
     return CachedNetworkImage(
       imageUrl: url,
       fit: BoxFit.cover,
       placeholder: (_, __) => Container(color: bg),
-      errorWidget: (_, __, ___) => Container(
-        color: bg,
-        child: const Icon(Icons.broken_image, color: Colors.grey),
-      ),
+      errorWidget: (_, __, ___) => Container(color: bg, child: const Icon(Icons.broken_image, color: Colors.grey)),
     );
   }
 
-  Widget _badge(String text) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.85),
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: Text(
-        text,
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 11,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-    );
-  }
-
-  Widget _liveBadge() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFF0000),
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: const Text(
-        'LIVE',
-        style: TextStyle(
-          color: Colors.white,
-          fontSize: 10,
-          fontWeight: FontWeight.w800,
-          letterSpacing: 0.5,
-        ),
-      ),
-    );
-  }
-
-  Widget _shortBadge() {
+  Widget _durationBadge(String text) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: 0.8),
         borderRadius: BorderRadius.circular(4),
       ),
+      child: Text(text, style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w500)),
+    );
+  }
+
+  Widget _liveBadge() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(color: const Color(0xFFFF0000), borderRadius: BorderRadius.circular(2)),
+      child: const Text('LIVE', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.5)),
+    );
+  }
+
+  Widget _shortBadge() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.7), borderRadius: BorderRadius.circular(4)),
       child: const Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.vertical_align_center, size: 12, color: Colors.white),
+          Icon(Icons.movie_filter, size: 12, color: Colors.white),
           SizedBox(width: 2),
-          Text(
-            'SHORTS',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 10,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
+          Text('Shorts', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w700)),
         ],
       ),
     );
   }
 
   Widget _avatar(Video v, VibeColors c) {
-    final letter =
-        v.channelName.isNotEmpty ? v.channelName[0].toUpperCase() : 'V';
     if (v.channelAvatar.isNotEmpty) {
       return CircleAvatar(
         radius: 18,
@@ -269,83 +251,52 @@ class VideoCard extends StatelessWidget {
         backgroundColor: c.surfaceLight,
       );
     }
+    final letter = v.channelName.isNotEmpty ? v.channelName[0].toUpperCase() : 'V';
     return CircleAvatar(
       radius: 18,
       backgroundColor: c.surfaceVariant,
-      child: Text(letter,
-          style: const TextStyle(
-              color: AppTheme.primary, fontWeight: FontWeight.bold)),
+      child: Text(letter, style: TextStyle(color: c.textPrimary, fontWeight: FontWeight.bold, fontSize: 14)),
     );
   }
 
-  void _options(BuildContext outerContext, VibeColors c) {
+  void _showOptions(BuildContext outerContext, VibeColors c) {
     final provider = outerContext.read<AppProvider>();
     final messenger = ScaffoldMessenger.of(outerContext);
     showModalBottomSheet(
       context: outerContext,
       backgroundColor: c.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(12))),
       builder: (ctx) {
         return SafeArea(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const SizedBox(height: 10),
-              Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: c.surfaceVariant,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
+              const SizedBox(height: 8),
+              Container(width: 40, height: 4, decoration: BoxDecoration(color: c.surfaceVariant, borderRadius: BorderRadius.circular(2))),
               const SizedBox(height: 8),
               ListTile(
                 leading: Icon(Icons.watch_later_outlined, color: c.textPrimary),
-                title: Text('Save to Watch Later',
-                    style: TextStyle(color: c.textPrimary)),
+                title: Text('Save to Watch Later', style: TextStyle(color: c.textPrimary)),
                 onTap: () async {
                   Navigator.pop(ctx);
                   final added = await provider.toggleWatchLater(video);
-                  messenger.showSnackBar(SnackBar(
-                    content: Text(added
-                        ? 'Saved to Watch Later'
-                        : 'Removed from Watch Later'),
-                  ));
+                  messenger.showSnackBar(SnackBar(content: Text(added ? 'Saved to Watch Later' : 'Removed')));
                 },
               ),
               ListTile(
-                leading: Icon(Icons.thumb_up_outlined, color: c.textPrimary),
-                title: Text('Like', style: TextStyle(color: c.textPrimary)),
-                onTap: () async {
-                  Navigator.pop(ctx);
-                  final liked = await provider.toggleLike(video);
-                  messenger.showSnackBar(SnackBar(
-                    content: Text(liked ? 'Added to Liked' : 'Removed like'),
-                  ));
-                },
+                leading: Icon(Icons.playlist_add, color: c.textPrimary),
+                title: Text('Save to playlist', style: TextStyle(color: c.textPrimary)),
+                onTap: () => Navigator.pop(ctx),
               ),
               ListTile(
-                leading: Icon(Icons.download_outlined, color: c.textPrimary),
-                title: Text('Download', style: TextStyle(color: c.textPrimary)),
-                onTap: () async {
-                  Navigator.pop(ctx);
-                  messenger.showSnackBar(
-                    const SnackBar(content: Text('Starting download…')),
-                  );
-                  try {
-                    await provider.downloadVideo(video);
-                    messenger.showSnackBar(
-                      const SnackBar(content: Text('Download complete')),
-                    );
-                  } catch (e) {
-                    messenger.showSnackBar(
-                      SnackBar(content: Text('Download failed: $e')),
-                    );
-                  }
-                },
+                leading: Icon(Icons.thumb_down_outlined, color: c.textPrimary),
+                title: Text('Not interested', style: TextStyle(color: c.textPrimary)),
+                onTap: () => Navigator.pop(ctx),
+              ),
+              ListTile(
+                leading: Icon(Icons.share_outlined, color: c.textPrimary),
+                title: Text('Share', style: TextStyle(color: c.textPrimary)),
+                onTap: () => Navigator.pop(ctx),
               ),
               const SizedBox(height: 8),
             ],

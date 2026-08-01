@@ -2,33 +2,35 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+/// YouTube-exact color palette and theme system.
 class AppTheme {
-  static const Color primary = Color(0xFFFF3B5C);
-  static const Color primaryDark = Color(0xFFE11D48);
-  static const Color secondary = Color(0xFF22D3EE);
-  static const Color accent = Color(0xFFFBBF24);
+  // YouTube Brand Colors
+  static const Color primary = Color(0xFFFF0000);      // YouTube Red
+  static const Color primaryDark = Color(0xFFCC0000);
+  static const Color secondary = Color(0xFF3EA6FF);     // YouTube Blue (chips)
+  static const Color accent = Color(0xFFFFAB00);        // YouTube Yellow
 
-  // Dark palette
-  static const Color dBackground = Color(0xFF0A0A0B);
-  static const Color dSurface = Color(0xFF141416);
-  static const Color dSurfaceLight = Color(0xFF1E1E22);
-  static const Color dSurfaceVariant = Color(0xFF2A2A30);
-  static const Color dBorder = Color(0xFF2E2E36);
-  static const Color dTextPrimary = Color(0xFFF5F5F7);
-  static const Color dTextSecondary = Color(0xFFA1A1AA);
-  static const Color dTextMuted = Color(0xFF71717A);
+  // YouTube Dark Mode (exact)
+  static const Color dBackground = Color(0xFF0F0F0F);
+  static const Color dSurface = Color(0xFF212121);
+  static const Color dSurfaceLight = Color(0xFF272727);
+  static const Color dSurfaceVariant = Color(0xFF333333);
+  static const Color dBorder = Color(0xFF303030);
+  static const Color dTextPrimary = Color(0xFFF1F1F1);
+  static const Color dTextSecondary = Color(0xFFAAAAAA);
+  static const Color dTextMuted = Color(0xFF717171);
 
-  // Light palette
-  static const Color lBackground = Color(0xFFF4F4F6);
+  // YouTube Light Mode (exact)
+  static const Color lBackground = Color(0xFFF9F9F9);
   static const Color lSurface = Color(0xFFFFFFFF);
-  static const Color lSurfaceLight = Color(0xFFEEEEF2);
-  static const Color lSurfaceVariant = Color(0xFFE4E4EA);
-  static const Color lBorder = Color(0xFFD4D4DC);
-  static const Color lTextPrimary = Color(0xFF111118);
-  static const Color lTextSecondary = Color(0xFF5C5C66);
-  static const Color lTextMuted = Color(0xFF8B8B96);
+  static const Color lSurfaceLight = Color(0xFFF2F2F2);
+  static const Color lSurfaceVariant = Color(0xFFE5E5E5);
+  static const Color lBorder = Color(0xFFE0E0E0);
+  static const Color lTextPrimary = Color(0xFF0F0F0F);
+  static const Color lTextSecondary = Color(0xFF606060);
+  static const Color lTextMuted = Color(0xFF909090);
 
-  // Legacy aliases (dark defaults) — prefer ThemeColors.of(context)
+  // Legacy aliases
   static const Color background = dBackground;
   static const Color surface = dSurface;
   static const Color surfaceLight = dSurfaceLight;
@@ -38,10 +40,11 @@ class AppTheme {
   static const Color textSecondary = dTextSecondary;
   static const Color textMuted = dTextMuted;
 
-  static const Color success = Color(0xFF22C55E);
-  static const Color error = Color(0xFFEF4444);
-  static const Color warning = Color(0xFFF59E0B);
+  static const Color success = Color(0xFF2BA640);
+  static const Color error = Color(0xFFFF0000);
+  static const Color warning = Color(0xFFFFAB00);
 
+  // SponsorBlock colors
   static const Color sbSponsor = Color(0xFF00D400);
   static const Color sbSelfpromo = Color(0xFFFFE600);
   static const Color sbInteraction = Color(0xFFCC00FF);
@@ -117,7 +120,7 @@ class AppTheme {
     );
 
     return base.copyWith(
-      textTheme: GoogleFonts.plusJakartaSansTextTheme(base.textTheme).apply(
+      textTheme: GoogleFonts.robotoTextTheme(base.textTheme).apply(
         bodyColor: textPrimary,
         displayColor: textPrimary,
       ),
@@ -130,13 +133,13 @@ class AppTheme {
         systemOverlayStyle: isDark
             ? SystemUiOverlayStyle.light.copyWith(
                 statusBarColor: Colors.transparent,
-                systemNavigationBarColor: surface,
+                systemNavigationBarColor: background,
               )
             : SystemUiOverlayStyle.dark.copyWith(
                 statusBarColor: Colors.transparent,
-                systemNavigationBarColor: surface,
+                systemNavigationBarColor: background,
               ),
-        titleTextStyle: GoogleFonts.plusJakartaSans(
+        titleTextStyle: GoogleFonts.roboto(
           color: textPrimary,
           fontSize: 20,
           fontWeight: FontWeight.w700,
@@ -144,44 +147,43 @@ class AppTheme {
         iconTheme: IconThemeData(color: textPrimary),
       ),
       bottomNavigationBarTheme: BottomNavigationBarThemeData(
-        backgroundColor: surface,
-        selectedItemColor: primary,
+        backgroundColor: isDark ? const Color(0xFF212121) : Colors.white,
+        selectedItemColor: isDark ? Colors.white : const Color(0xFF0F0F0F),
         unselectedItemColor: textMuted,
         type: BottomNavigationBarType.fixed,
         elevation: 0,
-        selectedLabelStyle:
-            const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
-        unselectedLabelStyle: const TextStyle(fontSize: 11),
+        selectedLabelStyle: const TextStyle(fontSize: 10, fontWeight: FontWeight.w500),
+        unselectedLabelStyle: const TextStyle(fontSize: 10),
       ),
       cardTheme: CardThemeData(
         color: surface,
         elevation: 0,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(0)),
       ),
       chipTheme: ChipThemeData(
-        backgroundColor: surfaceLight,
-        selectedColor: primary,
+        backgroundColor: isDark ? const Color(0xFF272727) : const Color(0xFFF2F2F2),
+        selectedColor: isDark ? const Color(0xFF3EA6FF) : const Color(0xFF065FD4),
         disabledColor: surfaceLight,
-        labelStyle: TextStyle(color: textPrimary, fontSize: 13),
-        secondaryLabelStyle: const TextStyle(color: Colors.white, fontSize: 13),
-        padding: const EdgeInsets.symmetric(horizontal: 4),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        labelStyle: TextStyle(color: textPrimary, fontSize: 14, fontWeight: FontWeight.w500),
+        secondaryLabelStyle: TextStyle(color: isDark ? Colors.black : Colors.white, fontSize: 14),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         side: BorderSide.none,
       ),
-      dividerTheme: DividerThemeData(color: border, thickness: 1),
+      dividerTheme: DividerThemeData(color: border, thickness: 0),
       listTileTheme: ListTileThemeData(
         iconColor: textSecondary,
         textColor: textPrimary,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: surfaceLight,
+        fillColor: isDark ? const Color(0xFF121212) : const Color(0xFFF1F1F1),
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(28),
+          borderRadius: BorderRadius.circular(0),
           borderSide: BorderSide.none,
         ),
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         hintStyle: TextStyle(color: textMuted),
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
@@ -189,42 +191,41 @@ class AppTheme {
           backgroundColor: primary,
           foregroundColor: Colors.white,
           elevation: 0,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-          textStyle: const TextStyle(fontWeight: FontWeight.w600),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          textStyle: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
         ),
       ),
       snackBarTheme: SnackBarThemeData(
-        backgroundColor: isDark ? surfaceVariant : const Color(0xFF2A2A30),
+        backgroundColor: isDark ? const Color(0xFF333333) : const Color(0xFF333333),
         contentTextStyle: const TextStyle(color: Colors.white),
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
       dialogTheme: DialogThemeData(
         backgroundColor: surface,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        titleTextStyle: TextStyle(
-          color: textPrimary,
-          fontSize: 18,
-          fontWeight: FontWeight.w700,
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        titleTextStyle: TextStyle(color: textPrimary, fontSize: 20, fontWeight: FontWeight.w500),
         contentTextStyle: TextStyle(color: textSecondary, fontSize: 14),
       ),
       bottomSheetTheme: BottomSheetThemeData(
         backgroundColor: surface,
         modalBackgroundColor: surface,
         shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
         ),
       ),
       switchTheme: SwitchThemeData(
         thumbColor: WidgetStateProperty.resolveWith((s) =>
-            s.contains(WidgetState.selected) ? Colors.white : textSecondary),
+            s.contains(WidgetState.selected) ? (isDark ? secondary : primary) : textMuted),
         trackColor: WidgetStateProperty.resolveWith((s) =>
-            s.contains(WidgetState.selected) ? primary : surfaceVariant),
+            s.contains(WidgetState.selected)
+                ? (isDark ? secondary.withValues(alpha: 0.4) : primary.withValues(alpha: 0.4))
+                : surfaceVariant),
       ),
-      progressIndicatorTheme: const ProgressIndicatorThemeData(color: primary),
+      progressIndicatorTheme: ProgressIndicatorThemeData(
+        color: isDark ? secondary : primary,
+      ),
       iconTheme: IconThemeData(color: textPrimary),
     );
   }
@@ -234,9 +235,8 @@ class AppTheme {
       statusBarColor: Colors.transparent,
       statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
       statusBarBrightness: isDark ? Brightness.dark : Brightness.light,
-      systemNavigationBarColor: isDark ? dSurface : lSurface,
-      systemNavigationBarIconBrightness:
-          isDark ? Brightness.light : Brightness.dark,
+      systemNavigationBarColor: isDark ? const Color(0xFF212121) : Colors.white,
+      systemNavigationBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
     ));
   }
 }

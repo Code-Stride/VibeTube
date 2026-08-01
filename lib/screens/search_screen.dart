@@ -5,6 +5,7 @@ import '../utils/theme.dart';
 import '../widgets/video_card.dart';
 import 'player_screen.dart';
 
+/// YouTube-exact search screen.
 class SearchScreen extends StatefulWidget {
   final bool standalone;
   const SearchScreen({super.key, this.standalone = false});
@@ -21,9 +22,7 @@ class _SearchScreenState extends State<SearchScreen> {
   void initState() {
     super.initState();
     if (widget.standalone) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _focus.requestFocus();
-      });
+      WidgetsBinding.instance.addPostFrameCallback((_) => _focus.requestFocus());
     }
   }
 
@@ -43,237 +42,141 @@ class _SearchScreenState extends State<SearchScreen> {
   @override
   Widget build(BuildContext context) {
     final c = VibeColors.of(context);
-    return SafeArea(
-      child: Column(
-        children: [
-          // YouTube-style search bar at top
-          Container(
-            padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
-            color: c.surface,
-            child: Row(
-              children: [
-                if (widget.standalone)
-                  IconButton(
-                    icon: Icon(Icons.arrow_back, color: c.textPrimary),
-                    onPressed: () => Navigator.pop(context),
-                  ),
-                // Logo (only in tab mode)
-                if (!widget.standalone) ...[
-                  Container(
-                    width: 28,
-                    height: 28,
-                    decoration: const BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [AppTheme.primary, Color(0xFFFF8A5B)],
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Scaffold(
+      backgroundColor: c.background,
+      body: SafeArea(
+        child: Column(
+          children: [
+            // YouTube-exact search bar
+            Container(
+              padding: const EdgeInsets.fromLTRB(4, 8, 8, 8),
+              color: c.surface,
+              child: Row(
+                children: [
+                  if (widget.standalone)
+                    IconButton(icon: Icon(Icons.arrow_back, color: c.textPrimary), onPressed: () => Navigator.pop(context)),
+                  Expanded(
+                    child: Container(
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: isDark ? const Color(0xFF121212) : const Color(0xFFF1F1F1),
+                        borderRadius: BorderRadius.circular(2),
                       ),
-                      shape: BoxShape.circle,
+                      child: TextField(
+                        controller: _controller,
+                        focusNode: _focus,
+                        autofocus: widget.standalone,
+                        textInputAction: TextInputAction.search,
+                        style: TextStyle(color: c.textPrimary, fontSize: 16),
+                        decoration: InputDecoration(
+                          hintText: 'Search',
+                          hintStyle: TextStyle(color: c.textMuted, fontSize: 16),
+                          prefixIcon: Padding(
+                            padding: const EdgeInsets.only(left: 12, right: 8),
+                            child: Icon(Icons.search, color: c.textMuted, size: 20),
+                          ),
+                          prefixIconConstraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+                          suffixIcon: _controller.text.isEmpty
+                              ? null
+                              : IconButton(
+                                  icon: Icon(Icons.close, size: 20, color: c.textMuted),
+                                  onPressed: () {
+                                    _controller.clear();
+                                    context.read<AppProvider>().clearSearch();
+                                    setState(() {});
+                                  },
+                                ),
+                          border: InputBorder.none,
+                          contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                        ),
+                        onChanged: (_) => setState(() {}),
+                        onSubmitted: _submit,
+                      ),
                     ),
-                    child: const Icon(Icons.play_arrow_rounded,
-                        color: Colors.white, size: 16),
                   ),
                   const SizedBox(width: 8),
-                ],
-                Expanded(
-                  child: Container(
-                    height: 40,
+                  Container(
+                    width: 40, height: 40,
                     decoration: BoxDecoration(
-                      color: c.surfaceLight,
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: c.border, width: 0.5),
+                      color: isDark ? const Color(0xFF272727) : const Color(0xFFF2F2F2),
+                      shape: BoxShape.circle,
                     ),
-                    child: TextField(
-                      controller: _controller,
-                      focusNode: _focus,
-                      autofocus: widget.standalone,
-                      textInputAction: TextInputAction.search,
-                      style: TextStyle(color: c.textPrimary, fontSize: 14),
-                      decoration: InputDecoration(
-                        hintText: 'Search VibeTube',
-                        hintStyle: TextStyle(color: c.textMuted, fontSize: 14),
-                        prefixIcon:
-                            Icon(Icons.search, color: c.textMuted, size: 20),
-                        suffixIcon: _controller.text.isEmpty
-                            ? null
-                            : IconButton(
-                                icon: Icon(Icons.close,
-                                    size: 18, color: c.textMuted),
-                                onPressed: () {
-                                  _controller.clear();
-                                  context.read<AppProvider>().clearSearch();
-                                  setState(() {});
-                                },
-                              ),
-                        border: InputBorder.none,
-                        contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 0, vertical: 10),
+                    child: IconButton(
+                      icon: Icon(Icons.mic, size: 20, color: c.textPrimary),
+                      onPressed: () {
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Voice search coming soon')));
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            // Results
+            Expanded(
+              child: Consumer<AppProvider>(
+                builder: (context, provider, _) {
+                  if (provider.isLoading && provider.searchResults.isEmpty) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  if (provider.searchQuery.isEmpty) return _suggestions(provider, c);
+                  if (provider.searchResults.isEmpty) {
+                    return Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.search_off, size: 48, color: c.textMuted),
+                          const SizedBox(height: 12),
+                          Text('No results found', style: TextStyle(color: c.textSecondary, fontSize: 16)),
+                        ],
                       ),
-                      onChanged: (_) => setState(() {}),
-                      onSubmitted: _submit,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                // Voice search icon
-                Container(
-                  width: 36,
-                  height: 36,
-                  decoration: BoxDecoration(
-                    color: c.surfaceLight,
-                    shape: BoxShape.circle,
-                  ),
-                  child: IconButton(
-                    icon: Icon(Icons.mic, size: 20, color: c.textPrimary),
-                    onPressed: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                            content: Text('Voice search coming soon')),
+                    );
+                  }
+                  return ListView.builder(
+                    itemCount: provider.searchResults.length,
+                    itemBuilder: (context, i) {
+                      final v = provider.searchResults[i];
+                      return VideoCard(
+                        video: v, compact: true,
+                        onTap: () => Navigator.push(context, MaterialPageRoute(
+                          builder: (_) => PlayerScreen(videoId: v.id, preview: v))),
                       );
                     },
-                    padding: EdgeInsets.zero,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: Consumer<AppProvider>(
-              builder: (context, provider, _) {
-                if (provider.isLoading && provider.searchResults.isEmpty) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                if (provider.searchQuery.isEmpty) {
-                  return _suggestions(provider, c);
-                }
-                if (provider.searchResults.isEmpty) {
-                  return Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.search_off, size: 56, color: c.textMuted),
-                        const SizedBox(height: 12),
-                        Text('No results found',
-                            style: TextStyle(
-                                color: c.textSecondary, fontSize: 16)),
-                        const SizedBox(height: 8),
-                        Text('Try different keywords',
-                            style: TextStyle(color: c.textMuted)),
-                      ],
-                    ),
                   );
-                }
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Results count
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
-                      child: Text(
-                        '${provider.searchResults.length} results',
-                        style: TextStyle(
-                            color: c.textMuted,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600),
-                      ),
-                    ),
-                    Expanded(
-                      child: ListView.builder(
-                        itemCount: provider.searchResults.length,
-                        itemBuilder: (context, i) {
-                          final v = provider.searchResults[i];
-                          return VideoCard(
-                            video: v,
-                            compact: true,
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) =>
-                                      PlayerScreen(videoId: v.id, preview: v),
-                                ),
-                              );
-                            },
-                          );
-                        },
-                      ),
-                    ),
-                  ],
-                );
-              },
+                },
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
   Widget _suggestions(AppProvider provider, VibeColors c) {
-    const trending = [
-      'Music',
-      'Bollywood',
-      'Cricket',
-      'Tech reviews',
-      'Gaming',
-      'Comedy',
-      'News India',
-      'Tutorials',
-    ];
+    const trending = ['Music', 'Bollywood', 'Cricket', 'Tech reviews', 'Gaming', 'Comedy', 'News India', 'Tutorials'];
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(vertical: 8),
       children: [
-        Row(
-          children: [
-            Icon(Icons.trending_up, size: 20, color: AppTheme.primary),
-            const SizedBox(width: 8),
-            Text('Trending searches',
-                style: TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 16,
-                    color: c.textPrimary)),
-          ],
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+          child: Text('Trending searches', style: TextStyle(fontWeight: FontWeight.w500, fontSize: 16, color: c.textPrimary)),
         ),
-        const SizedBox(height: 12),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: trending
-              .map((t) => ActionChip(
-                    avatar:
-                        Icon(Icons.trending_up, size: 16, color: c.textSecondary),
-                    label: Text(t, style: TextStyle(color: c.textPrimary)),
-                    backgroundColor: c.surfaceLight,
-                    onPressed: () {
-                      _controller.text = t;
-                      _submit(t);
-                    },
-                  ))
-              .toList(),
-        ),
+        ...trending.map((t) => ListTile(
+          leading: Icon(Icons.trending_up, size: 20, color: c.textSecondary),
+          title: Text(t, style: TextStyle(color: c.textPrimary, fontSize: 16)),
+          onTap: () { _controller.text = t; _submit(t); },
+        )),
         if (provider.history.isNotEmpty) ...[
-          const SizedBox(height: 28),
-          Row(
-            children: [
-              Icon(Icons.history, size: 20, color: c.textSecondary),
-              const SizedBox(width: 8),
-              Text('Continue watching',
-                  style: TextStyle(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 16,
-                      color: c.textPrimary)),
-            ],
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            child: Text('Continue watching', style: TextStyle(fontWeight: FontWeight.w500, fontSize: 16, color: c.textPrimary)),
           ),
-          const SizedBox(height: 8),
           ...provider.history.take(6).map((v) => VideoCard(
-                video: v,
-                compact: true,
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => PlayerScreen(videoId: v.id, preview: v),
-                    ),
-                  );
-                },
-              )),
+            video: v, compact: true,
+            onTap: () => Navigator.push(context, MaterialPageRoute(
+              builder: (_) => PlayerScreen(videoId: v.id, preview: v))),
+          )),
         ],
       ],
     );
