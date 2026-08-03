@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../providers/app_provider.dart';
 import '../utils/theme.dart';
 import '../widgets/video_card.dart';
@@ -108,7 +109,16 @@ class _HomeFeed extends StatefulWidget {
 }
 
 class _HomeFeedState extends State<_HomeFeed> {
-  static const cats = ['All', 'Music', 'Gaming', 'News', 'Sports', 'Live', 'Movies', 'Education', 'Technology', 'Comedy'];
+  static const cats = ['All', 'Music', 'YouTube Music', 'Gaming', 'News', 'Sports', 'Live', 'Movies', 'Education', 'Technology', 'Comedy'];
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final provider = context.read<AppProvider>();
+      if (provider.musicVideos.isEmpty) provider.loadMusic();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -137,8 +147,18 @@ class _HomeFeedState extends State<_HomeFeed> {
                 ),
                 const Spacer(),
                 // Cast, notifications, search
-                IconButton(icon: Icon(Icons.cast, size: 22, color: c.textPrimary), onPressed: () {}),
-                IconButton(icon: Icon(Icons.notifications_outlined, size: 22, color: c.textPrimary), onPressed: () {}),
+                IconButton(
+                  icon: Icon(Icons.cast, size: 22, color: c.textPrimary),
+                  onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Cast feature coming soon')),
+                  ),
+                ),
+                IconButton(
+                  icon: Icon(Icons.notifications_outlined, size: 22, color: c.textPrimary),
+                  onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('No new notifications')),
+                  ),
+                ),
                 IconButton(
                   icon: Icon(Icons.search, size: 22, color: c.textPrimary),
                   onPressed: () {
@@ -210,15 +230,20 @@ class _HomeFeedState extends State<_HomeFeed> {
                   onRefresh: provider.loadTrending,
                   child: ListView.builder(
                     physics: const AlwaysScrollableScrollPhysics(),
-                    itemCount: provider.trendingVideos.length + (provider.isLoading ? 1 : 0),
+                    itemCount: provider.trendingVideos.length + (provider.isLoading ? 1 : 0) + (provider.selectedCategory == 'All' && provider.musicVideos.isNotEmpty ? 1 : 0),
                     itemBuilder: (context, index) {
-                      if (index >= provider.trendingVideos.length) {
+                      // YouTube Music section (only on 'All' tab)
+                      if (provider.selectedCategory == 'All' && provider.musicVideos.isNotEmpty && index == 0) {
+                        return _buildMusicSection(provider, c);
+                      }
+                      final videoIndex = provider.selectedCategory == 'All' && provider.musicVideos.isNotEmpty ? index - 1 : index;
+                      if (videoIndex >= provider.trendingVideos.length) {
                         return const Padding(
                           padding: EdgeInsets.all(24),
                           child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
                         );
                       }
-                      final video = provider.trendingVideos[index];
+                      final video = provider.trendingVideos[videoIndex];
                       return VideoCard(
                         video: video,
                         onTap: () {
@@ -235,6 +260,96 @@ class _HomeFeedState extends State<_HomeFeed> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildMusicSection(AppProvider provider, VibeColors c) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+          child: Row(
+            children: [
+              Icon(Icons.music_note, color: AppTheme.primary, size: 20),
+              const SizedBox(width: 8),
+              Text('YouTube Music', style: TextStyle(
+                color: c.textPrimary, fontSize: 18, fontWeight: FontWeight.w700,
+              )),
+              const Spacer(),
+              TextButton(
+                onPressed: () {
+                  // Switch to YouTube Music category
+                  provider.setCategory('YouTube Music');
+                },
+                child: Text('See all', style: TextStyle(color: AppTheme.secondary, fontSize: 14)),
+              ),
+            ],
+          ),
+        ),
+        SizedBox(
+          height: 200,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            itemCount: provider.musicVideos.take(10).length,
+            itemBuilder: (context, i) {
+              final video = provider.musicVideos[i];
+              return GestureDetector(
+                onTap: () {
+                  Navigator.push(context, MaterialPageRoute(
+                    builder: (_) => PlayerScreen(videoId: video.id, preview: video),
+                  ));
+                },
+                child: Container(
+                  width: 160,
+                  margin: const EdgeInsets.symmetric(horizontal: 4),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: SizedBox(
+                          width: 160,
+                          height: 90,
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              if (video.thumbnailUrl.isNotEmpty)
+                                CachedNetworkImage(imageUrl: video.thumbnailUrl, fit: BoxFit.cover,
+                                  placeholder: (_, __) => Container(color: c.surfaceLight),
+                                  errorWidget: (_, __, ___) => Container(color: c.surfaceLight, child: const Icon(Icons.music_note, color: Colors.white38)),
+                                )
+                              else
+                                Container(color: c.surfaceLight, child: const Icon(Icons.music_note, color: Colors.white38, size: 32)),
+                              if (video.formattedDuration.isNotEmpty)
+                                Positioned(
+                                  right: 4, bottom: 4,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                    decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(2)),
+                                    child: Text(video.formattedDuration, style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w500)),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(video.title, maxLines: 2, overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: c.textPrimary, fontSize: 13, fontWeight: FontWeight.w500, height: 1.2)),
+                      const SizedBox(height: 2),
+                      Text(video.channelName, maxLines: 1, overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: c.textSecondary, fontSize: 11)),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 8),
+      ],
     );
   }
 

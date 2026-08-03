@@ -23,6 +23,7 @@ class AppProvider extends ChangeNotifier {
   List<Video> downloads = [];
   List<Video> relatedVideos = [];
   List<Video> shortsVideos = [];
+  List<Video> musicVideos = []; // YouTube Music section
   List<Comment> comments = [];
   List<SponsorSegment> sponsorSegments = [];
 
@@ -197,6 +198,28 @@ class AppProvider extends ChangeNotifier {
       debugPrint('loadShorts: $e');
     } finally {
       isShortsLoading = false;
+      notifyListeners();
+    }
+  }
+
+  // ---- YouTube Music ----
+
+  bool isMusicLoading = false;
+
+  Future<void> loadMusic() async {
+    isMusicLoading = true;
+    notifyListeners();
+    try {
+      musicVideos = await _client.getCategoryFeed('YouTube Music', region: region);
+      if (musicVideos.isEmpty) {
+        final result = await _client.search('latest music hits 2025');
+        musicVideos = result.videos;
+      }
+      if (musicVideos.length > 2) musicVideos.shuffle();
+    } catch (e) {
+      debugPrint('loadMusic: $e');
+    } finally {
+      isMusicLoading = false;
       notifyListeners();
     }
   }

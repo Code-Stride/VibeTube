@@ -286,12 +286,18 @@ class VideoCard extends StatelessWidget {
               ListTile(
                 leading: Icon(Icons.playlist_add, color: c.textPrimary),
                 title: Text('Save to playlist', style: TextStyle(color: c.textPrimary)),
-                onTap: () => Navigator.pop(ctx),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  messenger.showSnackBar(const SnackBar(content: Text('Playlists coming soon')));
+                },
               ),
               ListTile(
                 leading: Icon(Icons.thumb_down_outlined, color: c.textPrimary),
                 title: Text('Not interested', style: TextStyle(color: c.textPrimary)),
-                onTap: () => Navigator.pop(ctx),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  messenger.showSnackBar(const SnackBar(content: Text('Marked as not interested')));
+                },
               ),
               ListTile(
                 leading: Icon(Icons.share_outlined, color: c.textPrimary),

@@ -119,6 +119,7 @@ class InnerTubeClient {
     switch (c) {
       case 'all': return isIn ? 'trending india' : 'trending';
       case 'music': return isIn ? 'bollywood songs' : 'music videos';
+      case 'youtube music': return isIn ? 'latest music india 2025' : 'youtube music hits 2025';
       case 'gaming': return isIn ? 'gaming india' : 'gaming';
       case 'news': return isIn ? 'news india today' : 'world news today';
       case 'sports': return isIn ? 'cricket highlights' : 'sports highlights';
