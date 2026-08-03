@@ -45,6 +45,7 @@ class AppProvider extends ChangeNotifier {
   final Set<String> downloadingIds = {};
 
   bool isDarkMode = true;
+  bool isMusicMode = false;
   bool isAdBlockEnabled = true;
   bool isSponsorBlockEnabled = true;
   bool isBackgroundPlayEnabled = true;
@@ -71,6 +72,7 @@ class AppProvider extends ChangeNotifier {
   Future<void> init() async {
     final s = await storage.loadSettings();
     isDarkMode = s['isDarkMode'] ?? true;
+    isMusicMode = s['isMusicMode'] ?? false;
     isAdBlockEnabled = s['isAdBlockEnabled'] ?? true;
     isSponsorBlockEnabled = s['isSponsorBlockEnabled'] ?? true;
     isBackgroundPlayEnabled = s['isBackgroundPlayEnabled'] ?? true;
@@ -96,6 +98,7 @@ class AppProvider extends ChangeNotifier {
   Future<void> _persistSettings() async {
     await storage.saveSettings({
       'isDarkMode': isDarkMode,
+      'isMusicMode': isMusicMode,
       'isAdBlockEnabled': isAdBlockEnabled,
       'isSponsorBlockEnabled': isSponsorBlockEnabled,
       'isBackgroundPlayEnabled': isBackgroundPlayEnabled,
@@ -502,6 +505,11 @@ class AppProvider extends ChangeNotifier {
 
   void toggleDarkMode() {
     isDarkMode = !isDarkMode;
+    _persistSettings();
+    notifyListeners();
+  }
+  void toggleMusicMode() {
+    isMusicMode = !isMusicMode;
     _persistSettings();
     notifyListeners();
   }

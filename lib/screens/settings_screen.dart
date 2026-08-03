@@ -139,6 +139,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       value: p.isDarkMode,
                       onChanged: (_) => p.toggleDarkMode(),
                     ),
+                    _musicModeSwitch(c, p),
                     const SizedBox(height: 20),
 
                     // ---- Quality & Speed ----
@@ -372,6 +373,42 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           Icon(Icons.check_circle, color: AppTheme.success, size: 24),
         ],
+      ),
+    );
+  }
+
+  Widget _musicModeSwitch(VibeColors c, AppProvider p) {
+    final isMusic = p.isMusicMode;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: isMusic
+              ? [const Color(0xFFFF0000).withValues(alpha: 0.15), const Color(0xFFFF6B6B).withValues(alpha: 0.08)]
+              : [c.surface, c.surface],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(12),
+        border: isMusic ? Border.all(color: const Color(0xFFFF0000).withValues(alpha: 0.3)) : null,
+      ),
+      child: SwitchListTile(
+        secondary: Icon(isMusic ? Icons.music_note : Icons.play_circle_outline,
+            color: isMusic ? const Color(0xFFFF0000) : c.textSecondary),
+        title: Text(isMusic ? 'YouTube Music Mode' : 'YouTube Mode',
+            style: TextStyle(fontWeight: FontWeight.w600, color: c.textPrimary)),
+        subtitle: Text(
+            isMusic ? '🎵 Music focused — tap to switch to YouTube' : '▶️ Video focused — tap to switch to Music',
+            style: TextStyle(fontSize: 12, color: c.textSecondary)),
+        value: isMusic,
+        activeThumbColor: const Color(0xFFFF0000),
+        onChanged: (_) {
+          p.toggleMusicMode();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(isMusic ? 'YouTube Mode activated ▶️' : 'YouTube Music Mode activated 🎵'),
+                duration: const Duration(seconds: 1)),
+          );
+        },
       ),
     );
   }
