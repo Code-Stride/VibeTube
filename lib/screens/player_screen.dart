@@ -79,6 +79,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool _subscribed = false;
   String? _toastMsg;
   Timer? _toastTimer;
+  Timer? _sponsorToastTimer;
 
   /// When true, audio session interruption callbacks are suppressed because
   /// WE initiated the focus change (play/pause). Without this guard,
@@ -658,7 +659,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
           _sponsorToast = true;
           _sponsorLabel = _prettyCategory(seg.category);
         });
-        Future.delayed(const Duration(seconds: 2), () {
+        // A cancellable timer, not Future.delayed: back-to-back segments each
+        // scheduled an independent callback, so an earlier one could hide the
+        // toast for the segment currently being skipped. Holding the timer
+        // also lets dispose() cancel it.
+        _sponsorToastTimer?.cancel();
+        _sponsorToastTimer = Timer(const Duration(seconds: 2), () {
           if (mounted) setState(() => _sponsorToast = false);
         });
         break;
@@ -860,6 +866,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _hideTimer?.cancel();
     _posTimer?.cancel();
     _toastTimer?.cancel();
+    _sponsorToastTimer?.cancel();
     NativePlayer.removeHandlers(
       onPip: _onPipChanged,
       onMediaPlay: _onMediaPlay,

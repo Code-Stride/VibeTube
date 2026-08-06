@@ -80,8 +80,9 @@ class _ShortsScreenState extends State<ShortsScreen> {
             itemCount: provider.shortsVideos.length,
             onPageChanged: (i) {
               setState(() => _currentIndex = i);
-              if (i >= provider.shortsVideos.length - 3)
+              if (i >= provider.shortsVideos.length - 3) {
                 provider.loadMoreShorts();
+              }
             },
             itemBuilder: (context, index) {
               return _ShortPlayer(

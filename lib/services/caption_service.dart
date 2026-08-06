@@ -32,7 +32,11 @@ class CaptionTrack {
 
 /// Service to fetch and parse YouTube captions/subtitles.
 class CaptionService {
-  static final http.Client _http = http.Client();
+  // Lazily created so a call to [dispose] does not permanently break captions
+  // for the rest of the process: a closed http.Client throws on every later
+  // request, and the old `static final` field could never be replaced.
+  static http.Client? _httpClient;
+  static http.Client get _http => _httpClient ??= http.Client();
 
   /// Fetch available caption tracks for a video.
   static Future<List<CaptionTrack>> getTracks(String videoId) async {
@@ -51,7 +55,7 @@ class CaptionService {
       final tracks = <CaptionTrack>[];
 
       // Extract captions data from ytInitialPlayerResponse
-      final playerResponse = _extractJson(body, 'ytInitialPlayerResponse');
+      final playerResponse = extractJson(body, 'ytInitialPlayerResponse');
       if (playerResponse == null) return [];
 
       final captions = playerResponse['captions'];
@@ -97,15 +101,72 @@ class CaptionService {
 
       if (res.statusCode != 200) return [];
 
-      return _parseTtml(res.body);
+      return parseCaptions(res.body);
     } catch (e) {
       debugPrint('CaptionService.getCues: $e');
       return [];
     }
   }
 
-  /// Parse YouTube's TTML caption format.
-  static List<CaptionCue> _parseTtml(String xml) {
+  /// Decode XML/HTML entities found in caption text.
+  ///
+  /// YouTube's transcript XML is entity-encoded twice, so an apostrophe
+  /// arrives as `&amp;#39;` and a literal ampersand as `&amp;amp;`. Decoding
+  /// once leaves `&#39;` visible in the subtitle, so a bounded second pass
+  /// runs while entities remain. The cap keeps this from unescaping
+  /// indefinitely.
+  static String _decodeEntities(String input) {
+    var text = input;
+    for (var pass = 0; pass < 2; pass++) {
+      final decoded = _decodeEntitiesOnce(text);
+      if (decoded == text) break;
+      text = decoded;
+    }
+    return text;
+  }
+
+  /// Order matters: `&amp;` must be decoded last, otherwise a literal
+  /// `&amp;lt;` in the transcript would wrongly become `<`.
+  static String _decodeEntitiesOnce(String input) {
+    var text = input
+        .replaceAll('&lt;', '<')
+        .replaceAll('&gt;', '>')
+        .replaceAll('&quot;', '"')
+        .replaceAll('&#39;', "'")
+        .replaceAll('&apos;', "'")
+        .replaceAll('&nbsp;', ' ');
+    // Numeric entities (&#233; / &#xe9;) appear in non-English transcripts.
+    text = text.replaceAllMapped(
+      RegExp(r'&#(x?)([0-9a-fA-F]+);'),
+      (m) {
+        final code =
+            int.tryParse(m.group(2)!, radix: m.group(1)!.isEmpty ? 10 : 16);
+        if (code == null || code < 0 || code > 0x10FFFF) return m.group(0)!;
+        return String.fromCharCode(code);
+      },
+    );
+    return text.replaceAll('&amp;', '&');
+  }
+
+  /// Clean a raw caption body: strip markup, decode entities, collapse space.
+  static String _cleanText(String raw) {
+    var text = raw.replaceAll(RegExp(r'<[^>]+>'), '');
+    text = _decodeEntities(text);
+    // Transcript XML is pretty-printed; newlines inside a cue are not breaks.
+    return text.replaceAll(RegExp(r'\s+'), ' ').trim();
+  }
+
+  /// Parse the caption formats YouTube actually serves.
+  ///
+  /// The timedtext endpoint returns `<transcript><text start dur>` by default
+  /// and only returns TTML `<p begin end>` when `&fmt=ttml` is requested, so
+  /// both are handled here. Previously only the TTML branch existed, which
+  /// meant captions parsed to an empty list for effectively every video.
+  @visibleForTesting
+  static List<CaptionCue> parseCaptions(String xml) {
+    final transcript = _parseTranscript(xml);
+    if (transcript.isNotEmpty) return transcript;
+
     final cues = <CaptionCue>[];
 
     // Match <p begin="..." end="..." ...>text</p>
@@ -117,17 +178,7 @@ class CaptionService {
     for (final match in pattern.allMatches(xml)) {
       final beginStr = match.group(1) ?? '';
       final endStr = match.group(2) ?? '';
-      var text = match.group(3) ?? '';
-
-      // Clean HTML tags from text
-      text = text.replaceAll(RegExp(r'<[^>]+>'), '');
-      text = text.replaceAll('&amp;', '&');
-      text = text.replaceAll('&lt;', '<');
-      text = text.replaceAll('&gt;', '>');
-      text = text.replaceAll('&quot;', '"');
-      text = text.replaceAll('&#39;', "'");
-      text = text.replaceAll('&nbsp;', ' ');
-      text = text.trim();
+      final text = _cleanText(match.group(3) ?? '');
 
       if (text.isEmpty) continue;
 
@@ -146,8 +197,7 @@ class CaptionService {
         dotAll: true,
       );
       for (final match in srtPattern.allMatches(xml)) {
-        var text = match.group(3) ?? '';
-        text = text.replaceAll(RegExp(r'<[^>]+>'), '').trim();
+        final text = _cleanText(match.group(3) ?? '');
         if (text.isEmpty) continue;
 
         final start = _parseSrtTime(match.group(1) ?? '');
@@ -160,6 +210,41 @@ class CaptionService {
     }
 
     // Sort by start time
+    cues.sort((a, b) => a.start.compareTo(b.start));
+    return cues;
+  }
+
+  /// Parse the default timedtext format:
+  /// `<text start="12.34" dur="3.2">line</text>`.
+  static List<CaptionCue> _parseTranscript(String xml) {
+    final cues = <CaptionCue>[];
+    final pattern = RegExp(
+      r'<text([^>]*)>(.*?)</text>',
+      dotAll: true,
+      caseSensitive: false,
+    );
+    final startAttr = RegExp(r'\bstart="([^"]*)"');
+    final durAttr = RegExp(r'\bdur="([^"]*)"');
+
+    for (final match in pattern.allMatches(xml)) {
+      final attrs = match.group(1) ?? '';
+      final text = _cleanText(match.group(2) ?? '');
+      if (text.isEmpty) continue;
+
+      final start =
+          double.tryParse(startAttr.firstMatch(attrs)?.group(1) ?? '');
+      if (start == null) continue;
+      // A missing dur (last cue on some tracks) still deserves to be shown.
+      final dur =
+          double.tryParse(durAttr.firstMatch(attrs)?.group(1) ?? '') ?? 4.0;
+
+      cues.add(CaptionCue(
+        start: Duration(milliseconds: (start * 1000).round()),
+        end: Duration(milliseconds: ((start + dur) * 1000).round()),
+        text: text,
+      ));
+    }
+
     cues.sort((a, b) => a.start.compareTo(b.start));
     return cues;
   }
@@ -181,24 +266,25 @@ class CaptionService {
     if (parts.length == 3) {
       final h = int.tryParse(parts[0]) ?? 0;
       final m = int.tryParse(parts[1]) ?? 0;
-      final secParts = parts[2].split('.');
-      final s = int.tryParse(secParts[0]) ?? 0;
-      final ms = secParts.length > 1
-          ? (int.tryParse(secParts[1]) ?? 0)
-          : 0;
-      return Duration(hours: h, minutes: m, seconds: s, milliseconds: ms);
+      return Duration(hours: h, minutes: m) + _parseSeconds(parts[2]);
     }
     if (parts.length == 2) {
       final m = int.tryParse(parts[0]) ?? 0;
-      final secParts = parts[1].split('.');
-      final s = int.tryParse(secParts[0]) ?? 0;
-      final ms = secParts.length > 1
-          ? (int.tryParse(secParts[1]) ?? 0)
-          : 0;
-      return Duration(minutes: m, seconds: s, milliseconds: ms);
+      return Duration(minutes: m) + _parseSeconds(parts[1]);
     }
 
     return null;
+  }
+
+  /// Parse the seconds component, including its fraction.
+  ///
+  /// Reading the fraction with `int.parse` treats it as a literal millisecond
+  /// count, so ".4" (400ms) became 4ms and ".45" (450ms) became 45ms — every
+  /// subtitle drifted early. Parsing it as a decimal fraction keeps any digit
+  /// count correct.
+  static Duration _parseSeconds(String secondsPart) {
+    final value = double.tryParse(secondsPart.replaceAll(',', '.')) ?? 0;
+    return Duration(milliseconds: (value * 1000).round());
   }
 
   /// Parse SRT time format (e.g., "00:01:23,456").
@@ -209,18 +295,62 @@ class CaptionService {
   }
 
   /// Extract a JSON object from the page source by key.
-  static Map<String, dynamic>? _extractJson(String body, String key) {
-    final pattern = RegExp('var $key\\s*=\\s*(\\{.*?\\});', dotAll: true);
-    final match = pattern.firstMatch(body);
-    if (match == null) return null;
-    try {
-      return jsonDecode(match.group(1)!) as Map<String, dynamic>;
-    } catch (_) {
-      return null;
+  ///
+  /// A non-greedy `\{.*?\}` regex cannot do this: it stops at the first `};`
+  /// in the page, which almost always lands inside a nested object or inside a
+  /// string value (video descriptions routinely contain `};`). That truncated
+  /// text fails to decode and captions silently disappear for the video.
+  /// Instead we find the opening brace and scan forward counting braces, while
+  /// tracking string literals and backslash escapes so braces inside strings
+  /// are ignored.
+  @visibleForTesting
+  static Map<String, dynamic>? extractJson(String body, String key) {
+    // `var key =`, but also the bare `key =` form YouTube sometimes uses.
+    final start = RegExp('(?:var\\s+)?$key\\s*=\\s*\\{').firstMatch(body);
+    if (start == null) return null;
+
+    final open = body.indexOf('{', start.start);
+    if (open < 0) return null;
+
+    var depth = 0;
+    var inString = false;
+    var escaped = false;
+
+    for (var i = open; i < body.length; i++) {
+      final ch = body.codeUnitAt(i);
+
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+        } else if (ch == 0x5C) {
+          escaped = true; // backslash
+        } else if (ch == 0x22) {
+          inString = false; // closing quote
+        }
+        continue;
+      }
+
+      if (ch == 0x22) {
+        inString = true;
+      } else if (ch == 0x7B) {
+        depth++;
+      } else if (ch == 0x7D) {
+        depth--;
+        if (depth == 0) {
+          try {
+            return jsonDecode(body.substring(open, i + 1))
+                as Map<String, dynamic>;
+          } catch (_) {
+            return null;
+          }
+        }
+      }
     }
+    return null; // unbalanced / truncated page
   }
 
   static void dispose() {
-    _http.close();
+    _httpClient?.close();
+    _httpClient = null;
   }
 }

@@ -703,6 +703,9 @@ class AppProvider extends ChangeNotifier {
     _client.dispose();
     downloader.dispose();
     HlsParser.dispose();
+    // Was leaked: CaptionService keeps its own shared http.Client, so without
+    // this its sockets outlived the provider.
+    CaptionService.dispose();
     super.dispose();
   }
 }

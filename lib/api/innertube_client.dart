@@ -524,25 +524,71 @@ class InnerTubeClient {
     return '';
   }
 
-  int _parseCount(String text) {
+  /// Parses view/like counts such as "1.2M views", "1,234,567 views",
+  /// "4.2 lakh views" or "1.5 करोड़ बार देखा गया".
+  ///
+  /// The app ships with `gl=IN` by default, and YouTube then localises counts
+  /// using the Indian numbering system. Handling only K/M/B meant "4.2 lakh
+  /// views" parsed as 4 views, so popular videos looked unwatched.
+  static int parseCount(String text) {
     if (text.isEmpty) return 0;
-    if (RegExp(r'^[a-zA-Z\s]+$').hasMatch(text.trim())) return 0;
-    final cleaned = text.replaceAll(',', '').trim();
+    final trimmed = text.trim();
+    if (RegExp(r'^[a-zA-Z\s]+$').hasMatch(trimmed)) return 0;
+
+    final lower = trimmed.toLowerCase();
+    final cleaned = trimmed.replaceAll(',', '');
     final m = RegExp(r'([\d.]+)\s*([KMBTkmbt])?').firstMatch(cleaned);
-    if (m == null) return int.tryParse(cleaned.replaceAll(RegExp(r'[^\d]'), '')) ?? 0;
+    if (m == null) {
+      return int.tryParse(cleaned.replaceAll(RegExp(r'[^\d]'), '')) ?? 0;
+    }
     final n = double.tryParse(m.group(1)!) ?? 0;
-    switch ((m.group(2) ?? '').toUpperCase()) { case 'K': return (n * 1e3).round(); case 'M': return (n * 1e6).round(); case 'B': return (n * 1e9).round(); default: return n.round(); }
+
+    // Word-based multipliers are checked first: the single-letter suffix group
+    // below cannot match them.
+    const wordMultipliers = <String, double>{
+      'crore': 1e7, 'करोड़': 1e7, 'कोटि': 1e7,
+      'lakh': 1e5, 'lac': 1e5, 'लाख': 1e5,
+      'thousand': 1e3, 'हज़ार': 1e3, 'हजार': 1e3,
+      'million': 1e6, 'billion': 1e9,
+    };
+    for (final entry in wordMultipliers.entries) {
+      if (lower.contains(entry.key)) return (n * entry.value).round();
+    }
+
+    switch ((m.group(2) ?? '').toUpperCase()) {
+      case 'K': return (n * 1e3).round();
+      case 'M': return (n * 1e6).round();
+      case 'B': return (n * 1e9).round();
+      case 'T': return (n * 1e12).round();
+      default: return n.round();
+    }
   }
 
-  Duration _parseDurationText(String text) {
+  int _parseCount(String text) => parseCount(text);
+
+  /// Parses "1:23:45" / "12:34" duration labels.
+  ///
+  /// Uses tryParse rather than parse-inside-try: YouTube pads these labels
+  /// with stray characters (RTL marks, non-breaking spaces) and a single bad
+  /// component threw away an otherwise valid duration.
+  static Duration parseDurationText(String text) {
     if (text.isEmpty) return Duration.zero;
-    final parts = text.split(':');
-    try {
-      if (parts.length == 3) return Duration(hours: int.parse(parts[0]), minutes: int.parse(parts[1]), seconds: int.parse(parts[2]));
-      if (parts.length == 2) return Duration(minutes: int.parse(parts[0]), seconds: int.parse(parts[1]));
-    } catch (_) {}
+    final parts = text
+        .split(':')
+        .map((p) => int.tryParse(p.replaceAll(RegExp(r'[^\d]'), '')) ?? -1)
+        .toList();
+    if (parts.any((p) => p < 0)) return Duration.zero;
+    if (parts.length == 3) {
+      return Duration(hours: parts[0], minutes: parts[1], seconds: parts[2]);
+    }
+    if (parts.length == 2) {
+      return Duration(minutes: parts[0], seconds: parts[1]);
+    }
+    if (parts.length == 1) return Duration(seconds: parts[0]);
     return Duration.zero;
   }
+
+  Duration _parseDurationText(String text) => parseDurationText(text);
 
   void dispose() => _http.close();
 }
