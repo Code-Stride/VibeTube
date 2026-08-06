@@ -43,6 +43,7 @@ jobs:
         run: flutter test
 
       - name: Decode release keystore
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
         env:
           KEYSTORE_BASE64: ${{ secrets.VIBETUBE_KEYSTORE_BASE64 }}
           VIBETUBE_STORE_PASSWORD: ${{ secrets.VIBETUBE_STORE_PASSWORD }}
@@ -59,7 +60,8 @@ jobs:
             -storepass "$VIBETUBE_STORE_PASSWORD" > /dev/null
           echo "Keystore decoded and verified."
 
-      - name: Build APK
+      - name: Build signed release APK
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
         env:
           # Gradle reads these in signingConfigs.release. No fallbacks: a
           # missing secret must fail the build rather than silently produce
@@ -69,10 +71,18 @@ jobs:
           VIBETUBE_KEY_PASSWORD: ${{ secrets.VIBETUBE_KEY_PASSWORD }}
         run: flutter build apk --release
 
-      - name: Rename APK
+      - name: Build debug APK for fork pull requests
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
+        run: flutter build apk --debug
+
+      - name: Collect APK
         run: |
           mkdir -p dist
-          cp build/app/outputs/flutter-apk/app-release.apk dist/VibeTube-release.apk
+          if [ -f build/app/outputs/flutter-apk/app-release.apk ]; then
+            cp build/app/outputs/flutter-apk/app-release.apk dist/VibeTube-release.apk
+          else
+            cp build/app/outputs/flutter-apk/app-debug.apk dist/VibeTube-debug.apk
+          fi
           ls -lah dist/
 
       - name: Remove decoded keystore

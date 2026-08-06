@@ -7,6 +7,7 @@ plugins {
 def releaseStoreFile = file("vibetube-release.jks")
 def ciStoreFile = file("keystore.jks")
 def storeToUse = releaseStoreFile.exists() ? releaseStoreFile : (ciStoreFile.exists() ? ciStoreFile : null)
+def releaseRequested = gradle.startParameter.taskNames.any { it.toLowerCase().contains("release") }
 
 android {
     namespace "com.blazenxt.vibetube"
@@ -43,8 +44,8 @@ android {
         release {
             if (storeToUse != null) {
                 signingConfig signingConfigs.release
-            } else {
-                signingConfig signingConfigs.debug
+            } else if (releaseRequested) {
+                throw new GradleException("Release keystore is missing; refusing to produce a debug-signed release APK")
             }
             minifyEnabled false
             shrinkResources false

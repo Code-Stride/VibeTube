@@ -45,18 +45,30 @@ class _ShortsScreenState extends State<ShortsScreen> {
       body: Consumer<AppProvider>(
         builder: (context, provider, _) {
           if (provider.isShortsLoading && provider.shortsVideos.isEmpty) {
-            return const Center(child: CircularProgressIndicator(color: Colors.white));
+            return const Center(
+              child: CircularProgressIndicator(color: Colors.white),
+            );
           }
           if (provider.shortsVideos.isEmpty) {
             return Center(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.play_circle_outline, size: 64, color: Colors.white38),
+                  const Icon(
+                    Icons.play_circle_outline,
+                    size: 64,
+                    color: Colors.white38,
+                  ),
                   const SizedBox(height: 16),
-                  const Text('No Shorts available', style: TextStyle(color: Colors.white70, fontSize: 16)),
+                  const Text(
+                    'No Shorts available',
+                    style: TextStyle(color: Colors.white70, fontSize: 16),
+                  ),
                   const SizedBox(height: 16),
-                  ElevatedButton(onPressed: () => provider.loadShorts(), child: const Text('Retry')),
+                  ElevatedButton(
+                    onPressed: () => provider.loadShorts(),
+                    child: const Text('Retry'),
+                  ),
                 ],
               ),
             );
@@ -68,7 +80,8 @@ class _ShortsScreenState extends State<ShortsScreen> {
             itemCount: provider.shortsVideos.length,
             onPageChanged: (i) {
               setState(() => _currentIndex = i);
-              if (i >= provider.shortsVideos.length - 3) provider.loadMoreShorts();
+              if (i >= provider.shortsVideos.length - 3)
+                provider.loadMoreShorts();
             },
             itemBuilder: (context, index) {
               return _ShortPlayer(
@@ -92,13 +105,16 @@ class _ShortPlayer extends StatefulWidget {
   State<_ShortPlayer> createState() => _ShortPlayerState();
 }
 
-class _ShortPlayerState extends State<_ShortPlayer> with SingleTickerProviderStateMixin {
+class _ShortPlayerState extends State<_ShortPlayer>
+    with SingleTickerProviderStateMixin {
   VideoPlayerController? _controller;
   bool _ready = false;
   bool _showPlayPause = false;
   bool _liked = false;
   bool _disliked = false;
   bool _showHeart = false;
+  String? _playerError;
+  int _playerRequestId = 0;
   Offset? _heartPosition;
   Timer? _hideTimer;
   late AnimationController _heartAnimController;
@@ -107,7 +123,10 @@ class _ShortPlayerState extends State<_ShortPlayer> with SingleTickerProviderSta
   @override
   void initState() {
     super.initState();
-    _heartAnimController = AnimationController(vsync: this, duration: const Duration(milliseconds: 600));
+    _heartAnimController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 600),
+    );
     _heartScale = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(parent: _heartAnimController, curve: Curves.elasticOut),
     );
@@ -125,15 +144,22 @@ class _ShortPlayerState extends State<_ShortPlayer> with SingleTickerProviderSta
   }
 
   Future<void> _initPlayer() async {
+    final requestId = ++_playerRequestId;
+    if (mounted) setState(() => _playerError = null);
     try {
       final provider = context.read<AppProvider>();
       final details = await provider.client.getVideoDetails(widget.video.id);
-      if (!mounted) return;
+      if (!mounted || requestId != _playerRequestId) return;
 
       String? playUrl;
       if (details.hlsVariants.isNotEmpty) {
-        final sorted = details.hlsVariants.keys.toList()..sort((a, b) => b.compareTo(a));
-        playUrl = details.hlsVariants[sorted.first];
+        final heights = details.hlsVariants.keys.toList()
+          ..sort((a, b) => b.compareTo(a));
+        final preferred = heights.firstWhere(
+          (h) => h <= 720,
+          orElse: () => heights.last,
+        );
+        playUrl = details.hlsVariants[preferred];
       } else if (details.hlsUrl != null && details.hlsUrl!.isNotEmpty) {
         playUrl = details.hlsUrl;
       } else if (details.preferredPlayUrl != null) {
@@ -148,16 +174,30 @@ class _ShortPlayerState extends State<_ShortPlayer> with SingleTickerProviderSta
       _controller = VideoPlayerController.networkUrl(
         Uri.parse(playUrl),
         httpHeaders: isHls
-            ? {'User-Agent': 'com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)', 'Accept': '*/*'}
-            : {'User-Agent': 'com.google.android.youtube/20.10.38 (Linux; U; Android 14) gzip', 'Referer': 'https://www.youtube.com/'},
+            ? {
+                'User-Agent':
+                    'com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)',
+                'Accept': '*/*',
+              }
+            : {
+                'User-Agent':
+                    'com.google.android.youtube/20.10.38 (Linux; U; Android 14) gzip',
+                'Referer': 'https://www.youtube.com/',
+              },
       );
       await _controller!.initialize().timeout(const Duration(seconds: 25));
-      if (!mounted) { _controller?.dispose(); return; }
+      if (!mounted || requestId != _playerRequestId) {
+        await _controller?.dispose();
+        return;
+      }
       await _controller!.setLooping(true);
       if (widget.isActive) await _controller!.play();
       setState(() => _ready = true);
     } catch (e) {
       debugPrint('Short player init failed: $e');
+      if (mounted && requestId == _playerRequestId) {
+        setState(() => _playerError = 'Unable to play this Short');
+      }
     }
   }
 
@@ -189,8 +229,8 @@ class _ShortPlayerState extends State<_ShortPlayer> with SingleTickerProviderSta
 
   @override
   void dispose() {
+    _playerRequestId++;
     _hideTimer?.cancel();
-    _heartAnimController.dispose();
     _controller?.dispose();
     super.dispose();
   }
@@ -207,7 +247,9 @@ class _ShortPlayerState extends State<_ShortPlayer> with SingleTickerProviderSta
           if (_ready && _controller != null && _controller!.value.isInitialized)
             Center(
               child: AspectRatio(
-                aspectRatio: _controller!.value.aspectRatio > 0 ? _controller!.value.aspectRatio : 9 / 16,
+                aspectRatio: _controller!.value.aspectRatio > 0
+                    ? _controller!.value.aspectRatio
+                    : 9 / 16,
                 child: VideoPlayer(_controller!),
               ),
             )
@@ -216,14 +258,53 @@ class _ShortPlayerState extends State<_ShortPlayer> with SingleTickerProviderSta
               fit: StackFit.expand,
               children: [
                 if (widget.video.thumbnailUrl.isNotEmpty)
-                  CachedNetworkImage(imageUrl: widget.video.thumbnailUrl, fit: BoxFit.cover,
+                  CachedNetworkImage(
+                    imageUrl: widget.video.thumbnailUrl,
+                    fit: BoxFit.cover,
                     placeholder: (_, __) => Container(color: Colors.black),
-                    errorWidget: (_, __, ___) => Container(color: Colors.black, child: const Center(child: Icon(Icons.broken_image, color: Colors.white38, size: 48))),
+                    errorWidget: (_, __, ___) => Container(
+                      color: Colors.black,
+                      child: const Center(
+                        child: Icon(
+                          Icons.broken_image,
+                          color: Colors.white38,
+                          size: 48,
+                        ),
+                      ),
+                    ),
                   )
                 else
                   Container(color: Colors.black),
                 Container(color: Colors.black45),
-                if (!_ready) const Center(child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)),
+                if (_playerError != null)
+                  Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.error_outline,
+                          color: Colors.white70,
+                          size: 42,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          _playerError!,
+                          style: const TextStyle(color: Colors.white),
+                        ),
+                        TextButton(
+                          onPressed: _initPlayer,
+                          child: const Text('Retry'),
+                        ),
+                      ],
+                    ),
+                  )
+                else if (!_ready)
+                  const Center(
+                    child: CircularProgressIndicator(
+                      color: Colors.white,
+                      strokeWidth: 2,
+                    ),
+                  ),
               ],
             ),
 
@@ -231,8 +312,14 @@ class _ShortPlayerState extends State<_ShortPlayer> with SingleTickerProviderSta
           Container(
             decoration: const BoxDecoration(
               gradient: LinearGradient(
-                begin: Alignment.topCenter, end: Alignment.bottomCenter,
-                colors: [Colors.black45, Colors.transparent, Colors.transparent, Colors.black87],
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.black45,
+                  Colors.transparent,
+                  Colors.transparent,
+                  Colors.black87,
+                ],
                 stops: [0, 0.1, 0.5, 1],
               ),
             ),
@@ -244,11 +331,18 @@ class _ShortPlayerState extends State<_ShortPlayer> with SingleTickerProviderSta
             duration: const Duration(milliseconds: 200),
             child: Center(
               child: Container(
-                width: 56, height: 56,
-                decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.5), shape: BoxShape.circle),
+                width: 56,
+                height: 56,
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.5),
+                  shape: BoxShape.circle,
+                ),
                 child: Icon(
-                  _controller?.value.isPlaying == true ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                  color: Colors.white, size: 36,
+                  _controller?.value.isPlaying == true
+                      ? Icons.pause_rounded
+                      : Icons.play_arrow_rounded,
+                  color: Colors.white,
+                  size: 36,
                 ),
               ),
             ),
@@ -267,7 +361,9 @@ class _ShortPlayerState extends State<_ShortPlayer> with SingleTickerProviderSta
 
           // Bottom info (YouTube-exact layout)
           Positioned(
-            left: 12, right: 60, bottom: 16,
+            left: 12,
+            right: 60,
+            bottom: 16,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
@@ -279,23 +375,49 @@ class _ShortPlayerState extends State<_ShortPlayer> with SingleTickerProviderSta
                       radius: 16,
                       backgroundColor: Colors.grey,
                       child: Text(
-                        widget.video.channelName.isNotEmpty ? widget.video.channelName[0].toUpperCase() : 'V',
-                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                        widget.video.channelName.isNotEmpty
+                            ? widget.video.channelName[0].toUpperCase()
+                            : 'V',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
                       ),
                     ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        widget.video.channelName.isEmpty ? 'VibeTube' : widget.video.channelName,
-                        maxLines: 1, overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600),
+                        widget.video.channelName.isEmpty
+                            ? 'VibeTube'
+                            : widget.video.channelName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
                     const SizedBox(width: 8),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20)),
-                      child: const Text('Subscribe', style: TextStyle(color: Colors.black, fontWeight: FontWeight.w700, fontSize: 13)),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: const Text(
+                        'Subscribe',
+                        style: TextStyle(
+                          color: Colors.black,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -303,13 +425,21 @@ class _ShortPlayerState extends State<_ShortPlayer> with SingleTickerProviderSta
                 // Title
                 Text(
                   widget.video.title,
-                  maxLines: 2, overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w500, height: 1.3),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    height: 1.3,
+                  ),
                 ),
                 if (widget.video.viewCount > 0) ...[
                   const SizedBox(height: 4),
-                  Text('${widget.video.formattedViewCount} views',
-                    style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                  Text(
+                    '${widget.video.formattedViewCount} views',
+                    style: const TextStyle(color: Colors.white70, fontSize: 12),
+                  ),
                 ],
               ],
             ),
@@ -317,36 +447,76 @@ class _ShortPlayerState extends State<_ShortPlayer> with SingleTickerProviderSta
 
           // Right side action buttons (YouTube-exact)
           Positioned(
-            right: 8, bottom: 80,
+            right: 8,
+            bottom: 80,
             child: Column(
               children: [
-                _actionBtn(_liked ? Icons.favorite : Icons.favorite_border, 'Like',
-                  onTap: () { context.read<AppProvider>().toggleLike(widget.video); setState(() => _liked = !_liked); },
-                  color: _liked ? Colors.red : Colors.white),
+                _actionBtn(
+                  _liked ? Icons.favorite : Icons.favorite_border,
+                  'Like',
+                  onTap: () {
+                    context.read<AppProvider>().toggleLike(widget.video);
+                    setState(() => _liked = !_liked);
+                  },
+                  color: _liked ? Colors.red : Colors.white,
+                ),
                 const SizedBox(height: 20),
-                _actionBtn(Icons.thumb_down_outlined, 'Dislike',
+                _actionBtn(
+                  Icons.thumb_down_outlined,
+                  'Dislike',
                   onTap: () => setState(() => _disliked = !_disliked),
-                  color: _disliked ? Colors.blue : Colors.white),
+                  color: _disliked ? Colors.blue : Colors.white,
+                ),
                 const SizedBox(height: 20),
-                _actionBtn(Icons.comment_outlined, 'Comments',
-                  onTap: () => Navigator.push(context, MaterialPageRoute(
-                    builder: (_) => PlayerScreen(videoId: widget.video.id, preview: widget.video)))),
+                _actionBtn(
+                  Icons.comment_outlined,
+                  'Comments',
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => PlayerScreen(
+                        videoId: widget.video.id,
+                        preview: widget.video,
+                      ),
+                    ),
+                  ),
+                ),
                 const SizedBox(height: 20),
-                _actionBtn(Icons.share_outlined, 'Share',
-                  onTap: () => Share.share(ShareLinks.shareText(widget.video.id, widget.video.title), subject: widget.video.title)),
+                _actionBtn(
+                  Icons.share_outlined,
+                  'Share',
+                  onTap: () => Share.share(
+                    ShareLinks.shareText(widget.video.id, widget.video.title),
+                    subject: widget.video.title,
+                  ),
+                ),
                 const SizedBox(height: 20),
-                _actionBtn(Icons.more_vert, 'More', onTap: () => _showMoreSheet()),
+                _actionBtn(
+                  Icons.more_vert,
+                  'More',
+                  onTap: () => _showMoreSheet(),
+                ),
               ],
             ),
           ),
 
           // Progress bar at bottom
-          if (_ready && _controller != null && _controller!.value.isInitialized && _controller!.value.duration.inMilliseconds > 0)
+          if (_ready &&
+              _controller != null &&
+              _controller!.value.isInitialized &&
+              _controller!.value.duration.inMilliseconds > 0)
             Positioned(
-              left: 0, right: 0, bottom: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
               child: VideoProgressIndicator(
-                _controller!, allowScrubbing: true,
-                colors: const VideoProgressColors(playedColor: Colors.white, bufferedColor: Colors.white30, backgroundColor: Colors.white12),
+                _controller!,
+                allowScrubbing: true,
+                colors: const VideoProgressColors(
+                  playedColor: Colors.white,
+                  bufferedColor: Colors.white30,
+                  backgroundColor: Colors.white12,
+                ),
                 padding: EdgeInsets.zero,
               ),
             ),
@@ -355,19 +525,35 @@ class _ShortPlayerState extends State<_ShortPlayer> with SingleTickerProviderSta
     );
   }
 
-  Widget _actionBtn(IconData icon, String label, {VoidCallback? onTap, Color color = Colors.white}) {
+  Widget _actionBtn(
+    IconData icon,
+    String label, {
+    VoidCallback? onTap,
+    Color color = Colors.white,
+  }) {
     return GestureDetector(
       onTap: onTap,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Container(
-            width: 40, height: 40,
-            decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.3), shape: BoxShape.circle),
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.3),
+              shape: BoxShape.circle,
+            ),
             child: Icon(icon, color: color, size: 24),
           ),
           const SizedBox(height: 2),
-          Text(label, style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.w500)),
+          Text(
+            label,
+            style: TextStyle(
+              color: color,
+              fontSize: 10,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
         ],
       ),
     );
@@ -378,20 +564,47 @@ class _ShortPlayerState extends State<_ShortPlayer> with SingleTickerProviderSta
     showModalBottomSheet(
       context: context,
       backgroundColor: c.surface,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(12))),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
+      ),
       builder: (ctx) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             const SizedBox(height: 8),
-            Container(width: 40, height: 4, decoration: BoxDecoration(color: c.surfaceVariant, borderRadius: BorderRadius.circular(2))),
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: c.surfaceVariant,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
             const SizedBox(height: 8),
-            ListTile(leading: Icon(Icons.watch_later_outlined, color: c.textPrimary), title: Text('Save to Watch Later', style: TextStyle(color: c.textPrimary)),
-              onTap: () { Navigator.pop(ctx); context.read<AppProvider>().toggleWatchLater(widget.video); }),
-            ListTile(leading: Icon(Icons.playlist_add, color: c.textPrimary), title: Text('Save to playlist', style: TextStyle(color: c.textPrimary)),
-              onTap: () => Navigator.pop(ctx)),
-            ListTile(leading: Icon(Icons.flag_outlined, color: c.textPrimary), title: Text('Report', style: TextStyle(color: c.textPrimary)),
-              onTap: () => Navigator.pop(ctx)),
+            ListTile(
+              leading: Icon(Icons.watch_later_outlined, color: c.textPrimary),
+              title: Text(
+                'Save to Watch Later',
+                style: TextStyle(color: c.textPrimary),
+              ),
+              onTap: () {
+                Navigator.pop(ctx);
+                context.read<AppProvider>().toggleWatchLater(widget.video);
+              },
+            ),
+            ListTile(
+              leading: Icon(Icons.playlist_add, color: c.textPrimary),
+              title: Text(
+                'Save to playlist',
+                style: TextStyle(color: c.textPrimary),
+              ),
+              onTap: () => Navigator.pop(ctx),
+            ),
+            ListTile(
+              leading: Icon(Icons.flag_outlined, color: c.textPrimary),
+              title: Text('Report', style: TextStyle(color: c.textPrimary)),
+              onTap: () => Navigator.pop(ctx),
+            ),
             const SizedBox(height: 8),
           ],
         ),

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../api/innertube_client.dart';
 import '../models/video.dart';
@@ -39,6 +40,13 @@ class AppProvider extends ChangeNotifier {
   String? playerError;
   String searchQuery = '';
   String selectedCategory = 'All';
+
+  // Monotonic request IDs prevent stale async responses from overwriting
+  // newer user intent (fast searches, category changes, and A→B navigation).
+  int _feedRequestId = 0;
+  int _searchRequestId = 0;
+  int _videoRequestId = 0;
+  int _loadingRequestId = 0;
 
   // download progress videoId -> 0..1
   final Map<String, double> downloadProgress = {};
@@ -146,29 +154,32 @@ class AppProvider extends ChangeNotifier {
   }
 
   Future<void> loadTrending() async {
+    final requestId = ++_feedRequestId;
+    final category = selectedCategory;
+    final requestRegion = region;
+    final loadingId = ++_loadingRequestId;
     isLoading = true;
     error = null;
     notifyListeners();
     try {
-      if (selectedCategory == 'All') {
-        trendingVideos = await _client.getTrending(region: region);
-      } else {
-        trendingVideos =
-            await _client.getCategoryFeed(selectedCategory, region: region);
-      }
-      // Shuffle for variety on each refresh (like YouTube)
-      if (trendingVideos.length > 3) {
-        trendingVideos.shuffle();
-      }
-      if (trendingVideos.isEmpty) {
+      final videos = category == 'All'
+          ? await _client.getTrending(region: requestRegion)
+          : await _client.getCategoryFeed(category, region: requestRegion);
+      if (requestId != _feedRequestId) return;
+      if (videos.length > 3) videos.shuffle();
+      trendingVideos = videos;
+      if (videos.isEmpty) {
         error = 'No videos found. Check internet & pull to retry.';
       }
     } catch (e) {
+      if (requestId != _feedRequestId) return;
       error = 'Failed to load feed. Pull to retry.\n$e';
       debugPrint('loadTrending: $e');
     } finally {
-      isLoading = false;
-      notifyListeners();
+      if (requestId == _feedRequestId && loadingId == _loadingRequestId) {
+        isLoading = false;
+        notifyListeners();
+      }
     }
   }
 
@@ -193,7 +204,10 @@ class AppProvider extends ChangeNotifier {
       shortsVideos = await _client.getCategoryFeed('Shorts', region: region);
       if (shortsVideos.isEmpty) {
         // Fallback: search for shorts
-        final result = await _client.search('#shorts', params: InnerTubeClient.kFilterShorts);
+        final result = await _client.search(
+          '#shorts',
+          params: InnerTubeClient.kFilterShorts,
+        );
         shortsVideos = result.videos;
       }
       if (shortsVideos.length > 2) shortsVideos.shuffle();
@@ -213,7 +227,10 @@ class AppProvider extends ChangeNotifier {
     isMusicLoading = true;
     notifyListeners();
     try {
-      musicVideos = await _client.getCategoryFeed('YouTube Music', region: region);
+      musicVideos = await _client.getCategoryFeed(
+        'YouTube Music',
+        region: region,
+      );
       if (musicVideos.isEmpty) {
         final result = await _client.search('latest music hits 2025');
         musicVideos = result.videos;
@@ -229,7 +246,10 @@ class AppProvider extends ChangeNotifier {
 
   Future<void> loadMoreShorts() async {
     try {
-      final more = await _client.search('shorts', params: InnerTubeClient.kFilterShorts);
+      final more = await _client.search(
+        'shorts',
+        params: InnerTubeClient.kFilterShorts,
+      );
       final seen = shortsVideos.map((v) => v.id).toSet();
       for (final v in more.videos) {
         if (seen.add(v.id)) {
@@ -281,40 +301,53 @@ class AppProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  void clearCaptions() {
+  void clearCaptions({bool notify = true}) {
     captionTracks = [];
     captionCues = [];
-    notifyListeners();
+    if (notify) notifyListeners();
   }
 
   Future<void> searchVideos(String query) async {
-    searchQuery = query;
-    if (query.trim().isEmpty) {
+    final normalized = query.trim();
+    final requestId = ++_searchRequestId;
+    searchQuery = normalized;
+    if (normalized.isEmpty) {
+      _loadingRequestId++;
       searchResults = [];
+      isLoading = false;
       notifyListeners();
       return;
     }
-    await storage.addSearchQuery(query.trim());
-    searchHistory = await storage.getSearchHistory();
+    await storage.addSearchQuery(normalized);
+    final updatedHistory = await storage.getSearchHistory();
+    if (requestId != _searchRequestId) return;
+    searchHistory = updatedHistory;
+    final loadingId = ++_loadingRequestId;
     isLoading = true;
     error = null;
     notifyListeners();
     try {
-      final result = await _client.search(query);
+      final result = await _client.search(normalized);
+      if (requestId != _searchRequestId) return;
       searchResults = result.videos;
-      // Empty results are not a hard error — UI shows empty state
       error = null;
     } catch (e) {
+      if (requestId != _searchRequestId) return;
       error = 'Search failed';
       searchResults = [];
       debugPrint('search: $e');
     } finally {
-      isLoading = false;
-      notifyListeners();
+      if (requestId == _searchRequestId && loadingId == _loadingRequestId) {
+        isLoading = false;
+        notifyListeners();
+      }
     }
   }
 
   void clearSearch() {
+    _searchRequestId++;
+    _loadingRequestId++;
+    isLoading = false;
     searchQuery = '';
     searchResults = [];
     notifyListeners();
@@ -333,73 +366,124 @@ class AppProvider extends ChangeNotifier {
   }
 
   Future<void> loadVideoDetails(String videoId, {Video? preview}) async {
+    final requestId = ++_videoRequestId;
     isPlayerLoading = true;
     playerError = null;
-    // Keep previous related while loading new? clear for clarity
     currentVideo = null;
     relatedVideos = [];
     comments = [];
     sponsorSegments = [];
     dislikeCount = null;
+    clearCaptions(notify: false);
     notifyListeners();
 
     try {
       final details = await _client.getVideoDetails(videoId);
+      if (requestId != _videoRequestId) return;
       currentVideo = details;
       isPlayerLoading = false;
       notifyListeners();
 
-      await storage.addToHistory(Video(
-        id: details.id,
-        title: details.title,
-        thumbnailUrl: details.thumbnailUrl,
-        channelName: details.channelName,
-        channelId: details.channelId,
-        viewCount: details.viewCount,
-        duration: details.duration,
-        publishedAt: details.publishedAt,
-      ));
-      history = await storage.getHistory();
-
-      // side data — non-blocking for playback
-      try {
-        relatedVideos = await _client.getRelatedVideos(videoId);
-        notifyListeners();
-      } catch (e) {
-        debugPrint('relatedVideos error: $e');
-      }
-      try {
-        comments = await _client.getComments(videoId);
-        notifyListeners();
-      } catch (e) {
-        debugPrint('comments error: $e');
-      }
-      try {
-        if (isSponsorBlockEnabled) {
-          sponsorSegments = await _client.getSponsorSegments(videoId);
-        }
-        notifyListeners();
-      } catch (e) {
-        debugPrint('sponsorSegments error: $e');
-      }
-      try {
-        dislikeCount = await _client.getDislikeCount(videoId);
-        notifyListeners();
-      } catch (e) {
-        debugPrint('dislikeCount error: $e');
-      }
-      // Load captions
-      try {
-        await loadCaptions(videoId);
-      } catch (e) {
-        debugPrint('captions error: $e');
-      }
+      // Playback may start now. History and side-data deliberately continue in
+      // the background and every result is guarded by the request ID.
+      unawaited(_saveHistory(details, requestId));
+      unawaited(_loadVideoSideData(videoId, requestId));
     } catch (e) {
+      if (requestId != _videoRequestId) return;
       playerError = 'Could not load video stream.\n$e';
       isPlayerLoading = false;
       debugPrint('loadVideoDetails: $e');
       notifyListeners();
     }
+  }
+
+  Future<void> _saveHistory(VideoDetails details, int requestId) async {
+    try {
+      await storage.addToHistory(
+        Video(
+          id: details.id,
+          title: details.title,
+          thumbnailUrl: details.thumbnailUrl,
+          channelName: details.channelName,
+          channelId: details.channelId,
+          viewCount: details.viewCount,
+          duration: details.duration,
+          publishedAt: details.publishedAt,
+        ),
+      );
+      final value = await storage.getHistory();
+      if (requestId == _videoRequestId) {
+        history = value;
+        notifyListeners();
+      }
+    } catch (e) {
+      debugPrint('history update error: $e');
+    }
+  }
+
+  Future<void> _loadVideoSideData(String videoId, int requestId) async {
+    Future<void> related() async {
+      final value = await _client.getRelatedVideos(videoId);
+      if (requestId == _videoRequestId) {
+        relatedVideos = value;
+        notifyListeners();
+      }
+    }
+
+    Future<void> commentData() async {
+      final value = await _client.getComments(videoId);
+      if (requestId == _videoRequestId) {
+        comments = value;
+        notifyListeners();
+      }
+    }
+
+    Future<void> sponsors() async {
+      if (!isSponsorBlockEnabled) return;
+      final value = await _client.getSponsorSegments(videoId);
+      if (requestId == _videoRequestId) {
+        sponsorSegments = value;
+        notifyListeners();
+      }
+    }
+
+    Future<void> dislikes() async {
+      final value = await _client.getDislikeCount(videoId);
+      if (requestId == _videoRequestId) {
+        dislikeCount = value;
+        notifyListeners();
+      }
+    }
+
+    Future<void> captions() async {
+      final tracks = await CaptionService.getTracks(videoId);
+      if (requestId != _videoRequestId) return;
+      captionTracks = tracks;
+      captionCues = [];
+      if (tracks.isNotEmpty && isCaptionsEnabled) {
+        final track = tracks.firstWhere(
+          (t) => t.languageCode == selectedCaptionLanguage,
+          orElse: () => tracks.first,
+        );
+        final cues = await CaptionService.getCues(track.baseUrl);
+        if (requestId != _videoRequestId) return;
+        captionCues = cues;
+        selectedCaptionLanguage = track.languageCode;
+      }
+      notifyListeners();
+    }
+
+    await Future.wait(
+      [related(), commentData(), sponsors(), dislikes(), captions()].map((
+        future,
+      ) async {
+        try {
+          await future;
+        } catch (e) {
+          debugPrint('video side-data error: $e');
+        }
+      }),
+    );
   }
 
   /// Resolve a progressive URL for offline download.
@@ -508,6 +592,7 @@ class AppProvider extends ChangeNotifier {
     _persistSettings();
     notifyListeners();
   }
+
   void toggleMusicMode() {
     isMusicMode = !isMusicMode;
     _persistSettings();
@@ -611,6 +696,10 @@ class AppProvider extends ChangeNotifier {
 
   @override
   void dispose() {
+    _feedRequestId++;
+    _searchRequestId++;
+    _videoRequestId++;
+    _loadingRequestId++;
     _client.dispose();
     downloader.dispose();
     HlsParser.dispose();

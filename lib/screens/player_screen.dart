@@ -59,15 +59,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool _bgActive = false;
   bool _pipSupported = false;
   bool _handedToMini = false;
+
   /// True when this screen borrowed the mini player's controller instead of
   /// creating its own — it must not dispose it.
   bool _borrowedFromMini = false;
   bool _lastNativePlaying = false;
   bool _looping = false;
   bool _muted = false;
+  int _attachRequestId = 0;
+  int _playbackRequestId = 0;
+
   /// True when playback was paused by the OS (call, other app) rather than by
   /// the user, so we know whether resuming automatically is appropriate.
   bool _pausedByInterruption = false;
+
   /// Pre-duck volume, restored when the interruption ends.
   double _preDuckVolume = 1.0;
   bool _watchLater = false;
@@ -193,7 +198,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
     mini.setExpanded(true);
 
     _speed = provider.defaultSpeed;
-    _quality = provider.defaultQuality.isEmpty ? '1080p' : provider.defaultQuality;
+    _quality = provider.defaultQuality.isEmpty
+        ? '1080p'
+        : provider.defaultQuality;
     if (_quality == 'Auto') _quality = '1080p';
     _liked = await provider.isLiked(widget.videoId);
     try {
@@ -275,13 +282,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
     await _startPlayback(details);
   }
 
-  Future<void> _startPlayback(VideoDetails details,
-      {String? quality, Duration? resumeAt}) async {
-    final q = (details.isLive)
-        ? 'Auto (HLS)'
-        : (quality ?? _quality);
+  Future<void> _startPlayback(
+    VideoDetails details, {
+    String? quality,
+    Duration? resumeAt,
+  }) async {
+    final playbackRequestId = ++_playbackRequestId;
+    final q = (details.isLive) ? 'Auto (HLS)' : (quality ?? _quality);
     // Live streams require HLS / DASH — force Auto HLS path
-
 
     final candidates = <String>[];
     void add(String? u) {
@@ -290,7 +298,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
       }
     }
 
-    final isAuto = details.isLive ||
+    final isAuto =
+        details.isLive ||
         q.startsWith('Auto') ||
         q == 'Best' ||
         q == 'Auto (HLS)';
@@ -354,7 +363,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
         }
         // Muxed formats list, same height only.
         for (final f in details.formats.where(
-            (f) => f.isMuxed && f.url.isNotEmpty && near(f.height))) {
+          (f) => f.isMuxed && f.url.isNotEmpty && near(f.height),
+        )) {
           add(f.url);
         }
       } else {
@@ -371,9 +381,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(lockFailed
-              ? '$q is not available for this video'
-              : 'No playable stream for this video'),
+          content: Text(
+            lockFailed
+                ? '$q is not available for this video'
+                : 'No playable stream for this video',
+          ),
           action: lockFailed
               ? SnackBarAction(
                   label: 'Use Auto',
@@ -389,10 +401,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
 
     debugPrint(
-        'Quality=$q candidates=${candidates.length} hlsVars=${details.hlsVariants.keys.toList()} prog=${details.progressiveByHeight.keys.toList()} hlsMaster=${details.hlsUrl != null}');
+      'Quality=$q candidates=${candidates.length} hlsVars=${details.hlsVariants.keys.toList()} prog=${details.progressiveByHeight.keys.toList()} hlsMaster=${details.hlsUrl != null}',
+    );
 
     Object? lastErr;
     for (final url in candidates) {
+      if (playbackRequestId != _playbackRequestId) return;
       try {
         await _attachController(url, resumeAt: resumeAt);
         if (_ready) {
@@ -404,6 +418,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
           return;
         }
       } catch (e) {
+        if (playbackRequestId != _playbackRequestId) return;
         lastErr = e;
         debugPrint('candidate failed: $e');
       }
@@ -413,47 +428,39 @@ class _PlayerScreenState extends State<PlayerScreen> {
         _isBuffering = false;
         _ready = false;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Playback failed ($q): $lastErr')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Playback failed ($q): $lastErr')));
     }
   }
 
   Future<void> _attachController(String url, {Duration? resumeAt}) async {
-    setState(() {
-      _isBuffering = true;
-      _ready = false;
-    });
-
-    final prev = _controller;
-    _controller = null;
-    // Only dispose previous if it wasn't handed off to the mini player.
-    if (!_handedToMini) {
-      if (prev != null && _borrowedFromMini) {
-        // We are replacing the controller we borrowed (quality switch):
-        // tell the mini player to let go, then dispose it ourselves.
-        try {
-          context.read<MiniPlayerController>().detachController();
-        } catch (_) {}
-        _borrowedFromMini = false;
-      }
-      prev?.removeListener(_onTick);
-      await prev?.dispose();
-    }
+    final requestId = ++_attachRequestId;
+    if (mounted) setState(() => _isBuffering = true);
 
     final isLocal = url.startsWith('/') || url.startsWith('file:');
     final isHls = url.contains('m3u8') || url.contains('/manifest/hls');
-
     if (isLocal) {
       final path = url.startsWith('file:') ? Uri.parse(url).toFilePath() : url;
-      final c = VideoPlayerController.file(File(path));
-      await c.initialize().timeout(const Duration(seconds: 20));
-      await _finishAttach(c, url, resumeAt: resumeAt);
+      final candidate = VideoPlayerController.file(File(path));
+      try {
+        await candidate.initialize().timeout(const Duration(seconds: 20));
+        await _finishAttach(
+          candidate,
+          url,
+          resumeAt: resumeAt,
+          requestId: requestId,
+        );
+      } catch (_) {
+        await candidate.dispose();
+        if (requestId == _attachRequestId && mounted) {
+          setState(() => _isBuffering = false);
+        }
+        rethrow;
+      }
       return;
     }
 
-    // Header sets to try (order matters).
-    // HLS from YouTube IOS client often needs IOS UA; Android UA can fail or degrade.
     final headerSets = <Map<String, String>?>[
       if (isHls)
         {
@@ -468,9 +475,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
           'Referer': 'https://www.youtube.com/',
           'Origin': 'https://www.youtube.com',
         },
-      // bare — some CDNs hate extra headers
       null,
-      // browser-like
       {
         'User-Agent':
             'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36',
@@ -480,28 +485,44 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     Object? lastErr;
     for (final headers in headerSets) {
-      VideoPlayerController? c;
+      if (requestId != _attachRequestId) return;
+      VideoPlayerController? candidate;
       try {
-        c = headers == null
+        candidate = headers == null
             ? VideoPlayerController.networkUrl(Uri.parse(url))
-            : VideoPlayerController.networkUrl(Uri.parse(url), httpHeaders: headers);
-        await c.initialize().timeout(const Duration(seconds: 25));
-        await _finishAttach(c, url, resumeAt: resumeAt);
+            : VideoPlayerController.networkUrl(
+                Uri.parse(url),
+                httpHeaders: headers,
+              );
+        await candidate.initialize().timeout(const Duration(seconds: 25));
+        await _finishAttach(
+          candidate,
+          url,
+          resumeAt: resumeAt,
+          requestId: requestId,
+        );
         return;
       } catch (e) {
         lastErr = e;
         debugPrint('attach fail headers=${headers != null}: $e');
         try {
-          await c?.dispose();
+          await candidate?.dispose();
         } catch (_) {}
       }
     }
-    throw lastErr ?? Exception('Failed to open stream');
+    if (requestId == _attachRequestId && mounted) {
+      setState(() => _isBuffering = false);
+    }
+    throw lastErr ?? Exception('Failed to initialize stream');
   }
 
-  Future<void> _finishAttach(VideoPlayerController c, String url,
-      {Duration? resumeAt}) async {
-    if (!mounted) {
+  Future<void> _finishAttach(
+    VideoPlayerController c,
+    String url, {
+    Duration? resumeAt,
+    required int requestId,
+  }) async {
+    if (!mounted || requestId != _attachRequestId) {
       await c.dispose();
       return;
     }
@@ -518,6 +539,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
     await c.setLooping(_looping);
     await c.setPlaybackSpeed(_speed);
     await c.setVolume(_muted ? 0 : 1);
+    if (!mounted || requestId != _attachRequestId) {
+      await c.dispose();
+      return;
+    }
+
+    final previous = _controller;
+    if (previous != null && _borrowedFromMini) {
+      context.read<MiniPlayerController>().detachController();
+      _borrowedFromMini = false;
+    }
+    previous?.removeListener(_onTick);
     c.addListener(_onTick);
     setState(() {
       _controller = c;
@@ -526,6 +558,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _activeUrl = url;
       _duration = c.value.duration;
     });
+    if (previous != null && previous != c && !_handedToMini) {
+      await previous.dispose();
+    }
     // Give PiP the true dimensions; otherwise a Short is letterboxed into a
     // 16:9 window.
     final sz = c.value.size;
@@ -544,7 +579,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (!mounted) return;
     final title =
         provider.currentVideo?.title ?? widget.preview?.title ?? 'VibeTube';
-    final artist = provider.currentVideo?.channelName ??
+    final artist =
+        provider.currentVideo?.channelName ??
         widget.preview?.channelName ??
         'Playing';
     if (provider.isBackgroundPlayEnabled) {
@@ -709,10 +745,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
     // Background mode: never hold wakelock (allows screen off)
     WakelockPlus.disable();
-    final title = provider.currentVideo?.title ??
-        widget.preview?.title ??
-        'VibeTube';
-    final artist = provider.currentVideo?.channelName ??
+    final title =
+        provider.currentVideo?.title ?? widget.preview?.title ?? 'VibeTube';
+    final artist =
+        provider.currentVideo?.channelName ??
         widget.preview?.channelName ??
         'Playing';
     if (playing) {
@@ -764,9 +800,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Future<void> _exitFullscreen() async {
     setState(() => _fullscreen = false);
     await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-    await SystemChrome.setPreferredOrientations([
-      DeviceOrientation.portraitUp,
-    ]);
+    await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
   }
 
   /// YouTube-style: keep playing in bottom mini player.
@@ -821,6 +855,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   @override
   void dispose() {
+    _attachRequestId++;
+    _playbackRequestId++;
     _hideTimer?.cancel();
     _posTimer?.cancel();
     _toastTimer?.cancel();
@@ -875,8 +911,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
         body: Center(
           child: (_ready && c != null && c.value.isInitialized)
               ? AspectRatio(
-                  aspectRatio:
-                      c.value.aspectRatio > 0 ? c.value.aspectRatio : 16 / 9,
+                  aspectRatio: c.value.aspectRatio > 0
+                      ? c.value.aspectRatio
+                      : 16 / 9,
                   child: VideoPlayer(c),
                 )
               : const ColoredBox(color: Colors.black),
@@ -898,30 +935,27 @@ class _PlayerScreenState extends State<PlayerScreen> {
         await _minimizeToMiniPlayer();
       },
       child: Scaffold(
-      backgroundColor: VibeColors.of(context).background,
-      body: Consumer<AppProvider>(
-        builder: (context, provider, _) {
-          final video = provider.currentVideo;
-          final preview = widget.preview;
+        backgroundColor: VibeColors.of(context).background,
+        body: Consumer<AppProvider>(
+          builder: (context, provider, _) {
+            final video = provider.currentVideo;
+            final preview = widget.preview;
 
-          return Column(
-            children: [
-              SafeArea(
-                bottom: false,
-                child: _buildPlayer(fullscreen: false),
-              ),
-              Expanded(
-                child: provider.isPlayerLoading && video == null
-                    ? const Center(child: CircularProgressIndicator())
-                    : provider.playerError != null && video == null
-                        ? _errorPane(provider)
-                        : _infoPane(provider, video, preview),
-              ),
-            ],
-          );
-        },
+            return Column(
+              children: [
+                SafeArea(bottom: false, child: _buildPlayer(fullscreen: false)),
+                Expanded(
+                  child: provider.isPlayerLoading && video == null
+                      ? const Center(child: CircularProgressIndicator())
+                      : provider.playerError != null && video == null
+                      ? _errorPane(provider)
+                      : _infoPane(provider, video, preview),
+                ),
+              ],
+            );
+          },
+        ),
       ),
-    ),
     );
   }
 
@@ -958,9 +992,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final c = _controller;
     final playing = c?.value.isPlaying == true;
     final providerMeta = context.read<AppProvider>().currentVideo;
-    final isShort = providerMeta?.isShort == true ||
-        widget.preview?.isShort == true;
-    final aspect = (c != null && c.value.isInitialized && c.value.aspectRatio > 0)
+    final isShort =
+        providerMeta?.isShort == true || widget.preview?.isShort == true;
+    final aspect =
+        (c != null && c.value.isInitialized && c.value.aspectRatio > 0)
         ? c.value.aspectRatio
         : (isShort ? 9 / 16 : 16 / 9);
 
@@ -998,8 +1033,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   ],
                 ),
               ),
-            if (_isBuffering || (!_ready && context.watch<AppProvider>().isPlayerLoading))
-              const CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
+            if (_isBuffering ||
+                (!_ready && context.watch<AppProvider>().isPlayerLoading))
+              const CircularProgressIndicator(
+                color: Colors.white,
+                strokeWidth: 2.5,
+              ),
             // Controls overlay - must be direct child of Stack (Positioned.fill)
             if (_showControls) _controlsOverlay(playing, fullscreen),
             if (_sponsorToast)
@@ -1009,8 +1048,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   opacity: _sponsorToast ? 1 : 0,
                   duration: const Duration(milliseconds: 200),
                   child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 8,
+                    ),
                     decoration: BoxDecoration(
                       color: AppTheme.sbSponsor.withValues(alpha: 0.95),
                       borderRadius: BorderRadius.circular(20),
@@ -1018,7 +1059,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(Icons.skip_next, size: 16, color: Colors.black),
+                        const Icon(
+                          Icons.skip_next,
+                          size: 16,
+                          color: Colors.black,
+                        ),
                         const SizedBox(width: 6),
                         Text(
                           '$_sponsorLabel skipped',
@@ -1065,7 +1110,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 child: Center(
                   child: Container(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 8),
+                      horizontal: 14,
+                      vertical: 8,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.black.withValues(alpha: 0.8),
                       borderRadius: BorderRadius.circular(20),
@@ -1073,9 +1120,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     child: Text(
                       _toastMsg!,
                       style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 13),
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                      ),
                     ),
                   ),
                 ),
@@ -1094,7 +1142,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Widget _controlsOverlay(bool playing, bool fullscreen) {
     final detailsIsLive =
         context.read<AppProvider>().currentVideo?.isLive == true ||
-            widget.preview?.isLive == true;
+        widget.preview?.isLive == true;
     return Positioned.fill(
       child: Container(
         decoration: BoxDecoration(
@@ -1162,7 +1210,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
                           message: 'SponsorBlock active',
                           child: Container(
                             padding: const EdgeInsets.symmetric(
-                                horizontal: 7, vertical: 2),
+                              horizontal: 7,
+                              vertical: 2,
+                            ),
                             decoration: BoxDecoration(
                               color: AppTheme.sbSponsor.withValues(alpha: 0.9),
                               borderRadius: BorderRadius.circular(6),
@@ -1187,8 +1237,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                _centreBtn(Icons.replay_10, 'Back 10 seconds',
-                    () => _seekBy(-10), 30),
+                _centreBtn(
+                  Icons.replay_10,
+                  'Back 10 seconds',
+                  () => _seekBy(-10),
+                  30,
+                ),
                 const SizedBox(width: 28),
                 _centreBtn(
                   playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
@@ -1198,8 +1252,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   primary: true,
                 ),
                 const SizedBox(width: 28),
-                _centreBtn(Icons.forward_10, 'Forward 10 seconds',
-                    () => _seekBy(10), 30),
+                _centreBtn(
+                  Icons.forward_10,
+                  'Forward 10 seconds',
+                  () => _seekBy(10),
+                  30,
+                ),
               ],
             ),
             const Spacer(),
@@ -1279,9 +1337,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                             _enterPipIfPlaying,
                           ),
                         _ctrlIcon(
-                          fullscreen
-                              ? Icons.fullscreen_exit
-                              : Icons.fullscreen,
+                          fullscreen ? Icons.fullscreen_exit : Icons.fullscreen,
                           fullscreen ? 'Exit fullscreen' : 'Fullscreen',
                           () async {
                             if (fullscreen) {
@@ -1338,7 +1394,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                 : Icons.closed_caption_outlined,
                             'CC',
                             _showCaptionSheet,
-                            active: context.watch<AppProvider>().isCaptionsEnabled,
+                            active: context
+                                .watch<AppProvider>()
+                                .isCaptionsEnabled,
                           ),
                           _chipBtn(Icons.headphones, 'Audio', _audioOnlyMode),
                           _chipBtn(
@@ -1464,8 +1522,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       return Stack(
                         alignment: Alignment.center,
                         children: segments.map((s) {
-                          final left =
-                              (s.start * 1000 / total) * box.maxWidth;
+                          final left = (s.start * 1000 / total) * box.maxWidth;
                           final width =
                               ((s.end - s.start) * 1000 / total) * box.maxWidth;
                           return Positioned(
@@ -1521,15 +1578,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
     );
   }
 
-  Widget _infoPane(
-    AppProvider provider,
-    VideoDetails? video,
-    Video? preview,
-  ) {
+  Widget _infoPane(AppProvider provider, VideoDetails? video, Video? preview) {
     final c = VibeColors.of(context);
     final title = video?.title ?? preview?.title ?? 'Loading…';
     final channel = video?.channelName ?? preview?.channelName ?? '';
-    final views = video?.formattedViewCount ?? preview?.formattedViewCount ?? '0';
+    final views =
+        video?.formattedViewCount ?? preview?.formattedViewCount ?? '0';
     final published = video?.publishedAt ?? preview?.publishedAt ?? '';
 
     return ListView(
@@ -1541,20 +1595,28 @@ class _PlayerScreenState extends State<PlayerScreen> {
             child: Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 3,
+                  ),
                   decoration: BoxDecoration(
                     color: const Color(0xFFFF0000),
                     borderRadius: BorderRadius.circular(4),
                   ),
-                  child: const Text('LIVE',
-                      style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w800,
-                          fontSize: 11)),
+                  child: const Text(
+                    'LIVE',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 11,
+                    ),
+                  ),
                 ),
                 const SizedBox(width: 8),
-                Text('Streaming live',
-                    style: TextStyle(color: c.textSecondary, fontSize: 12)),
+                Text(
+                  'Streaming live',
+                  style: TextStyle(color: c.textSecondary, fontSize: 12),
+                ),
               ],
             ),
           ),
@@ -1563,14 +1625,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
             padding: const EdgeInsets.only(bottom: 8),
             child: Row(
               children: [
-                Icon(Icons.movie_filter_outlined,
-                    size: 16, color: AppTheme.primary),
+                Icon(
+                  Icons.movie_filter_outlined,
+                  size: 16,
+                  color: AppTheme.primary,
+                ),
                 const SizedBox(width: 6),
-                Text('Shorts',
-                    style: TextStyle(
-                        color: AppTheme.primary,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 12)),
+                Text(
+                  'Shorts',
+                  style: TextStyle(
+                    color: AppTheme.primary,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                  ),
+                ),
               ],
             ),
           ),
@@ -1614,13 +1682,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
               ),
               _action(
                 icon: Icons.thumb_down_outlined,
-                label: _dislikes != null ? _short(_dislikes!) : 'Dislike',
+                label: (provider.dislikeCount ?? _dislikes) != null
+                    ? _short((provider.dislikeCount ?? _dislikes)!)
+                    : 'Dislike',
                 onTap: () {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                      content: Text(_dislikes != null
-                          ? '$_dislikes dislikes (Return YouTube Dislike)'
-                          : 'Dislike count unavailable'),
+                      content: Text(
+                        (provider.dislikeCount ?? _dislikes) != null
+                            ? '${provider.dislikeCount ?? _dislikes} dislikes (Return YouTube Dislike)'
+                            : 'Dislike count unavailable',
+                      ),
                     ),
                   );
                 },
@@ -1643,11 +1715,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   if (v == null) return;
                   final added = await provider.toggleWatchLater(v);
                   if (!mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                    content: Text(added
-                        ? 'Saved to Watch Later'
-                        : 'Removed from Watch Later'),
-                  ));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        added
+                            ? 'Saved to Watch Later'
+                            : 'Removed from Watch Later',
+                      ),
+                    ),
+                  );
                 },
               ),
               _action(
@@ -1659,14 +1735,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   final v = video ?? preview;
                   if (v == null) return;
                   if (provider.downloadingIds.contains(v.id)) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Downloading…')),
-                  );
+                  ScaffoldMessenger.of(
+                    context,
+                  ).showSnackBar(const SnackBar(content: Text('Downloading…')));
                   try {
                     await provider.downloadVideo(v);
                     if (!mounted) return;
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Download complete — open Downloads tab')),
+                      const SnackBar(
+                        content: Text('Download complete — open Downloads tab'),
+                      ),
                     );
                   } catch (e) {
                     if (!mounted) return;
@@ -1690,9 +1768,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
               child: Text(
                 channel.isNotEmpty ? channel[0].toUpperCase() : 'C',
                 style: const TextStyle(
-                    color: AppTheme.primary,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16),
+                  color: AppTheme.primary,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
               ),
             ),
             const SizedBox(width: 12),
@@ -1725,8 +1804,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 _toggleSubscribe(channel);
               },
               style: ElevatedButton.styleFrom(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 18,
+                  vertical: 10,
+                ),
                 minimumSize: Size.zero,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(20),
@@ -1748,11 +1829,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 color: c.surface,
                 borderRadius: BorderRadius.circular(14),
               ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      video?.description ?? '',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    video?.description ?? '',
                     maxLines: _descExpanded ? 1000 : 3,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
@@ -1786,11 +1867,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
           child: SwitchListTile(
             contentPadding: EdgeInsets.zero,
             secondary: const Icon(Icons.skip_next, color: AppTheme.sbSponsor),
-            title: Text('SponsorBlock',
-                style: TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 14,
-                    color: c.textPrimary)),
+            title: Text(
+              'SponsorBlock',
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: 14,
+                color: c.textPrimary,
+              ),
+            ),
             subtitle: Text(
               provider.sponsorSegments.isEmpty
                   ? 'Auto-skip sponsored segments'
@@ -1806,9 +1890,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
           Text(
             'Comments · ${provider.comments.length}',
             style: TextStyle(
-                fontWeight: FontWeight.w700,
-                fontSize: 15,
-                color: c.textPrimary),
+              fontWeight: FontWeight.w700,
+              fontSize: 15,
+              color: c.textPrimary,
+            ),
           ),
           const SizedBox(height: 10),
           ...provider.comments.take(8).map(_commentTile),
@@ -1818,9 +1903,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
           Text(
             'Related',
             style: TextStyle(
-                fontWeight: FontWeight.w700,
-                fontSize: 15,
-                color: c.textPrimary),
+              fontWeight: FontWeight.w700,
+              fontSize: 15,
+              color: c.textPrimary,
+            ),
           ),
           const SizedBox(height: 10),
           ...provider.relatedVideos.take(15).map((v) {
@@ -1856,8 +1942,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 ? CachedNetworkImageProvider(comment.authorAvatar)
                 : null,
             child: comment.authorAvatar.isEmpty
-                ? Text(comment.author.isNotEmpty ? comment.author[0] : '?',
-                    style: TextStyle(fontSize: 12, color: col.textPrimary))
+                ? Text(
+                    comment.author.isNotEmpty ? comment.author[0] : '?',
+                    style: TextStyle(fontSize: 12, color: col.textPrimary),
+                  )
                 : null,
           ),
           const SizedBox(width: 10),
@@ -1870,18 +1958,28 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   style: TextStyle(fontSize: 11, color: col.textMuted),
                 ),
                 const SizedBox(height: 3),
-                Text(comment.text,
-                    style: TextStyle(
-                        fontSize: 13, height: 1.35, color: col.textPrimary)),
+                Text(
+                  comment.text,
+                  style: TextStyle(
+                    fontSize: 13,
+                    height: 1.35,
+                    color: col.textPrimary,
+                  ),
+                ),
                 if (comment.likeCount > 0) ...[
                   const SizedBox(height: 4),
                   Row(
                     children: [
-                      Icon(Icons.thumb_up_outlined,
-                          size: 12, color: col.textMuted),
+                      Icon(
+                        Icons.thumb_up_outlined,
+                        size: 12,
+                        color: col.textMuted,
+                      ),
                       const SizedBox(width: 4),
-                      Text(_short(comment.likeCount),
-                          style: TextStyle(fontSize: 11, color: col.textMuted)),
+                      Text(
+                        _short(comment.likeCount),
+                        style: TextStyle(fontSize: 11, color: col.textMuted),
+                      ),
                     ],
                   ),
                 ],
@@ -1918,12 +2016,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
               children: [
                 Icon(icon, size: 18, color: fg),
                 const SizedBox(width: 6),
-                Text(label,
-                    style: TextStyle(
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w600,
-                      color: fg,
-                    )),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                    color: fg,
+                  ),
+                ),
               ],
             ),
           ),
@@ -1934,7 +2034,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   void _showSpeedSheet() {
     final speeds = [
-      0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5, 2.75, 3.0
+      0.25,
+      0.5,
+      0.75,
+      1.0,
+      1.25,
+      1.5,
+      1.75,
+      2.0,
+      2.25,
+      2.5,
+      2.75,
+      3.0,
     ];
     final c = VibeColors.of(context);
     showModalBottomSheet(
@@ -1964,16 +2075,22 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
                   child: Row(
                     children: [
-                      Text('Playback speed',
-                          style: TextStyle(
-                              fontWeight: FontWeight.w700,
-                              fontSize: 16,
-                              color: c.textPrimary)),
+                      Text(
+                        'Playback speed',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 16,
+                          color: c.textPrimary,
+                        ),
+                      ),
                       const Spacer(),
-                      Text('${_speed}x',
-                          style: const TextStyle(
-                              color: AppTheme.primary,
-                              fontWeight: FontWeight.w700)),
+                      Text(
+                        '${_speed}x',
+                        style: const TextStyle(
+                          color: AppTheme.primary,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -1985,17 +2102,23 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       final s = speeds[i];
                       final selected = (_speed - s).abs() < 0.001;
                       return ListTile(
-                        title: Text('${s}x',
-                            style: TextStyle(
-                              color: c.textPrimary,
-                              fontWeight: selected
-                                  ? FontWeight.w700
-                                  : FontWeight.w500,
-                            )),
+                        title: Text(
+                          '${s}x',
+                          style: TextStyle(
+                            color: c.textPrimary,
+                            fontWeight: selected
+                                ? FontWeight.w700
+                                : FontWeight.w500,
+                          ),
+                        ),
                         subtitle: s == 1.0
-                            ? Text('Normal',
+                            ? Text(
+                                'Normal',
                                 style: TextStyle(
-                                    color: c.textMuted, fontSize: 12))
+                                  color: c.textMuted,
+                                  fontSize: 12,
+                                ),
+                              )
                             : null,
                         trailing: selected
                             ? const Icon(Icons.check, color: AppTheme.primary)
@@ -2025,11 +2148,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (details?.isLive == true) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-            content: Text('Live streams use adaptive HLS quality automatically')),
+          content: Text('Live streams use adaptive HLS quality automatically'),
+        ),
       );
       return;
     }
-    final qs = details?.availableQualities ??
+    final qs =
+        details?.availableQualities ??
         ['Auto (HLS)', '1080p', '720p', '480p', '360p', 'Audio Only'];
     final hasHls = details?.hlsUrl != null && details!.hlsUrl!.isNotEmpty;
     final c = VibeColors.of(context);
@@ -2060,16 +2185,22 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
                   child: Row(
                     children: [
-                      Text('Quality',
-                          style: TextStyle(
-                              fontWeight: FontWeight.w700,
-                              fontSize: 16,
-                              color: c.textPrimary)),
+                      Text(
+                        'Quality',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 16,
+                          color: c.textPrimary,
+                        ),
+                      ),
                       const Spacer(),
-                      Text(_quality,
-                          style: const TextStyle(
-                              color: AppTheme.primary,
-                              fontWeight: FontWeight.w700)),
+                      Text(
+                        _quality,
+                        style: const TextStyle(
+                          color: AppTheme.primary,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -2079,8 +2210,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     (details?.hlsVariants.isNotEmpty == true)
                         ? '${details!.hlsVariants.length} stream(s) · up to ${_maxQualityLabel(details)}'
                         : (hasHls
-                            ? 'HLS master only · try Auto'
-                            : 'Only progressive (often 360p)'),
+                              ? 'HLS master only · try Auto'
+                              : 'Only progressive (often 360p)'),
                     style: TextStyle(color: c.textMuted, fontSize: 12),
                   ),
                 ),
@@ -2103,20 +2234,29 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       } else {
                         final h =
                             int.tryParse(q.replaceAll(RegExp(r'[^0-9]'), '')) ??
-                                0;
-                        final hasExact = d != null &&
+                            0;
+                        final hasExact =
+                            d != null &&
                             (d.hlsVariants.containsKey(h) ||
                                 d.progressiveByHeight.containsKey(h));
-                        final hasNear = d != null &&
-                            (d.hlsVariants.keys
-                                    .any((x) => (x - h).abs() <= 20) ||
-                                d.progressiveByHeight.keys
-                                    .any((x) => (x - h).abs() <= 20));
+                        final hasNear =
+                            d != null &&
+                            (d.hlsVariants.keys.any(
+                                  (x) => (x - h).abs() <= 20,
+                                ) ||
+                                d.progressiveByHeight.keys.any(
+                                  (x) => (x - h).abs() <= 20,
+                                ));
                         if (hasExact || hasNear) {
                           // hasExact/hasNear are only true when d != null.
-                          final isHls = d.hlsVariants.containsKey(h) ||
-                              d.hlsVariants.keys.any((x) => (x - h).abs() <= 20);
-                          sub = isHls ? 'Tap to lock · HLS' : 'Tap to lock · MP4';
+                          final isHls =
+                              d.hlsVariants.containsKey(h) ||
+                              d.hlsVariants.keys.any(
+                                (x) => (x - h).abs() <= 20,
+                              );
+                          sub = isHls
+                              ? 'Tap to lock · HLS'
+                              : 'Tap to lock · MP4';
                         } else if (hasHls) {
                           sub = 'via nearest HLS';
                         } else {
@@ -2124,15 +2264,19 @@ class _PlayerScreenState extends State<PlayerScreen> {
                         }
                       }
                       return ListTile(
-                        title: Text(q,
-                            style: TextStyle(
-                              color: c.textPrimary,
-                              fontWeight:
-                                  selected ? FontWeight.w700 : FontWeight.w500,
-                            )),
-                        subtitle: Text(sub,
-                            style:
-                                TextStyle(fontSize: 11, color: c.textMuted)),
+                        title: Text(
+                          q,
+                          style: TextStyle(
+                            color: c.textPrimary,
+                            fontWeight: selected
+                                ? FontWeight.w700
+                                : FontWeight.w500,
+                          ),
+                        ),
+                        subtitle: Text(
+                          sub,
+                          style: TextStyle(fontSize: 11, color: c.textMuted),
+                        ),
                         trailing: selected
                             ? const Icon(Icons.check, color: AppTheme.primary)
                             : null,
@@ -2168,10 +2312,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
     );
   }
 
-
-
-  Widget _ctrlIcon(IconData icon, String tip, VoidCallback onTap,
-      {bool active = false}) {
+  Widget _ctrlIcon(
+    IconData icon,
+    String tip,
+    VoidCallback onTap, {
+    bool active = false,
+  }) {
     return Tooltip(
       message: tip,
       child: InkResponse(
@@ -2189,8 +2335,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
     );
   }
 
-  Widget _chipBtn(IconData icon, String label, VoidCallback onTap,
-      {bool active = false}) {
+  Widget _chipBtn(
+    IconData icon,
+    String label,
+    VoidCallback onTap, {
+    bool active = false,
+  }) {
     return Padding(
       padding: const EdgeInsets.only(right: 6),
       child: Material(
@@ -2206,16 +2356,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(icon,
-                    size: 15,
-                    color: active ? AppTheme.primary : Colors.white),
+                Icon(
+                  icon,
+                  size: 15,
+                  color: active ? AppTheme.primary : Colors.white,
+                ),
                 const SizedBox(width: 5),
-                Text(label,
-                    style: TextStyle(
-                      color: active ? AppTheme.primary : Colors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    )),
+                Text(
+                  label,
+                  style: TextStyle(
+                    color: active ? AppTheme.primary : Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ],
             ),
           ),
@@ -2307,13 +2461,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   void _showDislikes() {
     final n = _dislikes;
-    _toast(n == null
-        ? 'Dislike count unavailable'
-        : '${_short(n)} dislikes');
+    _toast(n == null ? 'Dislike count unavailable' : '${_short(n)} dislikes');
   }
 
   Future<void> _shareVideo() async {
-    final title = context.read<AppProvider>().currentVideo?.title ??
+    final title =
+        context.read<AppProvider>().currentVideo?.title ??
         widget.preview?.title ??
         'VibeTube';
     await Share.share(
@@ -2410,14 +2563,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
                   child: Row(
                     children: [
-                      Icon(Icons.closed_caption,
-                          color: AppTheme.primary, size: 22),
+                      Icon(
+                        Icons.closed_caption,
+                        color: AppTheme.primary,
+                        size: 22,
+                      ),
                       const SizedBox(width: 10),
-                      Text('Captions',
-                          style: TextStyle(
-                              fontWeight: FontWeight.w700,
-                              fontSize: 16,
-                              color: c.textPrimary)),
+                      Text(
+                        'Captions',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 16,
+                          color: c.textPrimary,
+                        ),
+                      ),
                       const Spacer(),
                       Switch(
                         value: provider.isCaptionsEnabled,
@@ -2432,15 +2591,19 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 const Divider(height: 1),
                 // Off option
                 ListTile(
-                  leading: Icon(Icons.closed_caption_disabled,
-                      color: c.textSecondary),
-                  title: Text('Off',
-                      style: TextStyle(
-                        color: c.textPrimary,
-                        fontWeight: !provider.isCaptionsEnabled
-                            ? FontWeight.w700
-                            : FontWeight.w500,
-                      )),
+                  leading: Icon(
+                    Icons.closed_caption_disabled,
+                    color: c.textSecondary,
+                  ),
+                  title: Text(
+                    'Off',
+                    style: TextStyle(
+                      color: c.textPrimary,
+                      fontWeight: !provider.isCaptionsEnabled
+                          ? FontWeight.w700
+                          : FontWeight.w500,
+                    ),
+                  ),
                   trailing: !provider.isCaptionsEnabled
                       ? const Icon(Icons.check, color: AppTheme.primary)
                       : null,
@@ -2458,30 +2621,33 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       final track = provider.captionTracks[i];
                       final selected =
                           provider.isCaptionsEnabled &&
-                              provider.selectedCaptionLanguage ==
-                                  track.languageCode;
+                          provider.selectedCaptionLanguage ==
+                              track.languageCode;
                       return ListTile(
                         leading: Icon(
                           Icons.closed_caption,
-                          color: selected
-                              ? AppTheme.primary
-                              : c.textSecondary,
+                          color: selected ? AppTheme.primary : c.textSecondary,
                         ),
-                        title: Text(track.name,
-                            style: TextStyle(
-                              color: c.textPrimary,
-                              fontWeight: selected
-                                  ? FontWeight.w700
-                                  : FontWeight.w500,
-                            )),
+                        title: Text(
+                          track.name,
+                          style: TextStyle(
+                            color: c.textPrimary,
+                            fontWeight: selected
+                                ? FontWeight.w700
+                                : FontWeight.w500,
+                          ),
+                        ),
                         subtitle: track.isAutoGenerated
-                            ? Text('Auto-generated',
+                            ? Text(
+                                'Auto-generated',
                                 style: TextStyle(
-                                    fontSize: 11, color: c.textMuted))
+                                  fontSize: 11,
+                                  color: c.textMuted,
+                                ),
+                              )
                             : null,
                         trailing: selected
-                            ? const Icon(Icons.check,
-                                color: AppTheme.primary)
+                            ? const Icon(Icons.check, color: AppTheme.primary)
                             : null,
                         onTap: () async {
                           if (!provider.isCaptionsEnabled) {
@@ -2518,8 +2684,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
           children: [
             SwitchListTile(
               secondary: Icon(Icons.headphones, color: c.textPrimary),
-              title: Text('Background play',
-                  style: TextStyle(color: c.textPrimary)),
+              title: Text(
+                'Background play',
+                style: TextStyle(color: c.textPrimary),
+              ),
               subtitle: Text(
                 'Keep audio when screen is off (media notification)',
                 style: TextStyle(color: c.textSecondary, fontSize: 12),
@@ -2541,10 +2709,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
               },
             ),
             SwitchListTile(
-              secondary:
-                  Icon(Icons.picture_in_picture_alt, color: c.textPrimary),
-              title:
-                  Text('Auto PiP', style: TextStyle(color: c.textPrimary)),
+              secondary: Icon(
+                Icons.picture_in_picture_alt,
+                color: c.textPrimary,
+              ),
+              title: Text('Auto PiP', style: TextStyle(color: c.textPrimary)),
               value: provider.isAutoPipEnabled,
               onChanged: (_) {
                 provider.toggleAutoPip();
@@ -2553,8 +2722,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
             ),
             SwitchListTile(
               secondary: Icon(Icons.skip_next, color: c.textPrimary),
-              title: Text('SponsorBlock',
-                  style: TextStyle(color: c.textPrimary)),
+              title: Text(
+                'SponsorBlock',
+                style: TextStyle(color: c.textPrimary),
+              ),
               value: provider.isSponsorBlockEnabled,
               onChanged: (_) {
                 provider.toggleSponsorBlock();
@@ -2563,8 +2734,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
             ),
             ListTile(
               leading: Icon(Icons.open_in_new, color: c.textPrimary),
-              title: Text('Share YouTube link',
-                  style: TextStyle(color: c.textPrimary)),
+              title: Text(
+                'Share YouTube link',
+                style: TextStyle(color: c.textPrimary),
+              ),
               onTap: () {
                 Navigator.pop(ctx);
                 _shareVideo();
@@ -2579,10 +2752,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   String _maxQualityLabel(VideoDetails? d) {
     if (d == null) return '720p';
-    final hs = <int>[
-      ...d.hlsVariants.keys,
-      ...d.progressiveByHeight.keys,
-    ];
+    final hs = <int>[...d.hlsVariants.keys, ...d.progressiveByHeight.keys];
     if (hs.isEmpty) {
       return (d.hlsUrl != null && d.hlsUrl!.isNotEmpty) ? '1080p' : '360p';
     }

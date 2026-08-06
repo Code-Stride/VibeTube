@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vibetube/models/video.dart';
+import 'package:vibetube/services/download_service.dart';
 import 'package:vibetube/utils/share_links.dart';
 
 void main() {
@@ -26,17 +27,19 @@ void main() {
 
     test('formattedDuration formats hours correctly', () {
       const v = Video(
-          id: 'test123456',
-          title: 'Test',
-          duration: Duration(hours: 1, minutes: 5, seconds: 3));
+        id: 'test123456',
+        title: 'Test',
+        duration: Duration(hours: 1, minutes: 5, seconds: 3),
+      );
       expect(v.formattedDuration, '1:05:03');
     });
 
     test('formattedDuration formats minutes correctly', () {
       const v = Video(
-          id: 'test123456',
-          title: 'Test',
-          duration: Duration(minutes: 3, seconds: 45));
+        id: 'test123456',
+        title: 'Test',
+        duration: Duration(minutes: 3, seconds: 45),
+      );
       expect(v.formattedDuration, '3:45');
     });
 
@@ -171,11 +174,7 @@ void main() {
       const details = VideoDetails(
         id: 'test123456',
         title: 'Test',
-        hlsVariants: {
-          360: 'a',
-          720: 'b',
-          1080: 'c',
-        },
+        hlsVariants: {360: 'a', 720: 'b', 1080: 'c'},
       );
       final qs = details.availableQualities;
       expect(qs.first, 'Auto (HLS)');
@@ -223,7 +222,10 @@ void main() {
     test('manifest URLs are rejected by the progressive guard', () {
       expect(isProgressive('https://example.com/master.m3u8'), false);
       expect(isProgressive('https://r1.googlevideo.com/manifest/hls/x'), false);
-      expect(isProgressive('https://r1.googlevideo.com/manifest/dash/x'), false);
+      expect(
+        isProgressive('https://r1.googlevideo.com/manifest/dash/x'),
+        false,
+      );
       expect(isProgressive(''), false);
       expect(isProgressive(null), false);
     });
@@ -334,8 +336,10 @@ void main() {
 
     test('ids with hyphens and underscores survive', () {
       const tricky = 'a-b_c1D2e3F';
-      expect(ShareLinks.parseVideoId(Uri.parse(ShareLinks.watch(tricky))),
-          tricky);
+      expect(
+        ShareLinks.parseVideoId(Uri.parse(ShareLinks.watch(tricky))),
+        tricky,
+      );
     });
   });
 
@@ -404,6 +408,35 @@ void main() {
       expect(qs.last, 'Audio Only');
       final mid = qs.sublist(1, qs.length - 1);
       expect(mid, ['1080p', '720p', '360p']);
+    });
+  });
+  group('Download integrity', () {
+    test('accepts an ISO-BMFF ftyp header', () {
+      expect(
+        DownloadService.hasIsoBmffHeader([
+          0,
+          0,
+          0,
+          24,
+          0x66,
+          0x74,
+          0x79,
+          0x70,
+          0x69,
+          0x73,
+          0x6f,
+          0x6d,
+        ]),
+        isTrue,
+      );
+    });
+
+    test('rejects HTML and truncated responses', () {
+      expect(
+        DownloadService.hasIsoBmffHeader('<html>error'.codeUnits),
+        isFalse,
+      );
+      expect(DownloadService.hasIsoBmffHeader([0, 0, 0]), isFalse);
     });
   });
 }

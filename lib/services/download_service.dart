@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
@@ -19,9 +20,29 @@ class DownloadService {
   }
 
   Future<bool> isDownloaded(String videoId) async {
-    final p = await pathFor(videoId);
-    return File(p).exists();
+    final path = await pathFor(videoId);
+    return _isValidMp4(File(path));
   }
+
+  Future<bool> _isValidMp4(File file) async {
+    if (!await file.exists() || await file.length() < 12) return false;
+    final handle = await file.open();
+    try {
+      final header = await handle.read(12);
+      return hasIsoBmffHeader(header);
+    } finally {
+      await handle.close();
+    }
+  }
+
+  /// ISO-BMFF files have an `ftyp` box at byte 4. Keeping this pure makes the
+  /// integrity rule directly unit-testable without platform storage plugins.
+  static bool hasIsoBmffHeader(List<int> header) =>
+      header.length >= 12 &&
+      header[4] == 0x66 &&
+      header[5] == 0x74 &&
+      header[6] == 0x79 &&
+      header[7] == 0x70;
 
   /// Download progressive MP4 URL to app storage.
   /// Uses a .part file during download, renamed on completion to avoid
@@ -36,20 +57,22 @@ class DownloadService {
 
     // Check for a fully completed file (exists with .mp4 extension, not .part)
     if (await file.exists()) {
-      final len = await file.length();
-      // A valid MP4 is at least 50KB (tiny videos are still >100KB)
-      if (len > 50000) {
+      if (await _isValidMp4(file)) {
         onProgress?.call(1);
         return path;
       }
       // Suspiciously small — likely a partial/corrupt file; delete and retry
-      try { await file.delete(); } catch (_) {}
+      try {
+        await file.delete();
+      } catch (_) {}
     }
 
     // Clean up any leftover .part file from a previous failed attempt
     final partFile = File('$path.part');
     if (await partFile.exists()) {
-      try { await partFile.delete(); } catch (_) {}
+      try {
+        await partFile.delete();
+      } catch (_) {}
     }
 
     final req = http.Request('GET', Uri.parse(streamUrl));
@@ -65,18 +88,29 @@ class DownloadService {
       res = await _http.send(req).timeout(const Duration(minutes: 30));
     } catch (e) {
       // Clean up partial file on network error
-      try { await partFile.delete(); } catch (_) {}
+      try {
+        await partFile.delete();
+      } catch (_) {}
       rethrow;
     }
 
     if (res.statusCode != 200) {
       throw Exception('Download failed HTTP ${res.statusCode}');
     }
+    final contentType = res.headers['content-type']?.toLowerCase() ?? '';
+    if (contentType.contains('text/html') ||
+        contentType.contains('application/json')) {
+      throw Exception('Download returned $contentType instead of video');
+    }
     final total = res.contentLength ?? 0;
     final sink = partFile.openWrite();
     var received = 0;
     try {
-      await for (final chunk in res.stream) {
+      await for (final chunk in res.stream.timeout(
+        const Duration(seconds: 45),
+        onTimeout: (sink) =>
+            sink.addError(TimeoutException('Download stalled for 45 seconds')),
+      )) {
         sink.add(chunk);
         received += chunk.length;
         if (total > 0) {
@@ -91,8 +125,17 @@ class DownloadService {
     } catch (e) {
       // Clean up partial file on stream error
       await sink.close();
-      try { await partFile.delete(); } catch (_) {}
+      try {
+        await partFile.delete();
+      } catch (_) {}
       rethrow;
+    }
+
+    if (!await _isValidMp4(partFile)) {
+      try {
+        await partFile.delete();
+      } catch (_) {}
+      throw Exception('Downloaded response is not a valid MP4');
     }
 
     // Rename .part → .mp4 only on complete success
