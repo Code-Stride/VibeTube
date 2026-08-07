@@ -92,7 +92,11 @@ class ShareLinks {
     }
 
     // youtube.com/watch?v=ID, /shorts/ID, /embed/ID, /live/ID
-    if (h.endsWith('youtube.com')) {
+    //
+    // Matched on a real domain boundary. A bare `endsWith('youtube.com')`
+    // also accepts `myyoutube.com` / `evil-youtube.com`, so a hostile link
+    // could hand us an id we then open as if YouTube had vouched for it.
+    if (h == 'youtube.com' || h.endsWith('.youtube.com')) {
       final v = valid(uri.queryParameters['v']);
       if (v != null) return v;
       if (segs.length >= 2 &&

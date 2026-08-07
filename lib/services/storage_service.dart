@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/video.dart';
 
@@ -35,9 +36,29 @@ class StorageService {
           onError: completer.completeError,
         );
 
-    _locks[key] = next.catchError((_) {});
+    final guarded = next.catchError((_) {});
+    _locks[key] = guarded;
+    // Drop the entry once this is the last queued operation for the key.
+    // Without this the map grows one retained future per key for the life of
+    // the process, keeping every completed operation's closure (and the list
+    // of Videos it captured) alive.
+    guarded.whenComplete(() {
+      if (identical(_locks[key], guarded)) _locks.remove(key);
+    });
     return completer.future;
   }
+
+  /// Number of keys currently holding a queued operation.
+  ///
+  /// Exposed so the lock map's cleanup can be asserted directly, without a
+  /// platform-backed SharedPreferences.
+  @visibleForTesting
+  int get debugPendingLockCount => _locks.length;
+
+  /// Runs [action] through the same per-key queue the mutators use.
+  @visibleForTesting
+  Future<T> debugSynchronizedForTest<T>(String key, Future<T> Function() action) =>
+      _synchronized(key, action);
 
   Future<Map<String, dynamic>> loadSettings() async {
     final p = await prefs;

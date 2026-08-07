@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
@@ -443,13 +444,24 @@ class InnerTubeClient {
     _nextCacheVideoId = videoId;
     _nextCacheFuture = future;
     // A failed request must not be cached, or every retry returns the error.
-    future.catchError((Object e) {
-      if (_nextCacheVideoId == videoId) {
-        _nextCacheVideoId = null;
-        _nextCacheFuture = null;
-      }
-      throw e;
-    });
+    //
+    // The eviction is guarded on the *future* as well as the id: two videos
+    // opened in quick succession both ran this, and when the first one's
+    // request failed it matched only on id — clearing whichever entry
+    // happened to be current and evicting the second video's healthy,
+    // in-flight response.
+    //
+    // `unawaited` + a swallowed error: the caller still receives the real
+    // failure through the returned future, but this bookkeeping copy must not
+    // surface as an unhandled async error and crash the zone.
+    unawaited(
+      future.then<void>((_) {}, onError: (Object _) {
+        if (identical(_nextCacheFuture, future)) {
+          _nextCacheVideoId = null;
+          _nextCacheFuture = null;
+        }
+      }),
+    );
     return future;
   }
 
@@ -646,7 +658,11 @@ class InnerTubeClient {
       if (id.isEmpty || id.length < 10) return null;
       if (thumb.startsWith('//')) thumb = 'https:$thumb';
       if (thumb.isEmpty) thumb = 'https://i.ytimg.com/vi/$id/hqdefault.jpg';
-      return Video(id: id, title: title.isEmpty ? 'Short' : title, thumbnailUrl: thumb, channelName: channel, duration: const Duration(seconds: 30), isShort: true);
+      // Duration is deliberately zero, not a made-up 30s: the reel/lockup
+      // renderers do not carry a length, and inventing one made every Shorts
+      // card render a confident "0:30" badge that was wrong for most of them.
+      // Video.formattedDuration returns '' for zero, so no badge is drawn.
+      return Video(id: id, title: title.isEmpty ? 'Short' : title, thumbnailUrl: thumb, channelName: channel, isShort: true);
     } catch (_) { return null; }
   }
 
