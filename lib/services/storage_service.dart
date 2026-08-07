@@ -10,6 +10,7 @@ class StorageService {
   static const _kDownloads = 'downloads_meta';
   static const _kSettings = 'app_settings';
   static const _kSearchHistory = 'search_history';
+  static const _kSubscriptions = 'subscribed_channels';
 
   SharedPreferences? _prefs;
   Future<SharedPreferences> get prefs async =>
@@ -142,7 +143,29 @@ class StorageService {
         await setList(_kDownloads, list);
       });
 
-  Future<void> clearHistory() async => setList(_kHistory, []);
+  /// Must take the same lock as [addToHistory]: an in-flight add had already
+  /// read the pre-clear list, so its write landed after the clear and
+  /// resurrected an entry the user just deleted.
+  Future<void> clearHistory() =>
+      _synchronized(_kHistory, () => setList(_kHistory, []));
+
+  // ---- Subscriptions ----
+
+  Future<Set<String>> getSubscriptions() async {
+    final p = await prefs;
+    return (p.getStringList(_kSubscriptions) ?? []).toSet();
+  }
+
+  /// Returns true when the channel ended up subscribed.
+  Future<bool> toggleSubscription(String channelId) =>
+      _synchronized(_kSubscriptions, () async {
+        final p = await prefs;
+        final list = p.getStringList(_kSubscriptions) ?? [];
+        final existed = list.remove(channelId);
+        if (!existed) list.insert(0, channelId);
+        await p.setStringList(_kSubscriptions, list);
+        return !existed;
+      });
 
   // ---- Search History ----
 
@@ -169,8 +192,8 @@ class StorageService {
         await p.setStringList(_kSearchHistory, list);
       });
 
-  Future<void> clearSearchHistory() async {
-    final p = await prefs;
-    await p.remove(_kSearchHistory);
-  }
+  Future<void> clearSearchHistory() => _synchronized(_kSearchHistory, () async {
+        final p = await prefs;
+        await p.remove(_kSearchHistory);
+      });
 }

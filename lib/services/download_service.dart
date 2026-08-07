@@ -7,6 +7,13 @@ import '../models/video.dart';
 class DownloadService {
   final http.Client _http = http.Client();
 
+  /// Video ids the user asked to cancel. Checked between chunks so a running
+  /// download can be stopped instead of running to the 30-minute timeout.
+  final Set<String> _cancelled = <String>{};
+
+  void cancel(String videoId) => _cancelled.add(videoId);
+  bool isCancelled(String videoId) => _cancelled.contains(videoId);
+
   Future<Directory> _dir() async {
     final base = await getApplicationDocumentsDirectory();
     final d = Directory('${base.path}/downloads');
@@ -52,6 +59,7 @@ class DownloadService {
     required String streamUrl,
     void Function(double progress)? onProgress,
   }) async {
+    _cancelled.remove(video.id);
     final path = await pathFor(video.id);
     final file = File(path);
 
@@ -105,14 +113,25 @@ class DownloadService {
     final total = res.contentLength ?? 0;
     final sink = partFile.openWrite();
     var received = 0;
+    var sinceFlush = 0;
     try {
       await for (final chunk in res.stream.timeout(
         const Duration(seconds: 45),
         onTimeout: (sink) =>
             sink.addError(TimeoutException('Download stalled for 45 seconds')),
       )) {
+        if (_cancelled.contains(video.id)) {
+          throw const DownloadCancelledException();
+        }
         sink.add(chunk);
         received += chunk.length;
+        sinceFlush += chunk.length;
+        // Apply back-pressure periodically. Without this a fast connection
+        // feeding slow storage buffers the whole file in memory.
+        if (sinceFlush >= 4 * 1024 * 1024) {
+          sinceFlush = 0;
+          await sink.flush();
+        }
         if (total > 0) {
           onProgress?.call((received / total).clamp(0.0, 1.0));
         } else {
@@ -123,12 +142,17 @@ class DownloadService {
       }
       await sink.close();
     } catch (e) {
-      // Clean up partial file on stream error
-      await sink.close();
+      // `sink.close()` can itself throw when the stream already errored, which
+      // used to skip the .part cleanup below and leak the partial file.
+      try {
+        await sink.close();
+      } catch (_) {}
       try {
         await partFile.delete();
       } catch (_) {}
       rethrow;
+    } finally {
+      _cancelled.remove(video.id);
     }
 
     if (!await _isValidMp4(partFile)) {
@@ -144,11 +168,23 @@ class DownloadService {
     return path;
   }
 
+  /// Removes the finished file **and** any leftover `.part` from an aborted
+  /// attempt, which previously stayed on disk forever.
   Future<void> delete(String videoId) async {
     final p = await pathFor(videoId);
-    final f = File(p);
-    if (await f.exists()) await f.delete();
+    for (final f in [File(p), File('$p.part')]) {
+      try {
+        if (await f.exists()) await f.delete();
+      } catch (_) {}
+    }
   }
 
   void dispose() => _http.close();
+}
+
+/// Thrown when the user cancels an in-progress download.
+class DownloadCancelledException implements Exception {
+  const DownloadCancelledException();
+  @override
+  String toString() => 'Download cancelled';
 }

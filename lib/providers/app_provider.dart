@@ -33,13 +33,27 @@ class AppProvider extends ChangeNotifier {
   VideoDetails? currentVideo;
   int? dislikeCount;
 
-  bool isLoading = false;
+  // Feed and search used to share one `isLoading`/`error` pair. Because
+  // SearchScreen lives permanently inside HomeScreen's IndexedStack, a home
+  // refresh spun the search tab and a failed search painted an error over the
+  // home feed. They are independent now.
+  bool isFeedLoading = false;
+  bool isSearchLoading = false;
   bool isPlayerLoading = false;
   bool isShortsLoading = false;
-  String? error;
+  String? feedError;
+  String? searchError;
   String? playerError;
   String searchQuery = '';
   String selectedCategory = 'All';
+
+  // Pagination tokens
+  String? _searchContinuation;
+  String? _shortsContinuation;
+  bool isLoadingMoreSearch = false;
+  bool isLoadingMoreShorts = false;
+  bool get hasMoreSearch =>
+      _searchContinuation != null && _searchContinuation!.isNotEmpty;
 
   // Monotonic request IDs prevent stale async responses from overwriting
   // newer user intent (fast searches, category changes, and A→B navigation).
@@ -47,10 +61,14 @@ class AppProvider extends ChangeNotifier {
   int _searchRequestId = 0;
   int _videoRequestId = 0;
   int _loadingRequestId = 0;
+  int _shortsRequestId = 0;
+  int _musicRequestId = 0;
 
   // download progress videoId -> 0..1
   final Map<String, double> downloadProgress = {};
   final Set<String> downloadingIds = {};
+  /// videoId -> title, so the Downloads tab can name in-flight items.
+  final Map<String, String> downloadTitles = {};
 
   bool isDarkMode = true;
   bool isMusicMode = false;
@@ -75,7 +93,26 @@ class AppProvider extends ChangeNotifier {
   String? selectedCaptionLanguage;
 
   AppUpdateInfo? pendingUpdate;
+  /// True when the last update check could not reach GitHub, so the UI can say
+  /// "check failed" instead of "you are up to date".
+  bool lastUpdateCheckFailed = false;
   bool libraryLoaded = false;
+
+  /// False when POST_NOTIFICATIONS was denied: the media notification (and
+  /// therefore background playback controls) cannot appear.
+  bool notificationsAllowed = true;
+
+  void setNotificationsAllowed(bool v) {
+    if (notificationsAllowed == v) return;
+    notificationsAllowed = v;
+    notifyListeners();
+  }
+
+  /// Channel ids the user subscribed to (persisted).
+  Set<String> subscriptions = <String>{};
+  bool isSubscribed(String? channelId) =>
+      channelId != null && channelId.isNotEmpty &&
+      subscriptions.contains(channelId);
 
   Future<void> init() async {
     final s = await storage.loadSettings();
@@ -85,7 +122,10 @@ class AppProvider extends ChangeNotifier {
     isSponsorBlockEnabled = s['isSponsorBlockEnabled'] ?? true;
     isBackgroundPlayEnabled = s['isBackgroundPlayEnabled'] ?? true;
     isAutoPipEnabled = s['isAutoPipEnabled'] ?? true;
-    defaultQuality = s['defaultQuality'] ?? '1080p';
+    // Default to adaptive streaming, matching the field declaration. The old
+    // '1080p' fallback hard-locked every fresh install to a height many
+    // videos do not have, producing "1080p is not available" on first play.
+    defaultQuality = s['defaultQuality'] ?? 'Auto (HLS)';
     defaultSpeed = (s['defaultSpeed'] as num?)?.toDouble() ?? 1.0;
     region = s['region'] ?? 'IN';
     isCaptionsEnabled = s['isCaptionsEnabled'] ?? false;
@@ -98,6 +138,7 @@ class AppProvider extends ChangeNotifier {
     sbFiller = s['sbFiller'] ?? false;
     await refreshLibrary();
     searchHistory = await storage.getSearchHistory();
+    subscriptions = await storage.getSubscriptions();
     notifyListeners();
     loadTrending();
     checkUpdate();
@@ -135,12 +176,13 @@ class AppProvider extends ChangeNotifier {
   }
 
   Future<void> checkUpdate({bool force = false}) async {
-    final info = await updates.checkForUpdate(force: force);
-    if (info != null && info.hasUpdate) {
-      pendingUpdate = info;
+    final result = await updates.check(force: force);
+    lastUpdateCheckFailed = result.status == UpdateStatus.failed;
+    if (result.hasUpdate) {
+      pendingUpdate = result.info;
       notifyListeners();
     } else if (force) {
-      pendingUpdate = info;
+      pendingUpdate = null;
       notifyListeners();
     }
   }
@@ -158,26 +200,27 @@ class AppProvider extends ChangeNotifier {
     final category = selectedCategory;
     final requestRegion = region;
     final loadingId = ++_loadingRequestId;
-    isLoading = true;
-    error = null;
+    isFeedLoading = true;
+    feedError = null;
     notifyListeners();
     try {
       final videos = category == 'All'
           ? await _client.getTrending(region: requestRegion)
           : await _client.getCategoryFeed(category, region: requestRegion);
       if (requestId != _feedRequestId) return;
-      if (videos.length > 3) videos.shuffle();
+      // No shuffle: it threw away YouTube's ranking and moved videos around
+      // between refreshes, so a video the user just saw became unfindable.
       trendingVideos = videos;
       if (videos.isEmpty) {
-        error = 'No videos found. Check internet & pull to retry.';
+        feedError = 'No videos found. Check internet & pull to retry.';
       }
     } catch (e) {
       if (requestId != _feedRequestId) return;
-      error = 'Failed to load feed. Pull to retry.\n$e';
+      feedError = 'Failed to load feed. Pull to retry.\n$e';
       debugPrint('loadTrending: $e');
     } finally {
       if (requestId == _feedRequestId && loadingId == _loadingRequestId) {
-        isLoading = false;
+        isFeedLoading = false;
         notifyListeners();
       }
     }
@@ -190,7 +233,7 @@ class AppProvider extends ChangeNotifier {
     }
     selectedCategory = cat;
     trendingVideos = [];
-    error = null;
+    feedError = null;
     notifyListeners();
     await loadTrending();
   }
@@ -198,24 +241,34 @@ class AppProvider extends ChangeNotifier {
   // ---- Shorts ----
 
   Future<void> loadShorts() async {
+    final requestId = ++_shortsRequestId;
     isShortsLoading = true;
+    _shortsContinuation = null;
     notifyListeners();
     try {
-      shortsVideos = await _client.getCategoryFeed('Shorts', region: region);
-      if (shortsVideos.isEmpty) {
-        // Fallback: search for shorts
-        final result = await _client.search(
+      // Go through search directly so we get a continuation token back for
+      // real pagination (getCategoryFeed discards it).
+      final isIn = region.toUpperCase() == 'IN';
+      var result = await _client.search(
+        isIn ? 'shorts india' : 'shorts',
+        params: InnerTubeClient.kFilterShorts,
+      );
+      if (result.videos.isEmpty) {
+        result = await _client.search(
           '#shorts',
           params: InnerTubeClient.kFilterShorts,
         );
-        shortsVideos = result.videos;
       }
-      if (shortsVideos.length > 2) shortsVideos.shuffle();
+      if (requestId != _shortsRequestId) return;
+      shortsVideos = result.videos;
+      _shortsContinuation = result.continuation;
     } catch (e) {
       debugPrint('loadShorts: $e');
     } finally {
-      isShortsLoading = false;
-      notifyListeners();
+      if (requestId == _shortsRequestId) {
+        isShortsLoading = false;
+        notifyListeners();
+      }
     }
   }
 
@@ -224,63 +277,60 @@ class AppProvider extends ChangeNotifier {
   bool isMusicLoading = false;
 
   Future<void> loadMusic() async {
+    final requestId = ++_musicRequestId;
     isMusicLoading = true;
     notifyListeners();
     try {
-      musicVideos = await _client.getCategoryFeed(
+      final videos = await _client.getCategoryFeed(
         'YouTube Music',
         region: region,
       );
-      if (musicVideos.isEmpty) {
+      if (requestId != _musicRequestId) return;
+      if (videos.isEmpty) {
         final result = await _client.search('latest music hits 2025');
+        if (requestId != _musicRequestId) return;
         musicVideos = result.videos;
+      } else {
+        musicVideos = videos;
       }
-      if (musicVideos.length > 2) musicVideos.shuffle();
     } catch (e) {
       debugPrint('loadMusic: $e');
     } finally {
-      isMusicLoading = false;
-      notifyListeners();
+      if (requestId == _musicRequestId) {
+        isMusicLoading = false;
+        notifyListeners();
+      }
     }
   }
 
+  /// Loads the next Shorts page using the continuation token.
+  ///
+  /// This used to re-run the same `'shorts'` query, so the dedupe filter threw
+  /// away every result and the feed silently stopped after page 1.
   Future<void> loadMoreShorts() async {
+    final token = _shortsContinuation;
+    if (isLoadingMoreShorts || token == null || token.isEmpty) return;
+    final requestId = _shortsRequestId;
+    isLoadingMoreShorts = true;
     try {
-      final more = await _client.search(
-        'shorts',
-        params: InnerTubeClient.kFilterShorts,
-      );
+      final more = await _client.search('', continuation: token);
+      if (requestId != _shortsRequestId) return;
       final seen = shortsVideos.map((v) => v.id).toSet();
       for (final v in more.videos) {
-        if (seen.add(v.id)) {
-          shortsVideos.add(v);
-        }
+        if (seen.add(v.id)) shortsVideos.add(v);
       }
+      // A repeated token would loop forever; only advance on a fresh one.
+      _shortsContinuation =
+          more.continuation == token ? null : more.continuation;
       notifyListeners();
     } catch (e) {
       debugPrint('loadMoreShorts: $e');
+    } finally {
+      isLoadingMoreShorts = false;
     }
   }
 
   // ---- Captions ----
-
-  Future<void> loadCaptions(String videoId) async {
-    try {
-      captionTracks = await CaptionService.getTracks(videoId);
-      if (captionTracks.isNotEmpty && isCaptionsEnabled) {
-        // Auto-select preferred language or first available
-        final preferred = selectedCaptionLanguage;
-        final track = captionTracks.firstWhere(
-          (t) => t.languageCode == preferred,
-          orElse: () => captionTracks.first,
-        );
-        await selectCaptionTrack(track);
-      }
-      notifyListeners();
-    } catch (e) {
-      debugPrint('loadCaptions: $e');
-    }
-  }
 
   Future<void> selectCaptionTrack(CaptionTrack track) async {
     try {
@@ -314,7 +364,8 @@ class AppProvider extends ChangeNotifier {
     if (normalized.isEmpty) {
       _loadingRequestId++;
       searchResults = [];
-      isLoading = false;
+      _searchContinuation = null;
+      isSearchLoading = false;
       notifyListeners();
       return;
     }
@@ -323,22 +374,50 @@ class AppProvider extends ChangeNotifier {
     if (requestId != _searchRequestId) return;
     searchHistory = updatedHistory;
     final loadingId = ++_loadingRequestId;
-    isLoading = true;
-    error = null;
+    isSearchLoading = true;
+    searchError = null;
+    _searchContinuation = null;
     notifyListeners();
     try {
       final result = await _client.search(normalized);
       if (requestId != _searchRequestId) return;
       searchResults = result.videos;
-      error = null;
+      _searchContinuation = result.continuation;
+      searchError = null;
     } catch (e) {
       if (requestId != _searchRequestId) return;
-      error = 'Search failed';
+      searchError = 'Search failed';
       searchResults = [];
       debugPrint('search: $e');
     } finally {
       if (requestId == _searchRequestId && loadingId == _loadingRequestId) {
-        isLoading = false;
+        isSearchLoading = false;
+        notifyListeners();
+      }
+    }
+  }
+
+  /// Appends the next page of search results.
+  Future<void> loadMoreSearchResults() async {
+    final token = _searchContinuation;
+    if (isLoadingMoreSearch || token == null || token.isEmpty) return;
+    final requestId = _searchRequestId;
+    isLoadingMoreSearch = true;
+    notifyListeners();
+    try {
+      final more = await _client.search(searchQuery, continuation: token);
+      if (requestId != _searchRequestId) return;
+      final seen = searchResults.map((v) => v.id).toSet();
+      for (final v in more.videos) {
+        if (seen.add(v.id)) searchResults.add(v);
+      }
+      _searchContinuation =
+          more.continuation == token ? null : more.continuation;
+    } catch (e) {
+      debugPrint('loadMoreSearchResults: $e');
+    } finally {
+      if (requestId == _searchRequestId) {
+        isLoadingMoreSearch = false;
         notifyListeners();
       }
     }
@@ -347,9 +426,11 @@ class AppProvider extends ChangeNotifier {
   void clearSearch() {
     _searchRequestId++;
     _loadingRequestId++;
-    isLoading = false;
+    isSearchLoading = false;
+    searchError = null;
     searchQuery = '';
     searchResults = [];
+    _searchContinuation = null;
     notifyListeners();
   }
 
@@ -422,18 +503,13 @@ class AppProvider extends ChangeNotifier {
   }
 
   Future<void> _loadVideoSideData(String videoId, int requestId) async {
-    Future<void> related() async {
-      final value = await _client.getRelatedVideos(videoId);
+    // Related videos and comments come from the same `next` response, so this
+    // is one request instead of two identical ~1 MB downloads.
+    Future<void> watchNext() async {
+      final value = await _client.getWatchNext(videoId);
       if (requestId == _videoRequestId) {
-        relatedVideos = value;
-        notifyListeners();
-      }
-    }
-
-    Future<void> commentData() async {
-      final value = await _client.getComments(videoId);
-      if (requestId == _videoRequestId) {
-        comments = value;
+        relatedVideos = value.related;
+        comments = value.comments;
         notifyListeners();
       }
     }
@@ -456,7 +532,14 @@ class AppProvider extends ChangeNotifier {
     }
 
     Future<void> captions() async {
-      final tracks = await CaptionService.getTracks(videoId);
+      // Prefer the tracklist already present in the player response; only
+      // fall back to scraping the watch page when it is missing.
+      var tracks = currentVideo?.id == videoId
+          ? currentVideo?.captionTracks ?? const <CaptionTrack>[]
+          : const <CaptionTrack>[];
+      if (tracks.isEmpty) {
+        tracks = await CaptionService.getTracks(videoId);
+      }
       if (requestId != _videoRequestId) return;
       captionTracks = tracks;
       captionCues = [];
@@ -474,7 +557,7 @@ class AppProvider extends ChangeNotifier {
     }
 
     await Future.wait(
-      [related(), commentData(), sponsors(), dislikes(), captions()].map((
+      [watchNext(), sponsors(), dislikes(), captions()].map((
         future,
       ) async {
         try {
@@ -499,9 +582,16 @@ class AppProvider extends ChangeNotifier {
         !u.contains('/manifest/hls') &&
         !u.contains('/manifest/dash');
 
-    if (currentVideo?.id == videoId) {
-      final muxed = currentVideo?.bestMuxedUrl;
+    final cached = currentVideo;
+    if (cached != null && cached.id == videoId) {
+      final muxed = cached.bestMuxedUrl;
       if (isProgressive(muxed)) return muxed;
+      if (cached.isLive) throw Exception('Live streams cannot be downloaded');
+      // Already-loaded details had no progressive stream; refetching would be
+      // 4 more InnerTube calls for the same answer.
+      if (cached.formats.isNotEmpty) {
+        throw Exception('No downloadable (progressive) stream for this video');
+      }
     }
     final d = await _client.getVideoDetails(videoId);
     if (d.isLive) {
@@ -514,10 +604,16 @@ class AppProvider extends ChangeNotifier {
     throw Exception('No downloadable (progressive) stream for this video');
   }
 
+  void cancelDownload(String videoId) {
+    downloader.cancel(videoId);
+    notifyListeners();
+  }
+
   Future<void> downloadVideo(Video video) async {
     if (downloadingIds.contains(video.id)) return;
     downloadingIds.add(video.id);
     downloadProgress[video.id] = 0;
+    downloadTitles[video.id] = video.title;
     notifyListeners();
     try {
       final url = await resolveDownloadUrl(video.id);
@@ -548,9 +644,13 @@ class AppProvider extends ChangeNotifier {
       final saved = video.copyWith(localPath: path);
       await storage.addDownload(saved);
       downloads = await storage.getDownloads();
+    } on DownloadCancelledException {
+      // User-initiated: not an error worth surfacing.
+      debugPrint('download cancelled: ${video.id}');
     } finally {
       downloadingIds.remove(video.id);
       downloadProgress.remove(video.id);
+      downloadTitles.remove(video.id);
       notifyListeners();
     }
   }
@@ -570,6 +670,15 @@ class AppProvider extends ChangeNotifier {
   }
 
   Future<bool> isLiked(String id) => storage.isLiked(id);
+
+  /// Persisted subscribe toggle. Returns true when now subscribed.
+  Future<bool> toggleSubscription(String channelId) async {
+    if (channelId.isEmpty) return false;
+    final now = await storage.toggleSubscription(channelId);
+    subscriptions = await storage.getSubscriptions();
+    notifyListeners();
+    return now;
+  }
 
   Future<bool> toggleWatchLater(Video video) async {
     final now = await storage.toggleWatchLater(video);
@@ -684,9 +793,15 @@ class AppProvider extends ChangeNotifier {
   }
 
   void setRegion(String r) {
+    if (region == r) return;
     region = r;
     _persistSettings();
     notifyListeners();
+    // Region drives every feed query; without a reload the user keeps seeing
+    // the previous country's results until they manually pull to refresh.
+    loadTrending();
+    if (musicVideos.isNotEmpty) loadMusic();
+    if (shortsVideos.isNotEmpty) loadShorts();
   }
 
   List<SponsorSegment> get activeSponsorSegments {
