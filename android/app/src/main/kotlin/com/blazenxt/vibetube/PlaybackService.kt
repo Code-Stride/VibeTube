@@ -38,6 +38,13 @@ class PlaybackService : Service() {
     private var artist: String = "Playing"
     private var playing: Boolean = true
 
+    /** Playback position/duration in ms, published so the lock-screen and
+     *  Bluetooth/Android Auto scrubbers actually move. Previously the state
+     *  was always PLAYBACK_POSITION_UNKNOWN, leaving a dead progress bar. */
+    private var positionMs: Long = -1L
+    private var durationMs: Long = -1L
+    private var speed: Float = 1f
+
     /**
      * Whether startForeground() has already run for this service instance.
      * On Android 8+ a service started with startForegroundService() MUST call
@@ -90,6 +97,20 @@ class PlaybackService : Service() {
                     notifyFlutter("mediaStop")
                     stopSelfSafe()
                 }
+
+                override fun onSeekTo(pos: Long) {
+                    positionMs = pos
+                    pushState()
+                    flutterChannel?.invokeMethod("mediaSeekTo", pos)
+                }
+
+                override fun onRewind() {
+                    notifyFlutter("mediaRewind")
+                }
+
+                override fun onFastForward() {
+                    notifyFlutter("mediaForward")
+                }
             })
             isActive = true
         }
@@ -124,6 +145,7 @@ class PlaybackService : Service() {
             }
             ACTION_PLAYING_STATE -> {
                 playing = intent.getBooleanExtra("playing", playing)
+                readProgressExtras(intent)
                 pushState()
                 ensureForeground()
             }
@@ -133,14 +155,16 @@ class PlaybackService : Service() {
                 if (intent?.hasExtra("playing") == true) {
                     playing = intent.getBooleanExtra("playing", true)
                 }
-                mediaSession?.setMetadata(
-                    MediaMetadata.Builder()
-                        .putString(MediaMetadata.METADATA_KEY_TITLE, title)
-                        .putString(MediaMetadata.METADATA_KEY_ARTIST, artist)
-                        .putString(MediaMetadata.METADATA_KEY_DISPLAY_TITLE, title)
-                        .putString(MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE, artist)
-                        .build()
-                )
+                readProgressExtras(intent)
+                val meta = MediaMetadata.Builder()
+                    .putString(MediaMetadata.METADATA_KEY_TITLE, title)
+                    .putString(MediaMetadata.METADATA_KEY_ARTIST, artist)
+                    .putString(MediaMetadata.METADATA_KEY_DISPLAY_TITLE, title)
+                    .putString(MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE, artist)
+                if (durationMs > 0) {
+                    meta.putLong(MediaMetadata.METADATA_KEY_DURATION, durationMs)
+                }
+                mediaSession?.setMetadata(meta.build())
                 pushState()
                 ensureForeground()
             }
@@ -150,17 +174,36 @@ class PlaybackService : Service() {
     }
 
     private fun pushState() {
+        // SEEK_TO / REWIND / FAST_FORWARD were missing, so Bluetooth headset
+        // and Android Auto seek controls silently did nothing.
         val actions = PlaybackState.ACTION_PLAY or
             PlaybackState.ACTION_PAUSE or
             PlaybackState.ACTION_PLAY_PAUSE or
-            PlaybackState.ACTION_STOP
+            PlaybackState.ACTION_STOP or
+            PlaybackState.ACTION_SEEK_TO or
+            PlaybackState.ACTION_REWIND or
+            PlaybackState.ACTION_FAST_FORWARD
         val state = if (playing) PlaybackState.STATE_PLAYING else PlaybackState.STATE_PAUSED
+        val pos = if (positionMs >= 0) positionMs else PlaybackState.PLAYBACK_POSITION_UNKNOWN
         mediaSession?.setPlaybackState(
             PlaybackState.Builder()
                 .setActions(actions)
-                .setState(state, PlaybackState.PLAYBACK_POSITION_UNKNOWN, if (playing) 1f else 0f)
+                .setState(state, pos, if (playing) speed else 0f)
                 .build()
         )
+    }
+
+    private fun readProgressExtras(intent: Intent?) {
+        if (intent == null) return
+        if (intent.hasExtra("positionMs")) {
+            positionMs = intent.getLongExtra("positionMs", -1L)
+        }
+        if (intent.hasExtra("durationMs")) {
+            durationMs = intent.getLongExtra("durationMs", -1L)
+        }
+        if (intent.hasExtra("speed")) {
+            speed = intent.getFloatExtra("speed", 1f)
+        }
     }
 
     private fun refreshNotification() {
@@ -200,7 +243,9 @@ class PlaybackService : Service() {
         builder
             .setContentTitle(title)
             .setContentText(artist)
-            .setSmallIcon(android.R.drawable.ic_media_play)
+            // The repo ships a proper monochrome ic_notification; the generic
+            // platform play glyph looked like a system notification.
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentIntent(contentPi)
             .setOngoing(playing)
             .setOnlyAlertOnce(true)

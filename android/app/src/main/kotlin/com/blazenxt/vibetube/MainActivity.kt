@@ -28,6 +28,15 @@ class MainActivity : FlutterActivity() {
         private const val CONTROL_PAUSE = 2
         private const val CONTROL_REWIND = 3
         private const val CONTROL_FORWARD = 4
+
+        /** Hosts we accept YouTube watch links from. */
+        private val YOUTUBE_HOSTS = setOf(
+            "youtube.com",
+            "www.youtube.com",
+            "m.youtube.com",
+            "music.youtube.com",
+            "gaming.youtube.com"
+        )
     }
 
     /** Video aspect ratio reported by Flutter, so PiP isn't always 16:9. */
@@ -324,7 +333,9 @@ class MainActivity : FlutterActivity() {
         }
 
         // youtube.com/watch?v=ID, /shorts/ID, /embed/ID, /live/ID
-        if (host.endsWith("youtube.com")) {
+        // Exact host set: endsWith("youtube.com") also matched hosts like
+        // "evilyoutube.com".
+        if (host in YOUTUBE_HOSTS) {
             validId(uri.getQueryParameter("v"))?.let { return it }
             if (path.size >= 2 && path[0] in setOf("shorts", "embed", "live", "v")) {
                 return validId(path[1])

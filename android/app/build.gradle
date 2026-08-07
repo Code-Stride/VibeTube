@@ -47,8 +47,12 @@ android {
             } else if (releaseRequested) {
                 throw new GradleException("Release keystore is missing; refusing to produce a debug-signed release APK")
             }
-            minifyEnabled false
-            shrinkResources false
+            // Was disabled: the release APK shipped ~30-40% larger with no
+            // obfuscation at all. proguard-rules.pro keeps the Flutter
+            // embedding and our MethodChannel/Service entry points.
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
         debug {
             applicationIdSuffix ""
