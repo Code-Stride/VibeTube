@@ -8,9 +8,121 @@ and this project roughly follows [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Planned
-- Further video quality selection polish
 - Voice search
 - Playlist support
+- Home-feed pagination (needs a continuation-aware browse endpoint)
+
+## [1.12.0] - 2026-07-17
+
+Deep bug audit. Every item below is a real defect found by reading the code,
+not a refactor.
+
+### Fixed - crashes and data loss
+
+- **One malformed item no longer blanks an entire feed.** `_extractVideo` had
+  no try/catch (unlike its siblings), so a single unexpected renderer shape
+  threw out of `_parseVideosDeep` and the whole list came back empty.
+- **One avatar-less comment no longer wipes the comment thread.** `.last` on an
+  empty thumbnails list throws `StateError` rather than returning null.
+- **A string `likeCount` no longer kills the player response.** YouTube sends
+  this as a String often enough that the `as num?` cast failed, and when it
+  failed on all four clients the user saw "No playable stream found".
+- **Corrupt stored preferences no longer make the library unreadable**
+  (`Video.fromJson` now coerces instead of casting).
+
+### Fixed - playback
+
+- **"Auto" is actually adaptive again.** Both `preferredPlayUrl` and the player
+  offered the highest single rendition before the master playlist, pinning
+  playback to 2160p and rebuffering forever on a slow connection.
+- **Silent video on quality lock.** Video-only HLS renditions were being used
+  as standalone streams; their audio lives in a separate `EXT-X-MEDIA` group
+  that only the master playlist references. Such variants are now skipped.
+- **Expired stream URLs are recovered.** googlevideo URLs expire after ~6h.
+  Nothing anywhere checked `controller.value.hasError`, so resuming a
+  long-paused video left a frozen frame and an endless spinner. The player now
+  re-resolves the stream and resumes at the same position (max 2 attempts).
+- **Fresh installs are no longer hard-locked to 1080p.** The default was
+  declared as `Auto (HLS)` but `init()` fell back to `'1080p'`, and the locked
+  path deliberately refuses the adaptive master - so any video without a 1080p
+  rendition failed with "1080p is not available".
+- **Quality/speed chosen for one video no longer becomes the global default.**
+- **Exact matches now beat nearest matches** when resolving a quality, so
+  asking for 360p on a `{hls: 1080, mp4: 360}` video no longer returns 1080p.
+
+### Fixed - Shorts
+
+- **Infinite spinner:** a bail-out path returned without setting an error, so
+  the Short showed a loading indicator forever with no retry.
+- **Decoder leak:** retrying replaced `_controller` without disposing the old
+  one. Android has very few hardware decoders, so a few retries turned every
+  Short black. The `AnimationController` was also never disposed.
+- **Double audio:** Shorts ignored the audio session entirely. Opening the tab
+  while the mini player was running played both at once; unplugging headphones
+  kept playing on the loudspeaker; incoming calls talked over the video.
+- **Double-tap no longer un-likes.** It toggled, so double-tapping an already
+  liked Short quietly removed it while showing a red heart. Like state is also
+  read back from storage instead of always rendering as unliked.
+- **Subscribe** is a real, persisted button instead of a static rectangle.
+
+### Fixed - navigation and state
+
+- **Every tab switch used to destroy the whole page stack.** The `IndexedStack`
+  key included `_index`, so `AnimatedSwitcher` treated each tab as a new widget
+  and rebuilt everything - re-fetching feeds, recreating players, and briefly
+  running two copies of the Shorts screen.
+- **Feed and search no longer share loading/error state.** A home refresh spun
+  the search tab, and a failed search painted its error over the home feed.
+- **Pagination works.** `SearchResult.continuation` existed but was never
+  populated, so "load more" re-requested page 1 and the dedupe filter dropped
+  everything. Search now has infinite scroll; Shorts pages properly.
+- **Search screen** no longer nests a `Scaffold` inside HomeScreen's, no longer
+  rebuilds the entire results list on each keystroke, and keeps its text field
+  in sync with provider state.
+
+### Fixed - storage, downloads, updates
+
+- `clearHistory` and `clearSearchHistory` now take the same per-key lock as the
+  writers; an in-flight add could otherwise resurrect a just-deleted entry.
+- Downloads: back-pressure (periodic flush) instead of unbounded memory growth,
+  cancellation support, `.part` cleanup on every failure path, and
+  `delete()` now removes leftover `.part` files.
+- Update checks distinguish "up to date" from "check failed" - Settings used to
+  claim you were on the latest version while completely offline. Build numbers
+  are now compared when the three version components tie.
+
+### Fixed - Android
+
+- `assetlinks.json` added, plus `docs/APP_LINKS.md` explaining why App Links
+  verification could never have worked from a GitHub Pages *project* site.
+- `enableOnBackInvokedCallback` for predictive back on Android 13+.
+- Release builds are minified and resource-shrunk with a proper
+  `proguard-rules.pro` (was fully disabled).
+- Localhost cleartext moved into `debug-overrides` so it no longer widens the
+  release network policy.
+- MediaSession publishes real position/duration and supports `SEEK_TO`,
+  `REWIND` and `FAST_FORWARD`, so the lock-screen scrubber and Bluetooth seek
+  controls work. The notification uses the app's own icon.
+
+### Fixed - performance
+
+- Related videos and comments come from one `next` request instead of two
+  identical ~1 MB downloads per video.
+- Caption tracks are read from the player response we already have, instead of
+  scraping the 1-3 MB watch page again (which also broke on consent pages).
+- Caption lookup is a binary search; it ran a linear scan over 1500+ cues four
+  times a second.
+- `resolveDownloadUrl` no longer refetches full details it already holds.
+
+### Changed
+
+- The trending feed is no longer shuffled on every load.
+- Changing region reloads the feeds it controls.
+- Look-alike hosts such as `evilyoutube.com` are rejected (exact host set) in
+  both the Dart and Kotlin link parsers.
+- Honest UI: the video-card "Share" action actually shares, the ten dead
+  YouTube Music category chips now filter, and "Not interested" no longer
+  claims to have done something it did not.
 
 ## [1.7.1] - 2026-07-31
 

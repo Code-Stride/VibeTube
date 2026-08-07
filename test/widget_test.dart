@@ -174,7 +174,17 @@ void main() {
       const details = VideoDetails(
         id: 'test123456',
         title: 'Test',
+        hlsUrl: 'https://example.com/master.m3u8',
         hlsVariants: {360: 'a', 720: 'b', 1080: 'c'},
+        formats: [
+          VideoFormat(
+            url: 'https://example.com/audio.m4a',
+            quality: 'tiny',
+            mimeType: 'audio/mp4; codecs="mp4a.40.2"',
+            isAudioOnly: true,
+            hasAudio: true,
+          ),
+        ],
       );
       final qs = details.availableQualities;
       expect(qs.first, 'Auto (HLS)');
@@ -182,6 +192,80 @@ void main() {
       expect(qs.contains('1080p'), true);
       expect(qs.contains('720p'), true);
       expect(qs.contains('360p'), true);
+      // Descending ladder order.
+      expect(
+        qs.indexOf('1080p') < qs.indexOf('720p'),
+        true,
+      );
+    });
+
+    test('no master playlist means no phantom "Auto (HLS)" entry', () {
+      // Offering adaptive streaming when there is no master playlist behind
+      // it just silently falls back to a progressive stream.
+      const details = VideoDetails(
+        id: 'test123456',
+        title: 'Test',
+        progressiveByHeight: {360: 'https://example.com/360.mp4'},
+      );
+      final qs = details.availableQualities;
+      expect(qs.contains('Auto (HLS)'), false);
+      expect(qs.first, 'Auto');
+    });
+
+    test('"Audio Only" is hidden when there is no audio-only format', () {
+      const details = VideoDetails(
+        id: 'test123456',
+        title: 'Test',
+        hlsUrl: 'https://example.com/master.m3u8',
+        hlsVariants: {720: 'b'},
+      );
+      expect(details.availableQualities.contains('Audio Only'), false);
+    });
+
+    test('preferredPlayUrl returns the adaptive master, not the top variant',
+        () {
+      // Returning the highest single rendition pinned playback to that
+      // height and rebuffered forever on a slow connection.
+      const details = VideoDetails(
+        id: 'test123456',
+        title: 'Test',
+        hlsUrl: 'https://example.com/master.m3u8',
+        hlsVariants: {
+          720: 'https://example.com/720.m3u8',
+          2160: 'https://example.com/2160.m3u8',
+        },
+      );
+      expect(details.preferredPlayUrl, 'https://example.com/master.m3u8');
+      expect(details.highestVariantUrl, 'https://example.com/2160.m3u8');
+    });
+
+    test('an exact progressive match beats a nearest-HLS match', () {
+      // Asking for 360p on {hls: 1080, mp4: 360} used to return the 1080p
+      // HLS stream because "nearest HLS" was checked before "exact mp4".
+      const details = VideoDetails(
+        id: 'test123456',
+        title: 'Test',
+        hlsVariants: {1080: 'https://example.com/1080.m3u8'},
+        progressiveByHeight: {360: 'https://example.com/360.mp4'},
+      );
+      expect(details.urlForQuality('360p'), 'https://example.com/360.mp4');
+    });
+
+    test('Video.fromJson tolerates corrupt stored preferences', () {
+      // Hand-edited or older-build prefs used to throw a TypeError on the
+      // unchecked `j['viewCount'] ?? 0`, making the whole library unreadable.
+      final v = Video.fromJson({
+        'id': 'abc12345678',
+        'title': 'T',
+        'viewCount': '4321',
+        'duration': '95',
+      });
+      expect(v.viewCount, 4321);
+      expect(v.duration, const Duration(seconds: 95));
+
+      final bad = Video.fromJson({'id': 'abc12345678', 'viewCount': {}});
+      expect(bad.viewCount, 0);
+      expect(bad.title, '');
     });
   });
 
