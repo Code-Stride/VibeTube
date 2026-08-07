@@ -306,7 +306,9 @@ class InnerTubeClient {
     var hlsVariants = <int, String>{};
     if (hls != null && hls.isNotEmpty) {
       final variants = await HlsParser.parseMaster(hls, headers: const {'User-Agent': 'com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)', 'Accept': '*/*'});
-      for (final v in variants) { hlsVariants[v.height] = v.url; }
+      for (final v in variants.where((v) => v.hasAudio)) {
+        hlsVariants[v.height] = v.url;
+      }
     }
     // Normalize heights
     final normalized = <int, String>{};
@@ -540,7 +542,7 @@ class InnerTubeClient {
     final micro = response['microformat']?['playerMicroformatRenderer'] as Map<String, dynamic>?;
     final formats = <dynamic>[...(sd['formats'] as List<dynamic>? ?? const []), ...(sd['adaptiveFormats'] as List<dynamic>? ?? const [])];
     final thumbs = vd['thumbnail']?['thumbnails'] as List<dynamic>? ?? [];
-    var thumb = thumbs.isNotEmpty ? (thumbs.last['url']?.toString() ?? '') : '';
+    var thumb = _lastThumbUrl(thumbs);
     if (thumb.startsWith('//')) thumb = 'https:$thumb';
     if (thumb.isEmpty) thumb = 'https://i.ytimg.com/vi/$videoId/hqdefault.jpg';
     final lengthSec = int.tryParse(vd['lengthSeconds']?.toString() ?? '0') ?? 0;
@@ -724,21 +726,44 @@ class InnerTubeClient {
     final comments = <Comment>[];
     void walk(dynamic node) {
       if (node is Map) {
+        // Guarded for the same reason as _extractVideo: one bad comment used
+        // to remove every comment on the video.
         Map? cr = node['commentRenderer'] as Map?;
         cr ??= node['commentThreadRenderer']?['comment']?['commentRenderer'] as Map?;
-        if (cr != null) { comments.add(Comment(id: cr['commentId']?.toString() ?? '', author: _text(cr['authorText']), authorAvatar: (cr['authorThumbnail']?['thumbnails'] as List?)?.last?['url']?.toString() ?? '', text: _text(cr['contentText']), likeCount: _parseCount(_text(cr['voteCount'])), publishedAt: _text(cr['publishedTimeText']))); }
+        if (cr != null) { comments.add(Comment(id: cr['commentId']?.toString() ?? '', author: _text(cr['authorText']), authorAvatar: _lastThumbUrl(cr['authorThumbnail']?['thumbnails']), text: _text(cr['contentText']), likeCount: _parseCount(_text(cr['voteCount'])), publishedAt: _text(cr['publishedTimeText']))); }
         for (final v in node.values) { walk(v); }
       } else if (node is List) { for (final i in node) { walk(i); } }
     }
-    walk(response);
+    try {
+      walk(response);
+    } catch (e) {
+      debugPrint('comment parse aborted: $e');
+    }
     return comments;
   }
 
+  /// Extracts one video renderer.
+  ///
+  /// Wrapped in a guard: this runs inside the `walk()` recursion of
+  /// [_parseVideosDeep], so an exception here escaped all the way out to the
+  /// caller's catch and turned the whole response into an empty list. A
+  /// single malformed item blanked an entire feed or search page. Its two
+  /// siblings (_extractShort / _extractLockup) were already guarded.
   Video? _extractVideo(Map<String, dynamic> r) {
+    try {
+      return _extractVideoUnsafe(r);
+    } catch (e) {
+      debugPrint('skipping malformed videoRenderer: $e');
+      return null;
+    }
+  }
+
+  Video? _extractVideoUnsafe(Map<String, dynamic> r) {
     final id = r['videoId']?.toString();
     if (id == null || id.isEmpty) return null;
-    final thumbs = r['thumbnail']?['thumbnails'] as List<dynamic>? ?? [];
-    var thumb = thumbs.isNotEmpty ? thumbs.last['url']?.toString() ?? '' : '';
+    // `thumbs.last['url']` assumed a List of Maps. When YouTube sent anything
+    // else the [] operator threw.
+    var thumb = _lastThumbUrl(r['thumbnail']?['thumbnails']);
     if (thumb.startsWith('//')) thumb = 'https:$thumb';
     if (thumb.isEmpty) thumb = 'https://i.ytimg.com/vi/$id/hqdefault.jpg';
     String channelName = _text(r['ownerText']);
@@ -775,6 +800,15 @@ class InnerTubeClient {
       for (final v in node.values) { final found = _findVideoIdDeep(v, depth: depth + 1); if (found != null) return found; }
     } else if (node is List) { for (final item in node) { final found = _findVideoIdDeep(item, depth: depth + 1); if (found != null) return found; } }
     return null;
+  }
+
+  /// Last thumbnail URL, tolerating a non-list, an empty list, or entries
+  /// that are not maps.
+  static String _lastThumbUrl(dynamic thumbs) {
+    if (thumbs is! List || thumbs.isEmpty) return '';
+    final last = thumbs.last;
+    if (last is! Map) return '';
+    return last['url']?.toString() ?? '';
   }
 
   String _text(dynamic o) {
@@ -902,5 +936,41 @@ class InnerTubeClient {
 
   Duration _parseDurationText(String text) => parseDurationText(text);
 
+  @visibleForTesting
+  List<Video> parseVideosDeepForTest(Map<String, dynamic> r) =>
+      _parseVideosDeep(r);
+
+  @visibleForTesting
+  List<Comment> parseCommentsDeepForTest(Map<String, dynamic> r) =>
+      _parseCommentsDeep(r);
+
   void dispose() => _http.close();
+}
+
+/// Test-only access to the deep parsers.
+///
+/// They are instance methods on a class whose constructor opens an
+/// http.Client, so tests reach them through this seam rather than performing
+/// any network setup.
+@visibleForTesting
+class InnerTubeTestHooks {
+  const InnerTubeTestHooks._();
+
+  static List<Video> parseVideosDeep(Map<String, dynamic> response) {
+    final client = InnerTubeClient();
+    try {
+      return client.parseVideosDeepForTest(response);
+    } finally {
+      client.dispose();
+    }
+  }
+
+  static List<Comment> parseCommentsDeep(Map<String, dynamic> response) {
+    final client = InnerTubeClient();
+    try {
+      return client.parseCommentsDeepForTest(response);
+    } finally {
+      client.dispose();
+    }
+  }
 }

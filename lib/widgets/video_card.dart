@@ -1,7 +1,9 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:provider/provider.dart';
 import '../models/video.dart';
+import '../utils/share_links.dart';
 import '../providers/app_provider.dart';
 import '../utils/text_utils.dart';
 import '../utils/theme.dart';
@@ -303,7 +305,15 @@ class VideoCard extends StatelessWidget {
               ListTile(
                 leading: Icon(Icons.share_outlined, color: c.textPrimary),
                 title: Text('Share', style: TextStyle(color: c.textPrimary)),
-                onTap: () => Navigator.pop(ctx),
+                onTap: () {
+                  // Previously this only dismissed the sheet: the menu item
+                  // existed but sharing never happened.
+                  Navigator.pop(ctx);
+                  Share.share(
+                    ShareLinks.shareText(video.id, video.title),
+                    subject: video.title,
+                  );
+                },
               ),
               const SizedBox(height: 8),
             ],

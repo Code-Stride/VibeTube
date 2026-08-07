@@ -105,6 +105,7 @@ class DownloadService {
     final total = res.contentLength ?? 0;
     final sink = partFile.openWrite();
     var received = 0;
+    var lastFlush = 0;
     try {
       await for (final chunk in res.stream.timeout(
         const Duration(seconds: 45),
@@ -113,6 +114,12 @@ class DownloadService {
       )) {
         sink.add(chunk);
         received += chunk.length;
+        // Bounded back-pressure: without an occasional flush, a fast network
+        // feeding slow storage buffers the difference in memory.
+        if (received - lastFlush >= 8 * 1024 * 1024) {
+          lastFlush = received;
+          await sink.flush();
+        }
         if (total > 0) {
           onProgress?.call((received / total).clamp(0.0, 1.0));
         } else {
@@ -159,8 +166,14 @@ class DownloadService {
 
   Future<void> delete(String videoId) async {
     final p = await pathFor(videoId);
-    final f = File(p);
-    if (await f.exists()) await f.delete();
+    // Also remove a leftover .part from an interrupted download. Deleting
+    // only the .mp4 left the partial file behind forever, silently consuming
+    // storage the user could never reclaim from inside the app.
+    for (final f in [File(p), File('$p.part')]) {
+      try {
+        if (await f.exists()) await f.delete();
+      } catch (_) {}
+    }
   }
 
   void dispose() => _http.close();

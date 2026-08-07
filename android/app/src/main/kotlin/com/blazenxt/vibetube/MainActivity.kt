@@ -21,6 +21,15 @@ class MainActivity : FlutterActivity() {
         const val LINK_HOST = "code-stride.github.io"
         const val APP_SCHEME = "vibetube"
 
+        /** Hosts accepted for incoming YouTube links. Exact matches only. */
+        private val YOUTUBE_HOSTS = setOf(
+            "youtube.com",
+            "www.youtube.com",
+            "m.youtube.com",
+            "music.youtube.com",
+            "gaming.youtube.com",
+        )
+
         /** Broadcast the PiP action buttons send back to us. */
         private const val ACTION_PIP_CONTROL = "com.blazenxt.vibetube.PIP_CONTROL"
         private const val EXTRA_CONTROL = "control"
@@ -84,6 +93,17 @@ class MainActivity : FlutterActivity() {
                 "setAutoPip" -> {
                     autoPip = call.argument<Boolean>("enabled") ?: true
                     updatePipParams()
+                    result.success(null)
+                }
+                "setProgress" -> {
+                    // Feeds the MediaSession scrubber.
+                    val intent = Intent(this, PlaybackService::class.java).apply {
+                        action = PlaybackService.ACTION_PROGRESS
+                        putExtra("positionMs", (call.argument<Number>("positionMs") ?: 0).toLong())
+                        putExtra("durationMs", (call.argument<Number>("durationMs") ?: 0).toLong())
+                        putExtra("speed", (call.argument<Number>("speed") ?: 1).toFloat())
+                    }
+                    sendToPlaybackService(intent)
                     result.success(null)
                 }
                 "setPlaying" -> {
@@ -355,7 +375,10 @@ class MainActivity : FlutterActivity() {
         }
 
         // youtube.com/watch?v=ID, /shorts/ID, /embed/ID, /live/ID
-        if (host.endsWith("youtube.com")) {
+        // Exact allowlist, not endsWith: "evilyoutube.com".endsWith(
+        // "youtube.com") is true, so a hostile host would be treated as a
+        // trusted YouTube link.
+        if (host in YOUTUBE_HOSTS) {
             validId(uri.getQueryParameter("v"))?.let { return it }
             if (path.size >= 2 && path[0] in setOf("shorts", "embed", "live", "v")) {
                 return validId(path[1])

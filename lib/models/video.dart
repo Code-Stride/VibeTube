@@ -222,11 +222,17 @@ class VideoDetails extends Video {
 
   /// Auto: best quality HLS variant → master HLS → best progressive.
   String? get preferredPlayUrl {
+    // The adaptive master comes first. Returning the single highest variant
+    // meant "Auto" was not adaptive at all: playback was pinned to the top
+    // rendition (often 2160p) and rebuffered continuously on a slow
+    // connection, with no ability to step down. The master also carries the
+    // separate #EXT-X-MEDIA audio group, which a bare video-only variant
+    // lacks.
+    if (hlsUrl != null && hlsUrl!.isNotEmpty) return hlsUrl;
     if (hlsVariants.isNotEmpty) {
       final h = hlsVariants.keys.toList()..sort((a, b) => b.compareTo(a));
       return hlsVariants[h.first];
     }
-    if (hlsUrl != null && hlsUrl!.isNotEmpty) return hlsUrl;
     return bestMuxedUrl;
   }
 

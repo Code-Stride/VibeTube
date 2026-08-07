@@ -97,6 +97,10 @@ class AppProvider extends ChangeNotifier {
   String? selectedCaptionLanguage;
 
   AppUpdateInfo? pendingUpdate;
+
+  /// True when the last update check could not reach GitHub, so the UI can
+  /// say "check failed" instead of claiming the app is up to date.
+  bool lastUpdateCheckFailed = false;
   bool libraryLoaded = false;
 
   Future<void> init() async {
@@ -158,7 +162,9 @@ class AppProvider extends ChangeNotifier {
   }
 
   Future<void> checkUpdate({bool force = false}) async {
-    final info = await updates.checkForUpdate(force: force);
+    final result = await updates.check(force: force);
+    lastUpdateCheckFailed = result.status == UpdateStatus.failed;
+    final info = result.info;
     if (info != null && info.hasUpdate) {
       pendingUpdate = info;
       notifyListeners();
