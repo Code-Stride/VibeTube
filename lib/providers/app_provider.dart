@@ -111,6 +111,7 @@ class AppProvider extends ChangeNotifier {
     defaultQuality = s['defaultQuality'] ?? 'Auto (HLS)';
     defaultSpeed = (s['defaultSpeed'] as num?)?.toDouble() ?? 1.0;
     region = s['region'] ?? 'IN';
+    _client.region = region;
     isCaptionsEnabled = s['isCaptionsEnabled'] ?? false;
     selectedCaptionLanguage = s['selectedCaptionLanguage'];
     sbSponsor = s['sbSponsor'] ?? true;
@@ -860,6 +861,8 @@ class AppProvider extends ChangeNotifier {
   void setRegion(String r) {
     if (region == r) return;
     region = r;
+    // /next and the WEB player fallback read this off the client.
+    _client.region = r;
     _persistSettings();
     notifyListeners();
     // Cached feeds belong to the old region; refetch so the change is visible
