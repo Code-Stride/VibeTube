@@ -134,7 +134,7 @@ class MiniPlayerController extends ChangeNotifier {
       _lastPlayTime = DateTime.now();
       await AudioHelper.requestFocus();
       await c.play();
-      Future.delayed(const Duration(seconds: 1), () { _requestingFocus = false; });
+      _releaseFocusGuardSoon();
     }
     _syncBackground();
     notifyListeners();
@@ -145,7 +145,7 @@ class MiniPlayerController extends ChangeNotifier {
     _lastPlayTime = DateTime.now();
     await AudioHelper.requestFocus();
     await controller?.play();
-    Future.delayed(const Duration(seconds: 1), () { _requestingFocus = false; });
+    _releaseFocusGuardSoon();
     _syncBackground();
     notifyListeners();
   }
@@ -166,7 +166,19 @@ class MiniPlayerController extends ChangeNotifier {
   /// Paused by the OS rather than the user, so auto-resume is appropriate.
   bool _pausedByInterruption = false;
   bool _requestingFocus = false;
+  int _focusGuardToken = 0;
   DateTime _lastPlayTime = DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// Clears [_requestingFocus] one second after the *newest* play request.
+  /// Independent `Future.delayed` calls used to race: an earlier timer opened
+  /// the guard mid-flight and the resulting focus event paused playback the
+  /// user had just resumed.
+  void _releaseFocusGuardSoon() {
+    final token = ++_focusGuardToken;
+    Future.delayed(const Duration(seconds: 1), () {
+      if (token == _focusGuardToken) _requestingFocus = false;
+    });
+  }
 
   void _onBecomingNoisy() {
     if (_requestingFocus) return;
@@ -258,17 +270,11 @@ class MiniPlayerController extends ChangeNotifier {
   }
 
   /// Take controller back into full player (clears mini ownership without dispose).
-  VideoPlayerController? takeForExpansion() {
-    final c = controller;
-    if (c != null) {
-      c.removeListener(_tick);
-    }
-    // Keep references; full player will re-adopt listeners
-    _expanded = true;
-    _minimized = false;
-    notifyListeners();
-    return c;
-  }
+  // takeForExpansion() removed: it had no callers and handed out a controller
+  // reference while keeping its own, so the mini bar could paint a disposed
+  // controller for a frame after a quality switch. PlayerScreen uses
+  // bindExisting() on the way in and detachController() when it replaces the
+  // controller.
 
   /// Give up ownership of the current controller *without* disposing it.
   /// Used when the full player replaces the borrowed controller (e.g. the user

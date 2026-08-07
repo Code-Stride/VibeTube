@@ -5,9 +5,12 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:video_player/video_player.dart';
 import 'package:share_plus/share_plus.dart';
 import '../providers/app_provider.dart';
+import '../providers/mini_player_controller.dart';
+import '../services/audio_helper.dart';
 import '../utils/theme.dart';
 import '../utils/share_links.dart';
 import '../models/video.dart';
+import '../utils/text_utils.dart';
 import 'player_screen.dart';
 
 /// YouTube-exact Shorts feed with inline video playback.
@@ -131,6 +134,15 @@ class _ShortPlayerState extends State<_ShortPlayer>
     _heartScale = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(parent: _heartAnimController, curve: Curves.elasticOut),
     );
+    AudioHelper.addListeners(
+      onBecomingNoisy: _onBecomingNoisy,
+      onShouldPause: _onShouldPause,
+    );
+    // Reflect the real stored state instead of always starting "not liked",
+    // which made the first tap on an already-liked Short *unlike* it while
+    // showing a filled heart.
+    final provider = context.read<AppProvider>();
+    _liked = provider.liked.any((v) => v.id == widget.video.id);
     _initPlayer();
   }
 
@@ -138,7 +150,7 @@ class _ShortPlayerState extends State<_ShortPlayer>
   void didUpdateWidget(_ShortPlayer oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.isActive && !oldWidget.isActive) {
-      _controller?.play();
+      _startPlayback();
     } else if (!widget.isActive && oldWidget.isActive) {
       _controller?.pause();
     }
@@ -149,30 +161,18 @@ class _ShortPlayerState extends State<_ShortPlayer>
     if (mounted) setState(() => _playerError = null);
     try {
       final provider = context.read<AppProvider>();
-      final details = await provider.client.getVideoDetails(widget.video.id);
+      // Single-client lookup instead of the full getVideoDetails fan-out
+      // (4 player calls + HLS master download) that ran for every card.
+      final playUrl = await provider.client.getQuickStreamUrl(widget.video.id);
       if (!mounted || requestId != _playerRequestId) return;
 
-      String? playUrl;
-      if (details.hlsVariants.isNotEmpty) {
-        final heights = details.hlsVariants.keys.toList()
-          ..sort((a, b) => b.compareTo(a));
-        final preferred = heights.firstWhere(
-          (h) => h <= 720,
-          orElse: () => heights.last,
-        );
-        playUrl = details.hlsVariants[preferred];
-      } else if (details.hlsUrl != null && details.hlsUrl!.isNotEmpty) {
-        playUrl = details.hlsUrl;
-      } else if (details.preferredPlayUrl != null) {
-        playUrl = details.preferredPlayUrl;
-      } else if (details.bestMuxedUrl != null) {
-        playUrl = details.bestMuxedUrl;
+      if (playUrl == null || playUrl.isEmpty) {
+        setState(() => _playerError = 'Unable to play this Short');
+        return;
       }
 
-      if (playUrl == null || playUrl.isEmpty || !mounted) return;
-
       final isHls = playUrl.contains('m3u8');
-      _controller = VideoPlayerController.networkUrl(
+      final controller = VideoPlayerController.networkUrl(
         Uri.parse(playUrl),
         httpHeaders: isHls
             ? {
@@ -186,13 +186,14 @@ class _ShortPlayerState extends State<_ShortPlayer>
                 'Referer': 'https://www.youtube.com/',
               },
       );
-      await _controller!.initialize().timeout(const Duration(seconds: 25));
+      await controller.initialize().timeout(const Duration(seconds: 25));
       if (!mounted || requestId != _playerRequestId) {
-        await _controller?.dispose();
+        await controller.dispose();
         return;
       }
-      await _controller!.setLooping(true);
-      if (widget.isActive) await _controller!.play();
+      _controller = controller;
+      await controller.setLooping(true);
+      if (widget.isActive) await _startPlayback();
       setState(() => _ready = true);
     } catch (e) {
       debugPrint('Short player init failed: $e');
@@ -202,22 +203,44 @@ class _ShortPlayerState extends State<_ShortPlayer>
     }
   }
 
+  /// Takes audio focus before playing.
+  ///
+  /// Shorts used to call `play()` directly, so a mini-player session kept
+  /// running underneath and both played at once.
+  Future<void> _startPlayback() async {
+    final c = _controller;
+    if (c == null || !c.value.isInitialized) return;
+    if (mounted) {
+      final mini = context.read<MiniPlayerController>();
+      if (mini.isPlaying) await mini.pause();
+    }
+    await AudioHelper.requestFocus();
+    await c.play();
+  }
+
   void _togglePlayPause() {
     final c = _controller;
     if (c == null || !c.value.isInitialized) return;
-    setState(() {
-      _showPlayPause = true;
-      c.value.isPlaying ? c.pause() : c.play();
-    });
+    final wasPlaying = c.value.isPlaying;
+    setState(() => _showPlayPause = true);
+    if (wasPlaying) {
+      c.pause();
+    } else {
+      _startPlayback();
+    }
     _hideTimer?.cancel();
     _hideTimer = Timer(const Duration(milliseconds: 800), () {
       if (mounted) setState(() => _showPlayPause = false);
     });
   }
 
-  void _doubleTapLike(TapDownDetails details) {
+  /// Double tap always *likes* (never unlikes), matching YouTube.
+  ///
+  /// Previously it set `_liked = true` and then called the toggle, so
+  /// double-tapping an already-liked Short removed the like while the UI
+  /// showed a heart.
+  Future<void> _doubleTapLike(TapDownDetails details) async {
     setState(() {
-      _liked = true;
       _showHeart = true;
       _heartPosition = details.localPosition;
     });
@@ -225,15 +248,40 @@ class _ShortPlayerState extends State<_ShortPlayer>
     Future.delayed(const Duration(milliseconds: 800), () {
       if (mounted) setState(() => _showHeart = false);
     });
-    context.read<AppProvider>().toggleLike(widget.video);
+    if (_liked) return;
+    final now = await context.read<AppProvider>().toggleLike(widget.video);
+    if (!mounted) return;
+    setState(() => _liked = now);
   }
 
   @override
   void dispose() {
     _playerRequestId++;
     _hideTimer?.cancel();
+    // Was leaked: every Short scrolled past kept a live Ticker, which also
+    // trips a "was not disposed" assertion in debug builds.
+    _heartAnimController.dispose();
+    AudioHelper.removeListeners(
+      onBecomingNoisy: _onBecomingNoisy,
+      onShouldPause: _onShouldPause,
+    );
     _controller?.dispose();
     super.dispose();
+  }
+
+  /// Headphones unplugged — pause rather than blasting the loudspeaker.
+  void _onBecomingNoisy() {
+    final c = _controller;
+    if (c == null || !c.value.isInitialized || !c.value.isPlaying) return;
+    c.pause();
+    if (mounted) setState(() {});
+  }
+
+  void _onShouldPause(bool permanent) {
+    final c = _controller;
+    if (c == null || !c.value.isInitialized || !c.value.isPlaying) return;
+    c.pause();
+    if (mounted) setState(() {});
   }
 
   @override
@@ -376,9 +424,7 @@ class _ShortPlayerState extends State<_ShortPlayer>
                       radius: 16,
                       backgroundColor: Colors.grey,
                       child: Text(
-                        widget.video.channelName.isNotEmpty
-                            ? widget.video.channelName[0].toUpperCase()
-                            : 'V',
+                        initialLetter(widget.video.channelName, fallback: 'V'),
                         style: const TextStyle(
                           color: Colors.white,
                           fontWeight: FontWeight.bold,
@@ -455,9 +501,15 @@ class _ShortPlayerState extends State<_ShortPlayer>
                 _actionBtn(
                   _liked ? Icons.favorite : Icons.favorite_border,
                   'Like',
-                  onTap: () {
-                    context.read<AppProvider>().toggleLike(widget.video);
-                    setState(() => _liked = !_liked);
+                  onTap: () async {
+                    // Trust storage's answer instead of flipping local state
+                    // blindly — the two drifted apart whenever a write failed
+                    // or the Short was already liked from elsewhere.
+                    final now = await context
+                        .read<AppProvider>()
+                        .toggleLike(widget.video);
+                    if (!mounted) return;
+                    setState(() => _liked = now);
                   },
                   color: _liked ? Colors.red : Colors.white,
                 ),

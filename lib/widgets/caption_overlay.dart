@@ -53,11 +53,23 @@ class CaptionOverlay extends StatelessWidget {
     );
   }
 
+  /// Binary search over the (start-sorted) cue list.
+  ///
+  /// This runs on every player frame. A linear scan is fine for a 3-minute
+  /// clip but a 2-hour talk has thousands of cues, and walking all of them
+  /// 60x/second showed up as jank on low-end devices.
   CaptionCue? _findCue(Duration position) {
     final posMs = position.inMilliseconds;
-    for (final cue in cues) {
-      if (posMs >= cue.start.inMilliseconds &&
-          posMs < cue.end.inMilliseconds) {
+    var lo = 0;
+    var hi = cues.length - 1;
+    while (lo <= hi) {
+      final mid = (lo + hi) >> 1;
+      final cue = cues[mid];
+      if (posMs < cue.start.inMilliseconds) {
+        hi = mid - 1;
+      } else if (posMs >= cue.end.inMilliseconds) {
+        lo = mid + 1;
+      } else {
         return cue;
       }
     }

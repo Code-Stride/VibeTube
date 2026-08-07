@@ -296,12 +296,10 @@ class VideoDetails extends Video {
       labels.add(labelFor(h));
     }
 
-    // If we only have master HLS without parsed variants, show just Auto
-    // (don't show phantom quality options that may not be available)
-    if (labels.isEmpty && hlsUrl != null && hlsUrl!.isNotEmpty) {
-      // Only show Auto (HLS) — user gets adaptive quality automatically
-    }
-
+    // When only a master HLS playlist is known (no parsed variants) `labels`
+    // stays empty on purpose: the list below then collapses to just
+    // "Auto (HLS)" + "Audio Only" rather than advertising phantom heights the
+    // player cannot actually lock to.
     const order = [
       '2160p',
       '1440p',
@@ -316,7 +314,13 @@ class VideoDetails extends Video {
     return ['Auto (HLS)', ...list, 'Audio Only'];
   }
 
-  /// Whether a quality can be locked (has concrete URL, not just master).
+  /// Whether a quality can genuinely be locked (a concrete stream URL exists
+  /// for that height, not just an adaptive master playlist).
+  ///
+  /// This used to fall back to `hlsUrl != null`, which reported *every* height
+  /// as lockable whenever a master playlist existed. The UI then said
+  /// "Tap to lock · HLS" for 2160p on a 480p video and quietly played
+  /// something else.
   bool canLockQuality(String quality) {
     final q = quality.trim();
     if (q.startsWith('Auto') || q == 'Best' || q == 'Audio Only') return true;
@@ -324,11 +328,11 @@ class VideoDetails extends Video {
     if (target <= 0) return false;
     if (hlsVariants.containsKey(target)) return true;
     if (progressiveByHeight.containsKey(target)) return true;
-    // nearest within 20p from known heights
+    // nearest within 20p from known heights (1080 vs 1088 etc.)
     for (final h in [...hlsVariants.keys, ...progressiveByHeight.keys]) {
       if ((h - target).abs() <= 20) return true;
     }
-    return hlsUrl != null && hlsUrl!.isNotEmpty;
+    return formats.any((f) => f.isMuxed && (f.height - target).abs() <= 20);
   }
 
   VideoDetails copyWithStreams({

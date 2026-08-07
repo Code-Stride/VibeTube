@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'services/audio_helper.dart';
 import 'providers/app_provider.dart';
 import 'providers/mini_player_controller.dart';
@@ -20,21 +19,83 @@ void main() async {
   await provider.init();
   AppTheme.applySystemUi(provider.isDarkMode);
 
+  // Owned here (not created inside the widget tree) so the route observer
+  // below can talk to the same instance.
+  final mini = MiniPlayerController();
+
   // Background / headset / lock-screen audio routing
   await AudioHelper.configure();
-
-  // Android 13+ media notification permission (best-effort)
-  try {
-    final status = await Permission.notification.status;
-    if (!status.isGranted) {
-      await Permission.notification.request();
-    }
-  } catch (_) {}
 
   // Wire up deep link handler (YouTube URLs from other apps)
   _setupDeepLinkHandler();
 
-  runApp(VibeTubeApp(provider: provider));
+  runApp(VibeTubeApp(
+    provider: provider,
+    mini: mini,
+    routeObserver: MiniPlayerRouteObserver(mini),
+  ));
+}
+
+/// Keeps [MiniPlayerController.useGlobalOverlay] in sync with the navigation
+/// stack.
+///
+/// The main shell (HomeScreen) draws its own mini bar above the bottom nav.
+/// Any route pushed on top of it — standalone search, a settings sub-page —
+/// covers that bar, so the floating overlay in [VibeTubeApp.build] has to take
+/// over. Previously the flag was only ever set to `true` in
+/// `HomeScreen.dispose()`, which never runs because HomeScreen *is*
+/// `MaterialApp.home`, so the overlay was unreachable dead code.
+class MiniPlayerRouteObserver extends NavigatorObserver {
+  MiniPlayerRouteObserver(this.mini);
+
+  final MiniPlayerController mini;
+  int _depth = 0;
+
+  void _sync() {
+    final wantOverlay = _depth > 0;
+    if (mini.useGlobalOverlay == wantOverlay) return;
+    // Observer callbacks can fire mid-frame; notifying listeners there would
+    // trigger "setState() called during build".
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      mini.setUseGlobalOverlay(wantOverlay);
+    });
+  }
+
+  bool _counts(Route<dynamic>? route) => route is PageRoute;
+
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    if (_counts(route) && previousRoute != null) {
+      _depth++;
+      _sync();
+    }
+    super.didPush(route, previousRoute);
+  }
+
+  @override
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    if (_counts(route) && _depth > 0) {
+      _depth--;
+      _sync();
+    }
+    super.didPop(route, previousRoute);
+  }
+
+  @override
+  void didRemove(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    if (_counts(route) && _depth > 0) {
+      _depth--;
+      _sync();
+    }
+    super.didRemove(route, previousRoute);
+  }
+
+  @override
+  void didReplace({Route<dynamic>? newRoute, Route<dynamic>? oldRoute}) {
+    // Depth is unchanged by a replacement, but resync in case the kinds differ.
+    _sync();
+    super.didReplace(newRoute: newRoute, oldRoute: oldRoute);
+  }
 }
 
 void _setupDeepLinkHandler() {
@@ -61,20 +122,28 @@ void _setupDeepLinkHandler() {
 
 class VibeTubeApp extends StatelessWidget {
   final AppProvider provider;
-  const VibeTubeApp({super.key, required this.provider});
+  final MiniPlayerController mini;
+  final MiniPlayerRouteObserver routeObserver;
+  const VibeTubeApp({
+    super.key,
+    required this.provider,
+    required this.mini,
+    required this.routeObserver,
+  });
 
   @override
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider.value(value: provider),
-        ChangeNotifierProvider(create: (_) => MiniPlayerController()),
+        ChangeNotifierProvider.value(value: mini),
       ],
       child: Consumer<AppProvider>(
         builder: (context, p, _) {
           AppTheme.applySystemUi(p.isDarkMode);
           return MaterialApp(
             navigatorKey: navigatorKey,
+            navigatorObservers: [routeObserver],
             title: 'VibeTube',
             debugShowCheckedModeBanner: false,
             theme: AppTheme.lightTheme,

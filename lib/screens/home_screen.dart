@@ -29,16 +29,10 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<MiniPlayerController>().setUseGlobalOverlay(false);
-      _scheduleUpdateCheck();
-    });
-  }
-
-  @override
-  void dispose() {
-    try { context.read<MiniPlayerController>().setUseGlobalOverlay(true); } catch (_) {}
-    super.dispose();
+    // Overlay ownership is handled by MiniPlayerRouteObserver in main.dart —
+    // this screen is MaterialApp.home, so its dispose() never runs and the
+    // flag it used to set on the way out was never applied.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _scheduleUpdateCheck());
   }
 
   Future<void> _scheduleUpdateCheck() async {
@@ -67,7 +61,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final pages = <Widget>[
       isMusic ? const _MusicHomeFeed() : const _HomeFeed(),
       const SearchScreen(),
-      if (!isMusic) ShortsScreen(isActive: _index == 2),
+      if (!isMusic) ShortsScreen(isActive: !isMusic && _index == 2),
       const LibraryScreen(),
       const DownloadsScreen(),
       const SettingsScreen(),
@@ -91,13 +85,20 @@ class _HomeScreenState extends State<HomeScreen> {
             BottomNavigationBarItem(icon: Icon(Icons.settings_outlined), label: 'Settings'),
           ];
 
+    // Clamp for *rendering* only — mutating State inside build() (the old
+    // `if (_index > maxIndex) _index = maxIndex;`) is an anti-pattern that can
+    // drop a frame when Music Mode shrinks the bar from 6 tabs to 5.
     final maxIndex = navItems.length - 1;
-    if (_index > maxIndex) _index = maxIndex;
+    final index = _index > maxIndex ? maxIndex : _index;
 
     return Scaffold(
       body: AnimatedSwitcher(
         duration: const Duration(milliseconds: 200),
-        child: IndexedStack(key: ValueKey('$isMusic-$_index'), index: _index, children: pages),
+        // Key on the mode only. Including the tab index rebuilt (and threw
+        // away) every page on each tab switch, so scroll position, typed
+        // search text and in-flight loads were lost — which defeats the whole
+        // point of IndexedStack.
+        child: IndexedStack(key: ValueKey(isMusic), index: index, children: pages),
       ),
       bottomNavigationBar: Column(
         mainAxisSize: MainAxisSize.min,
@@ -109,7 +110,7 @@ class _HomeScreenState extends State<HomeScreen> {
               border: Border(top: BorderSide(color: isDark ? const Color(0xFF303030) : const Color(0xFFE0E0E0), width: 0.5)),
             ),
             child: BottomNavigationBar(
-              currentIndex: _index,
+              currentIndex: index,
               onTap: (i) => setState(() => _index = i),
               selectedItemColor: isMusic ? const Color(0xFFFF0000) : null,
               items: navItems,
@@ -131,13 +132,35 @@ class _HomeFeed extends StatefulWidget {
 class _HomeFeedState extends State<_HomeFeed> {
   static const cats = ['All', 'Music', 'YouTube Music', 'Gaming', 'News', 'Sports', 'Live', 'Movies', 'Education', 'Technology', 'Comedy'];
 
+  final ScrollController _scroll = ScrollController();
+
   @override
   void initState() {
     super.initState();
+    _scroll.addListener(_onScroll);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final provider = context.read<AppProvider>();
-      if (provider.musicVideos.isEmpty) provider.loadMusic();
+      // The music shelf only renders on the 'All' tab, so don't pay for the
+      // request when the user landed somewhere else.
+      if (provider.selectedCategory == 'All' && provider.musicVideos.isEmpty) {
+        provider.loadMusic();
+      }
     });
+  }
+
+  @override
+  void dispose() {
+    _scroll.removeListener(_onScroll);
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (!_scroll.hasClients) return;
+    final remaining = _scroll.position.maxScrollExtent - _scroll.position.pixels;
+    if (remaining < 1200) {
+      context.read<AppProvider>().loadMoreFeed();
+    }
   }
 
   @override
@@ -245,18 +268,27 @@ class _HomeFeedState extends State<_HomeFeed> {
                 if (provider.trendingVideos.isEmpty) {
                   return _buildEmpty(c);
                 }
+                final hasMusicShelf = provider.selectedCategory == 'All' &&
+                    provider.musicVideos.isNotEmpty;
+                // Trailing spinner only when another page is genuinely on the
+                // way, instead of whenever any feed load was in flight.
+                final showFooter =
+                    provider.isLoadingMoreFeed || provider.hasMoreFeed;
                 return RefreshIndicator(
                   color: AppTheme.primary,
                   onRefresh: provider.loadTrending,
                   child: ListView.builder(
+                    controller: _scroll,
                     physics: const AlwaysScrollableScrollPhysics(),
-                    itemCount: provider.trendingVideos.length + (provider.isLoading ? 1 : 0) + (provider.selectedCategory == 'All' && provider.musicVideos.isNotEmpty ? 1 : 0),
+                    itemCount: provider.trendingVideos.length +
+                        (showFooter ? 1 : 0) +
+                        (hasMusicShelf ? 1 : 0),
                     itemBuilder: (context, index) {
                       // YouTube Music section (only on 'All' tab)
-                      if (provider.selectedCategory == 'All' && provider.musicVideos.isNotEmpty && index == 0) {
+                      if (hasMusicShelf && index == 0) {
                         return _buildMusicSection(provider, c);
                       }
-                      final videoIndex = provider.selectedCategory == 'All' && provider.musicVideos.isNotEmpty ? index - 1 : index;
+                      final videoIndex = hasMusicShelf ? index - 1 : index;
                       if (videoIndex >= provider.trendingVideos.length) {
                         return const Padding(
                           padding: EdgeInsets.all(24),
@@ -516,14 +548,21 @@ class _MusicHomeFeedState extends State<_MusicHomeFeed> {
               itemCount: musicCats.length,
               separatorBuilder: (_, __) => const SizedBox(width: 8),
               itemBuilder: (context, i) {
+                final cat = musicCats[i];
+                final provider = context.watch<AppProvider>();
+                final selected = provider.selectedMusicCategory == cat;
                 return FilterChip(
-                  label: Text(musicCats[i]),
-                  selected: false,
-                  onSelected: (_) {},
+                  label: Text(cat),
+                  selected: selected,
+                  onSelected: (_) => provider.setMusicCategory(cat),
                   showCheckmark: false,
                   selectedColor: const Color(0xFFFF0000),
                   backgroundColor: isDark ? const Color(0xFF2A1515) : const Color(0xFFFFE8E8),
-                  labelStyle: TextStyle(color: c.textPrimary, fontWeight: FontWeight.w500, fontSize: 14),
+                  labelStyle: TextStyle(
+                    color: selected ? Colors.white : c.textPrimary,
+                    fontWeight: FontWeight.w500,
+                    fontSize: 14,
+                  ),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                 );
               },
@@ -549,9 +588,12 @@ class _MusicHomeFeedState extends State<_MusicHomeFeed> {
                         _musicSectionTitle(c, 'Trending music', Icons.trending_up),
                         _buildMusicList(provider.trendingVideos.take(10).toList(), c),
                       ],
-                      if (provider.musicVideos.length > 6) ...[
+                      // Quick picks renders the first 10, so this shelf must
+                      // start at 10 — skipping only 6 repeated four videos in
+                      // both rows.
+                      if (provider.musicVideos.length > 10) ...[
                         _musicSectionTitle(c, 'More for you', Icons.explore),
-                        _buildMusicGrid(provider.musicVideos.skip(6).toList(), c),
+                        _buildMusicGrid(provider.musicVideos.skip(10).toList(), c),
                       ],
                       const SizedBox(height: 24),
                     ],
