@@ -34,11 +34,23 @@ class InnerTubeClient {
     },
   ];
 
-  static const Map<String, dynamic> _webClient = {
+  static const Map<String, dynamic> _webClientBase = {
     'hl': 'en', 'gl': 'IN', 'clientName': 'WEB',
     'clientVersion': '2.20250713.00.00',
     'userAgent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
   };
+
+  /// Region the WEB client reports, kept in step with the Settings value by
+  /// [AppProvider.setRegion].
+  ///
+  /// `search` grew an explicit `region:` argument and the two browse calls
+  /// override `gl` themselves, but `/next` (related videos, comments) and the
+  /// WEB player fallback still read the hard-coded 'IN' from the base map, so
+  /// those stayed pinned to India whatever the user picked.
+  String region = 'IN';
+
+  /// WEB client context with the current region applied.
+  Map<String, dynamic> get _webClient => {..._webClientBase, 'gl': region};
 
   final http.Client _http = http.Client();
 
@@ -55,7 +67,7 @@ class InnerTubeClient {
     final headers = {
       ..._headers(userAgent),
       'X-YouTube-Client-Name': clientNameId ?? '1',
-      'X-YouTube-Client-Version': clientVersion ?? (_webClient['clientVersion'] as String?) ?? '2.20250713.00.00',
+      'X-YouTube-Client-Version': clientVersion ?? (_webClientBase['clientVersion'] as String?) ?? '2.20250713.00.00',
     };
     final res = await _http.post(uri, headers: headers, body: jsonEncode(body)).timeout(const Duration(seconds: 18));
     if (res.statusCode != 200) throw Exception('InnerTube $endpoint HTTP ${res.statusCode}');

@@ -26,7 +26,8 @@ void main() async {
   // Background / headset / lock-screen audio routing
   await AudioHelper.configure();
 
-  // Wire up deep link handler (YouTube URLs from other apps)
+  // Install the Dart-side handler before the engine can deliver anything, but
+  // do not announce readiness until the first frame exists — see below.
   _setupDeepLinkHandler();
 
   runApp(VibeTubeApp(
@@ -34,6 +35,8 @@ void main() async {
     mini: mini,
     routeObserver: MiniPlayerRouteObserver(mini),
   ));
+
+  WidgetsBinding.instance.addPostFrameCallback((_) => _announceDeepLinkReady());
 }
 
 /// Keeps [MiniPlayerController.useGlobalOverlay] in sync with the navigation
@@ -98,26 +101,55 @@ class MiniPlayerRouteObserver extends NavigatorObserver {
   }
 }
 
+/// Dedicated channel so we don't clash with the native player command channel.
+/// Native buffers any link that arrives before we announce 'ready' and replays
+/// it at that point.
+const MethodChannel _deepLinkChannel =
+    MethodChannel('com.blazenxt.vibetube/deeplink');
+
+String? _pendingDeepLinkId;
+int _deepLinkRetries = 0;
+
 void _setupDeepLinkHandler() {
-  // Dedicated channel so we don't clash with the native player command channel.
-  // Native buffers any link that arrives before this handler exists and
-  // replays it when we announce 'ready' below.
-  const deepChannel = MethodChannel('com.blazenxt.vibetube/deeplink');
-  deepChannel.setMethodCallHandler((call) async {
+  _deepLinkChannel.setMethodCallHandler((call) async {
     if (call.method == 'onDeepLink' && call.arguments is String) {
       final videoId = (call.arguments as String).trim();
       if (videoId.isEmpty) return;
-      // Use the navigator state directly — currentContext can belong to a
-      // widget that is not below the Navigator once routes are pushed.
-      navigatorKey.currentState?.push(
-        MaterialPageRoute(
-          builder: (_) => PlayerScreen(videoId: videoId),
-        ),
-      );
+      _openDeepLink(videoId);
     }
   });
-  // Tell native we're listening; it flushes any cold-start link now.
-  deepChannel.invokeMethod('ready').catchError((_) => null);
+}
+
+/// Tell native we're listening; it flushes any cold-start link now.
+///
+/// Deliberately after the first frame. Native replays the buffered link
+/// synchronously on receiving this, and before the first frame
+/// `navigatorKey.currentState` is still null — the `?.` below then discarded
+/// the link with no exception and no log, so a share link tapped while the app
+/// was closed opened the home screen instead of the video.
+void _announceDeepLinkReady() {
+  _deepLinkChannel.invokeMethod('ready').catchError((_) => null);
+}
+
+void _openDeepLink(String videoId) {
+  // Use the navigator state directly — currentContext can belong to a widget
+  // that is not below the Navigator once routes are pushed.
+  final nav = navigatorKey.currentState;
+  if (nav == null) {
+    // Not mounted yet: buffer and retry next frame rather than dropping it.
+    // Capped so a genuinely broken navigator cannot spin frame callbacks.
+    if (_deepLinkRetries >= 10) return;
+    _deepLinkRetries++;
+    _pendingDeepLinkId = videoId;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final pending = _pendingDeepLinkId;
+      _pendingDeepLinkId = null;
+      if (pending != null) _openDeepLink(pending);
+    });
+    return;
+  }
+  _deepLinkRetries = 0;
+  nav.push(MaterialPageRoute(builder: (_) => PlayerScreen(videoId: videoId)));
 }
 
 class VibeTubeApp extends StatelessWidget {

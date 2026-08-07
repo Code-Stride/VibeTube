@@ -10,6 +10,7 @@ import android.content.IntentFilter
 import android.content.res.Configuration
 import android.graphics.drawable.Icon
 import android.os.Build
+import android.util.Log
 import android.util.Rational
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -28,6 +29,30 @@ class MainActivity : FlutterActivity() {
         private const val CONTROL_PAUSE = 2
         private const val CONTROL_REWIND = 3
         private const val CONTROL_FORWARD = 4
+    }
+
+    /**
+     * Start [PlaybackService] the way Android 8+ requires.
+     *
+     * Three of the four call sites used plain startService(), which throws
+     * IllegalStateException from the background — and the throw was swallowed
+     * by an empty catch, so play/pause state silently stopped reaching the
+     * MediaSession and the notification desynced from playback with nothing in
+     * the log to show for it.
+     *
+     * Every branch of PlaybackService.onStartCommand calls ensureForeground(),
+     * so the 5-second startForeground() contract is satisfied.
+     */
+    private fun sendToPlaybackService(intent: Intent) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(intent)
+            } else {
+                startService(intent)
+            }
+        } catch (e: Exception) {
+            Log.w("VibeTube", "PlaybackService start failed (${intent.action}): ${e.message}")
+        }
     }
 
     /** Video aspect ratio reported by Flutter, so PiP isn't always 16:9. */
@@ -96,10 +121,7 @@ class MainActivity : FlutterActivity() {
                         action = PlaybackService.ACTION_PLAYING_STATE
                         putExtra("playing", isPlaying)
                     }
-                    try {
-                        startService(intent)
-                    } catch (_: Exception) {
-                    }
+                    sendToPlaybackService(intent)
                     result.success(null)
                 }
                 "startBackground" -> {
@@ -113,11 +135,7 @@ class MainActivity : FlutterActivity() {
                         putExtra("artist", artist)
                         putExtra("playing", playing)
                     }
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        startForegroundService(intent)
-                    } else {
-                        startService(intent)
-                    }
+                    sendToPlaybackService(intent)
                     result.success(true)
                 }
                 "updateBackground" -> {
@@ -131,10 +149,7 @@ class MainActivity : FlutterActivity() {
                         putExtra("artist", artist)
                         putExtra("playing", playing)
                     }
-                    try {
-                        startService(intent)
-                    } catch (_: Exception) {
-                    }
+                    sendToPlaybackService(intent)
                     result.success(true)
                 }
                 "stopBackground" -> {
@@ -142,10 +157,7 @@ class MainActivity : FlutterActivity() {
                     val intent = Intent(this, PlaybackService::class.java).apply {
                         action = PlaybackService.ACTION_STOP
                     }
-                    try {
-                        startService(intent)
-                    } catch (_: Exception) {
-                    }
+                    sendToPlaybackService(intent)
                     result.success(true)
                 }
                 "setVideoAspect" -> {
@@ -259,6 +271,29 @@ class MainActivity : FlutterActivity() {
             registerReceiver(r, filter)
         }
         pipReceiver = r
+    }
+
+    /**
+     * Release the engine-scoped references.
+     *
+     * PlaybackService.flutterChannel is static and nothing ever cleared it:
+     * MethodChannel -> BinaryMessenger -> DartExecutor retained the whole
+     * FlutterEngine, and this Activity with it, across every recreate. The
+     * second-order effect was worse than the leak — once the Activity was gone
+     * but the service was not, notifyFlutter() pushed media-button callbacks
+     * into a dead messenger where an empty catch swallowed them, so the
+     * notification's Play button quietly stopped working.
+     */
+    override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        if (PlaybackService.flutterChannel === methodChannel) {
+            PlaybackService.flutterChannel = null
+        }
+        methodChannel?.setMethodCallHandler(null)
+        deepLinkChannel?.setMethodCallHandler(null)
+        methodChannel = null
+        deepLinkChannel = null
+        deepLinkReady = false
+        super.cleanUpFlutterEngine(flutterEngine)
     }
 
     override fun onDestroy() {
