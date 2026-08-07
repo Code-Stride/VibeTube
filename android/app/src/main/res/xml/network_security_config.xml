@@ -5,9 +5,12 @@
             <certificates src="system" />
         </trust-anchors>
     </base-config>
-    <!-- Allow localhost for debugging only -->
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="true">localhost</domain>
-        <domain includeSubdomains="true">127.0.0.1</domain>
-    </domain-config>
+    <!-- Localhost cleartext belongs to debug builds only. As a plain
+         domain-config it also applied to release. -->
+    <debug-overrides>
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </debug-overrides>
 </network-security-config>

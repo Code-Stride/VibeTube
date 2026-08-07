@@ -14,6 +14,7 @@ class NativePlayer {
   static final List<void Function()> _stopListeners = [];
   static final List<void Function()> _rewindListeners = [];
   static final List<void Function()> _forwardListeners = [];
+  static final List<void Function(Duration)> _seekListeners = [];
 
   static void _ensureChannelWired() {
     if (_wired) return;
@@ -42,6 +43,14 @@ class NativePlayer {
           }
           break;
         // Sent by the PiP window's rewind / forward buttons.
+        case 'mediaSeek':
+          final ms = call.arguments;
+          if (ms is int) {
+            for (final l in List.of(_seekListeners)) {
+              l(Duration(milliseconds: ms));
+            }
+          }
+          break;
         case 'mediaRewind':
           for (final l in List.of(_rewindListeners)) {
             l();
@@ -64,6 +73,7 @@ class NativePlayer {
     void Function()? onMediaStop,
     void Function()? onMediaRewind,
     void Function()? onMediaForward,
+    void Function(Duration position)? onMediaSeek,
   }) {
     _ensureChannelWired();
     if (onPip != null && !_pipListeners.contains(onPip)) {
@@ -84,6 +94,9 @@ class NativePlayer {
     if (onMediaForward != null && !_forwardListeners.contains(onMediaForward)) {
       _forwardListeners.add(onMediaForward);
     }
+    if (onMediaSeek != null && !_seekListeners.contains(onMediaSeek)) {
+      _seekListeners.add(onMediaSeek);
+    }
   }
 
   static void removeHandlers({
@@ -93,7 +106,9 @@ class NativePlayer {
     void Function()? onMediaStop,
     void Function()? onMediaRewind,
     void Function()? onMediaForward,
+    void Function(Duration position)? onMediaSeek,
   }) {
+    if (onMediaSeek != null) _seekListeners.remove(onMediaSeek);
     if (onPip != null) _pipListeners.remove(onPip);
     if (onMediaPlay != null) _playListeners.remove(onMediaPlay);
     if (onMediaPause != null) _pauseListeners.remove(onMediaPause);
@@ -132,6 +147,23 @@ class NativePlayer {
       await _ch.invokeMethod('setVideoAspect', {
         'width': width,
         'height': height,
+      });
+    } catch (_) {}
+  }
+
+  /// Publishes real playback progress so the lock-screen / Android Auto
+  /// scrubber can draw and be dragged.
+  static Future<void> setProgress({
+    required Duration position,
+    required Duration duration,
+    double speed = 1.0,
+  }) async {
+    if (duration <= Duration.zero) return;
+    try {
+      await _ch.invokeMethod('setProgress', {
+        'positionMs': position.inMilliseconds,
+        'durationMs': duration.inMilliseconds,
+        'speed': speed,
       });
     } catch (_) {}
   }

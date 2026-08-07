@@ -206,6 +206,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               onLater: () {},
                               onSkip: () => p.dismissUpdate(),
                             );
+                          } else if (p.lastUpdateCheckFailed) {
+                            // Do not claim the app is current when we never
+                            // reached GitHub.
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                  content: Text(
+                                      'Update check failed — check your connection')),
+                            );
                           } else {
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(

@@ -15,6 +15,26 @@ class HlsVariant {
     this.codecs = '',
   });
 
+  /// Whether this variant muxes its own audio.
+  ///
+  /// YouTube's master playlist often lists video-only renditions and puts the
+  /// audio in a separate `#EXT-X-MEDIA:TYPE=AUDIO` group referenced by the
+  /// stream's AUDIO attribute. Handing such a rendition straight to the
+  /// player (which never saw the master) plays video with no sound, so these
+  /// must not be used as a locked-quality URL.
+  ///
+  /// Unknown/absent CODECS is treated as "has audio": assuming otherwise
+  /// would discard perfectly good variants.
+  bool get hasAudio {
+    final c = codecs.toLowerCase();
+    if (c.isEmpty) return true;
+    return c.contains('mp4a') ||
+        c.contains('opus') ||
+        c.contains('ec-3') ||
+        c.contains('ac-3') ||
+        c.contains('flac');
+  }
+
   String get label {
     if (height >= 2160) return '2160p';
     if (height >= 1440) return '1440p';

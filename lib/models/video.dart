@@ -222,21 +222,40 @@ class VideoDetails extends Video {
 
   /// Auto: best quality HLS variant → master HLS → best progressive.
   String? get preferredPlayUrl {
+    // The adaptive master comes first. Returning the single highest variant
+    // meant "Auto" was not adaptive at all: playback was pinned to the top
+    // rendition (often 2160p) and rebuffered continuously on a slow
+    // connection, with no ability to step down. The master also carries the
+    // separate #EXT-X-MEDIA audio group, which a bare video-only variant
+    // lacks.
+    if (hlsUrl != null && hlsUrl!.isNotEmpty) return hlsUrl;
     if (hlsVariants.isNotEmpty) {
       final h = hlsVariants.keys.toList()..sort((a, b) => b.compareTo(a));
       return hlsVariants[h.first];
     }
-    if (hlsUrl != null && hlsUrl!.isNotEmpty) return hlsUrl;
     return bestMuxedUrl;
   }
 
   String? get progressiveUrl => bestMuxedUrl;
 
+  /// Highest concrete HLS rendition, ignoring the adaptive master.
+  String? get bestVariantUrl {
+    if (hlsVariants.isEmpty) return null;
+    final h = hlsVariants.keys.toList()..sort((a, b) => b.compareTo(a));
+    return hlsVariants[h.first];
+  }
+
   /// Resolve a concrete playable URL for the chosen quality label.
   String? urlForQuality(String quality) {
     final q = quality.trim();
     if (q == 'Auto' || q == 'Best') {
-      return preferredPlayUrl;
+      // Deliberately NOT preferredPlayUrl. "Best" means the highest quality
+      // rendition, whereas preferredPlayUrl now yields the adaptive master
+      // (which lets the player step down). The two labels mean different
+      // things and the distinction is asserted by
+      // "Auto resolves to the adaptive master" in widget_test.dart:
+      //   'Auto (HLS)' -> master, 'Auto'/'Best' -> highest variant.
+      return bestVariantUrl ?? preferredPlayUrl;
     }
     if (q == 'Auto (HLS)') {
       // Auto (HLS) = adaptive master playlist (for adaptive streaming)

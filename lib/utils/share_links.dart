@@ -54,6 +54,15 @@ class ShareLinks {
     return uri == null ? null : parseVideoId(uri);
   }
 
+  /// Hosts we accept YouTube links from. Exact matches only.
+  static const Set<String> _youtubeHosts = {
+    'youtube.com',
+    'www.youtube.com',
+    'm.youtube.com',
+    'music.youtube.com',
+    'gaming.youtube.com',
+  };
+
   /// Extracts a video id from any link VibeTube accepts: its own watch links,
   /// the `vibetube://` scheme, and YouTube URLs shared from other apps.
   ///
@@ -92,7 +101,11 @@ class ShareLinks {
     }
 
     // youtube.com/watch?v=ID, /shorts/ID, /embed/ID, /live/ID
-    if (h.endsWith('youtube.com')) {
+    //
+    // Exact allowlist, not endsWith: `endsWith('youtube.com')` also matches
+    // attacker-controlled hosts such as `evilyoutube.com`, letting a hostile
+    // link masquerade as a YouTube link inside the app.
+    if (_youtubeHosts.contains(h)) {
       final v = valid(uri.queryParameters['v']);
       if (v != null) return v;
       if (segs.length >= 2 &&

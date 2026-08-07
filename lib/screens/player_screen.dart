@@ -201,6 +201,16 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
   void _onMediaRewind() => _seekBy(-10);
   void _onMediaForward() => _seekBy(10);
 
+  /// Lock-screen / Android Auto scrubber drag.
+  void _onMediaSeek(Duration target) {
+    final c = _controller;
+    if (c == null || !c.value.isInitialized) return;
+    final d = c.value.duration;
+    final clamped =
+        target < Duration.zero ? Duration.zero : (target > d ? d : target);
+    c.seekTo(clamped);
+  }
+
   void _onPipChanged(bool inPip) {
     if (!mounted) return;
     setState(() {
@@ -232,6 +242,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
       onMediaStop: _onMediaStop,
       onMediaRewind: _onMediaRewind,
       onMediaForward: _onMediaForward,
+      onMediaSeek: _onMediaSeek,
     );
     AudioHelper.addListeners(
       onBecomingNoisy: _onBecomingNoisy,
@@ -378,21 +389,19 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
       }
       add(details.preferredPlayUrl);
     } else if (isAuto) {
-      // Try highest quality HLS variants FIRST (not master playlist)
+      // Auto means *adaptive*: give the player the master playlist so it can
+      // choose and switch renditions by bandwidth. Starting at the highest
+      // single variant pinned playback to the top rendition and rebuffered
+      // forever on slow connections — the opposite of what "Auto" promises.
+      // The concrete variants stay as fallbacks if the master fails.
+      add(details.hlsUrl);
       if (details.hlsVariants.isNotEmpty) {
         final hs = details.hlsVariants.keys.toList()
           ..sort((a, b) => b.compareTo(a));
-        for (final prefer in [2160, 1440, 1080, 720, 480]) {
-          if (details.hlsVariants.containsKey(prefer)) {
-            add(details.hlsVariants[prefer]);
-          }
-        }
         for (final h in hs) {
           add(details.hlsVariants[h]);
         }
       }
-      add(details.hlsUrl);
-      add(details.preferredPlayUrl);
       add(details.bestMuxedUrl);
     } else if (q == 'Audio Only') {
       add(details.urlForQuality(q));
@@ -703,12 +712,26 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     }
   }
 
+  int _lastPublishedSecond = -1;
+
   void _startPosTimer() {
     _posTimer?.cancel();
     _posTimer = Timer.periodic(const Duration(milliseconds: 250), (_) {
       final c = _controller;
       if (c == null || !c.value.isInitialized || _seeking) return;
       if (!mounted) return;
+      // Feed the MediaSession scrubber first, at ~1Hz. This has to happen
+      // even while backgrounded or in PiP, because that is exactly when the
+      // lock-screen and Android Auto surfaces are what the user sees.
+      final livePos = c.value.position;
+      if (_bgActive && livePos.inSeconds != _lastPublishedSecond) {
+        _lastPublishedSecond = livePos.inSeconds;
+        NativePlayer.setProgress(
+          position: livePos,
+          duration: c.value.duration,
+          speed: _speed,
+        );
+      }
       // Nothing on this screen is visible in PiP or while the app is in the
       // background, so a 4x/second setState there is pure battery drain
       // during background audio playback.
@@ -1007,6 +1030,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
       onMediaStop: _onMediaStop,
       onMediaRewind: _onMediaRewind,
       onMediaForward: _onMediaForward,
+      onMediaSeek: _onMediaSeek,
     );
     AudioHelper.removeListeners(
       onBecomingNoisy: _onBecomingNoisy,

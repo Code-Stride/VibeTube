@@ -12,6 +12,58 @@ and this project roughly follows [Semantic Versioning](https://semver.org/).
 - Voice search
 - Playlist support
 
+## [1.12.1] - 2026-07-17
+
+Third-pass audit. Focused on defects that survived the previous two rounds.
+
+### Fixed
+
+- **A single malformed API item no longer blanks an entire list.**
+  `_extractVideo()` had no `try/catch` while its two siblings did, and it
+  indexed `thumbs.last['url']` without checking the shape. Running inside the
+  `walk()` recursion, any throw escaped to the caller's catch and turned the
+  whole response into an empty list.
+- **A comment with no avatar no longer removes every comment.**
+  `(list as List?)?.last?['url']` reads as null-safe, but `.last` throws
+  `StateError` on an *empty* list rather than returning null.
+- **"Auto" quality is adaptive again.** `preferredPlayUrl` returned the single
+  highest variant instead of the master playlist, pinning playback to the top
+  rendition: continuous rebuffering on slow connections with no ability to
+  step down. The player's Auto path had the same ordering.
+- **Silent video on locked qualities.** HLS variants are only used for a
+  quality lock when they carry their own audio. YouTube commonly lists
+  video-only renditions with the audio in a separate `#EXT-X-MEDIA` group;
+  handing one straight to the player produced picture with no sound.
+- **Lookalike domains rejected.** `host.endsWith("youtube.com")` also matched
+  `evilyoutube.com`. Both the Dart and Kotlin paths now use an exact
+  allowlist.
+- **Lock-screen scrubber works.** The MediaSession reported
+  `PLAYBACK_POSITION_UNKNOWN`, so no system surface could draw progress.
+  Real position/duration/speed are published and `ACTION_SEEK_TO` plus
+  rewind/fast-forward are handled.
+- **Update check distinguishes failure from success.** Both "already latest"
+  and "network failed" returned null, so Settings claimed "You are on the
+  latest version" with no connectivity at all.
+- **Downloads no longer leak `.part` files.** `delete()` removed only the
+  `.mp4`, leaving orphaned partials the user could not reclaim. Added
+  periodic flushing so a fast network feeding slow storage cannot buffer the
+  difference in memory.
+- **"Share" in the video card menu now shares.** It previously only closed
+  the sheet.
+- Predictive back enabled (`enableOnBackInvokedCallback`) for Android 13+.
+- The localhost cleartext exemption moved into `debug-overrides` so it no
+  longer ships in release builds.
+
+### Added
+
+- `docs/.well-known/assetlinks.json` and `docs/APP_LINKS.md`. App Links have
+  never actually verified: `autoVerify` is declared but no `assetlinks.json`
+  existed, and a GitHub Pages *project* site cannot serve `/.well-known/` at
+  the domain root. The doc states plainly what remains to be done — the file
+  must be published from a `code-stride.github.io` user repo with the real
+  release fingerprint. **App Links stay broken until that is published.**
+- `test/audit_round3_test.dart` covering each fix above.
+
 ## [1.12.0] - 2026-07-17
 
 Deep bug audit: 39 findings triaged, 37 fixed. See PR "Deep bug audit" for the

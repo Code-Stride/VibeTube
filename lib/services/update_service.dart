@@ -6,6 +6,20 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/video.dart';
 
 /// Checks GitHub Releases for newer APK versions and shows update popup.
+/// Outcome of an update check.
+///
+/// A bare `null` could not distinguish "already latest" from "the network
+/// call failed", so Settings reported "You are on the latest version" even
+/// with no connectivity at all.
+enum UpdateStatus { upToDate, updateAvailable, failed, throttled }
+
+class UpdateCheckResult {
+  final UpdateStatus status;
+  final AppUpdateInfo? info;
+  const UpdateCheckResult(this.status, [this.info]);
+  bool get hasUpdate => status == UpdateStatus.updateAvailable && info != null;
+}
+
 class UpdateService {
   static const String repoOwner = 'Code-Stride';
   static const String repoName = 'VibeTube';
@@ -19,7 +33,11 @@ class UpdateService {
   /// release cadence measured in days.
   static const Duration checkInterval = Duration(hours: 6);
 
-  Future<AppUpdateInfo?> checkForUpdate({bool force = false}) async {
+  /// Backwards-compatible wrapper: only ever yields an actionable update.
+  Future<AppUpdateInfo?> checkForUpdate({bool force = false}) async =>
+      (await check(force: force)).info;
+
+  Future<UpdateCheckResult> check({bool force = false}) async {
     try {
       final info = await PackageInfo.fromPlatform();
       final current = info.version; // e.g. 1.1.0
@@ -29,7 +47,9 @@ class UpdateService {
       if (!force) {
         final last = prefsEarly.getInt(prefsKeyLastCheck) ?? 0;
         final age = DateTime.now().millisecondsSinceEpoch - last;
-        if (age >= 0 && age < checkInterval.inMilliseconds) return null;
+        if (age >= 0 && age < checkInterval.inMilliseconds) {
+          return const UpdateCheckResult(UpdateStatus.throttled);
+        }
       }
 
       final uri = Uri.parse(
@@ -45,20 +65,24 @@ class UpdateService {
       await prefsEarly.setInt(
           prefsKeyLastCheck, DateTime.now().millisecondsSinceEpoch);
 
-      if (res.statusCode != 200) return null;
+      if (res.statusCode != 200) {
+        return const UpdateCheckResult(UpdateStatus.failed);
+      }
       final data = jsonDecode(res.body) as Map<String, dynamic>;
       // Only strip a leading "v" (e.g. "v1.5.0"), not a "v" anywhere in the tag.
       final tag = (data['tag_name'] as String? ?? '')
           .trim()
           .replaceFirst(RegExp(r'^[vV]'), '');
-      if (tag.isEmpty) return null;
+      if (tag.isEmpty) return const UpdateCheckResult(UpdateStatus.failed);
 
       final dismissed = prefsEarly.getString(prefsKeyDismissed);
-      if (!force && dismissed == tag) return null;
+      if (!force && dismissed == tag) {
+        return const UpdateCheckResult(UpdateStatus.upToDate);
+      }
 
       final hasUpdate = _isNewer(tag, '$current+$build');
       // NEVER show update popup when app is already on latest version
-      if (!hasUpdate) return null;
+      if (!hasUpdate) return const UpdateCheckResult(UpdateStatus.upToDate);
 
       String apkUrl = data['html_url']?.toString() ??
           'https://github.com/$repoOwner/$repoName/releases/latest';
@@ -71,15 +95,18 @@ class UpdateService {
         }
       }
 
-      return AppUpdateInfo(
+      return UpdateCheckResult(
+        UpdateStatus.updateAvailable,
+        AppUpdateInfo(
         latestVersion: tag,
         currentVersion: '$current+$build',
         releaseNotes: data['body']?.toString() ?? 'Bug fixes and improvements',
         downloadUrl: apkUrl,
         hasUpdate: hasUpdate,
+      ),
       );
     } catch (_) {
-      return null;
+      return const UpdateCheckResult(UpdateStatus.failed);
     }
   }
 

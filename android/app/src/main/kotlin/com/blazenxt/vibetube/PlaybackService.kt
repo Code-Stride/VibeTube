@@ -23,6 +23,7 @@ class PlaybackService : Service() {
         const val ACTION_STOP = "vibetube.STOP"
         const val ACTION_UPDATE = "vibetube.UPDATE"
         const val ACTION_PLAYING_STATE = "vibetube.PLAYING_STATE"
+        const val ACTION_PROGRESS = "vibetube.PROGRESS"
         const val ACTION_PLAY = "vibetube.PLAY"
         const val ACTION_PAUSE = "vibetube.PAUSE"
         const val ACTION_TOGGLE = "vibetube.TOGGLE"
@@ -37,6 +38,11 @@ class PlaybackService : Service() {
     private var title: String = "VibeTube"
     private var artist: String = "Playing"
     private var playing: Boolean = true
+
+    /** Real playback position, so the lock-screen scrubber is not dead. */
+    private var positionMs: Long = -1L
+    private var durationMs: Long = -1L
+    private var speed: Float = 1f
 
     /**
      * Whether startForeground() has already run for this service instance.
@@ -84,6 +90,20 @@ class PlaybackService : Service() {
                     refreshNotification()
                 }
 
+                override fun onSeekTo(pos: Long) {
+                    positionMs = pos
+                    pushState()
+                    flutterChannel?.invokeMethod("mediaSeek", pos)
+                }
+
+                override fun onRewind() {
+                    notifyFlutter("mediaRewind")
+                }
+
+                override fun onFastForward() {
+                    notifyFlutter("mediaForward")
+                }
+
                 override fun onStop() {
                     playing = false
                     pushState()
@@ -122,6 +142,13 @@ class PlaybackService : Service() {
                 notifyFlutter(if (playing) "mediaPlay" else "mediaPause")
                 ensureForeground()
             }
+            ACTION_PROGRESS -> {
+                positionMs = intent.getLongExtra("positionMs", positionMs)
+                durationMs = intent.getLongExtra("durationMs", durationMs)
+                speed = intent.getFloatExtra("speed", speed)
+                pushState()
+                pushMetadata()
+            }
             ACTION_PLAYING_STATE -> {
                 playing = intent.getBooleanExtra("playing", playing)
                 pushState()
@@ -149,16 +176,44 @@ class PlaybackService : Service() {
         return START_NOT_STICKY
     }
 
+    /// Duration must be in the metadata or the scrubber has no range to draw.
+    private fun pushMetadata() {
+        if (durationMs <= 0) return
+        try {
+            mediaSession?.setMetadata(
+                MediaMetadata.Builder()
+                    .putString(MediaMetadata.METADATA_KEY_TITLE, title)
+                    .putString(MediaMetadata.METADATA_KEY_ARTIST, artist)
+                    .putString(MediaMetadata.METADATA_KEY_DISPLAY_TITLE, title)
+                    .putString(MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE, artist)
+                    .putLong(MediaMetadata.METADATA_KEY_DURATION, durationMs)
+                    .build()
+            )
+        } catch (_: Exception) {
+        }
+    }
+
     private fun pushState() {
         val actions = PlaybackState.ACTION_PLAY or
             PlaybackState.ACTION_PAUSE or
             PlaybackState.ACTION_PLAY_PAUSE or
-            PlaybackState.ACTION_STOP
+            PlaybackState.ACTION_STOP or
+            // Without SEEK_TO the lock-screen / Android Auto scrubber is
+            // inert, and Bluetooth skip buttons do nothing at all.
+            PlaybackState.ACTION_SEEK_TO or
+            PlaybackState.ACTION_REWIND or
+            PlaybackState.ACTION_FAST_FORWARD
         val state = if (playing) PlaybackState.STATE_PLAYING else PlaybackState.STATE_PAUSED
         mediaSession?.setPlaybackState(
             PlaybackState.Builder()
                 .setActions(actions)
-                .setState(state, PlaybackState.PLAYBACK_POSITION_UNKNOWN, if (playing) 1f else 0f)
+                // Reporting PLAYBACK_POSITION_UNKNOWN meant no system surface
+                // could ever draw progress.
+                .setState(
+                    state,
+                    if (positionMs >= 0) positionMs else PlaybackState.PLAYBACK_POSITION_UNKNOWN,
+                    if (playing) speed else 0f,
+                )
                 .build()
         )
     }
