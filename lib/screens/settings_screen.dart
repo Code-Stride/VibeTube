@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../providers/app_provider.dart';
@@ -85,6 +86,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       value: p.isBackgroundPlayEnabled,
                       onChanged: (_) => p.toggleBackgroundPlay(),
                     ),
+                    // Background play needs the notification permission to
+                    // show its MediaSession. Denied, the feature just appears
+                    // broken with no explanation anywhere.
+                    if (!p.notificationsAllowed)
+                      _permissionWarning(c, p),
                     _tile(
                       c,
                       icon: Icons.picture_in_picture_alt,
@@ -206,6 +212,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               onLater: () {},
                               onSkip: () => p.dismissUpdate(),
                             );
+                          } else if (p.lastUpdateCheckFailed) {
+                            // Distinguish "no update" from "could not reach
+                            // GitHub" - this used to claim the app was up to
+                            // date even with no network at all.
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                  content: Text(
+                                      'Update check failed - check your connection')),
+                            );
                           } else {
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
@@ -232,11 +247,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         trailing:
                             Icon(Icons.chevron_right, color: c.textMuted),
                         onTap: () async {
+                          final messenger = ScaffoldMessenger.of(context);
                           final uri = Uri.parse(
                               'https://github.com/Code-Stride/VibeTube/releases');
-                          if (await canLaunchUrl(uri)) {
-                            await launchUrl(uri,
+                          var ok = false;
+                          try {
+                            ok = await launchUrl(uri,
                                 mode: LaunchMode.externalApplication);
+                          } catch (_) {
+                            ok = false;
+                          }
+                          // Silently doing nothing is worse than saying so.
+                          if (!ok) {
+                            messenger.showSnackBar(const SnackBar(
+                                content: Text('Could not launch browser')));
                           }
                         },
                       ),
@@ -409,6 +433,44 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 duration: const Duration(seconds: 1)),
           );
         },
+      ),
+    );
+  }
+
+  Widget _permissionWarning(VibeColors c, AppProvider p) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppTheme.error.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppTheme.error.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.notifications_off, color: AppTheme.error, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Notifications are blocked, so lock-screen and background '
+              'controls cannot be shown.',
+              style: TextStyle(fontSize: 12, color: c.textSecondary),
+            ),
+          ),
+          TextButton(
+            onPressed: () async {
+              final granted =
+                  await Permission.notification.request().isGranted;
+              if (!mounted) return;
+              if (granted) {
+                p.setNotificationsAllowed(true);
+              } else {
+                await openAppSettings();
+              }
+            },
+            child: const Text('Fix', style: TextStyle(fontSize: 12)),
+          ),
+        ],
       ),
     );
   }

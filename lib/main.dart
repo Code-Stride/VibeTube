@@ -23,13 +23,20 @@ void main() async {
   // Background / headset / lock-screen audio routing
   await AudioHelper.configure();
 
-  // Android 13+ media notification permission (best-effort)
+  // Android 13+ media notification permission (best-effort).
+  // Without it the foreground MediaSession cannot show a notification, so
+  // background playback and lock-screen controls silently do nothing. We
+  // record the outcome so Settings can explain that instead of leaving the
+  // user to wonder why the feature "does not work".
   try {
-    final status = await Permission.notification.status;
+    var status = await Permission.notification.status;
     if (!status.isGranted) {
-      await Permission.notification.request();
+      status = await Permission.notification.request();
     }
-  } catch (_) {}
+    provider.notificationsAllowed = status.isGranted;
+  } catch (_) {
+    provider.notificationsAllowed = true; // non-Android / unknown: assume ok
+  }
 
   // Wire up deep link handler (YouTube URLs from other apps)
   _setupDeepLinkHandler();

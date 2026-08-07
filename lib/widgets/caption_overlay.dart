@@ -25,9 +25,7 @@ class CaptionOverlay extends StatelessWidget {
       left: 16,
       right: 16,
       bottom: 60,
-      child: AnimatedOpacity(
-        opacity: 1.0,
-        duration: const Duration(milliseconds: 150),
+      child: RepaintBoundary(
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
@@ -53,11 +51,23 @@ class CaptionOverlay extends StatelessWidget {
     );
   }
 
+  /// Binary search over the (already sorted) cue list.
+  ///
+  /// Auto-generated transcripts routinely have 1500+ cues and this runs on
+  /// every position tick, so the previous linear scan was doing real work
+  /// four times a second for the entire video.
   CaptionCue? _findCue(Duration position) {
     final posMs = position.inMilliseconds;
-    for (final cue in cues) {
-      if (posMs >= cue.start.inMilliseconds &&
-          posMs < cue.end.inMilliseconds) {
+    var lo = 0;
+    var hi = cues.length - 1;
+    while (lo <= hi) {
+      final mid = (lo + hi) >> 1;
+      final cue = cues[mid];
+      if (posMs < cue.start.inMilliseconds) {
+        hi = mid - 1;
+      } else if (posMs >= cue.end.inMilliseconds) {
+        lo = mid + 1;
+      } else {
         return cue;
       }
     }

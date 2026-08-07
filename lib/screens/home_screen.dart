@@ -30,16 +30,28 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<MiniPlayerController>().setUseGlobalOverlay(false);
+      if (!mounted) return;
+      _mini = context.read<MiniPlayerController>();
+      _mini!.setUseGlobalOverlay(false);
       _scheduleUpdateCheck();
     });
   }
 
   @override
   void dispose() {
-    try { context.read<MiniPlayerController>().setUseGlobalOverlay(true); } catch (_) {}
+    // Capture the controller now: reading an InheritedWidget during teardown
+    // is unsafe, and notifying listeners mid-dispose is a classic crash
+    // source. Defer the notify to after this frame instead.
+    final mini = _mini;
+    if (mini != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        mini.setUseGlobalOverlay(true);
+      });
+    }
     super.dispose();
   }
+
+  MiniPlayerController? _mini;
 
   Future<void> _scheduleUpdateCheck() async {
     await Future.delayed(const Duration(seconds: 4));
@@ -67,7 +79,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final pages = <Widget>[
       isMusic ? const _MusicHomeFeed() : const _HomeFeed(),
       const SearchScreen(),
-      if (!isMusic) ShortsScreen(isActive: _index == 2),
+      if (!isMusic) ShortsScreen(isActive: _index == 2 && !isMusic),
       const LibraryScreen(),
       const DownloadsScreen(),
       const SettingsScreen(),
@@ -91,14 +103,17 @@ class _HomeScreenState extends State<HomeScreen> {
             BottomNavigationBarItem(icon: Icon(Icons.settings_outlined), label: 'Settings'),
           ];
 
+    // Clamp locally instead of mutating state during build.
     final maxIndex = navItems.length - 1;
-    if (_index > maxIndex) _index = maxIndex;
+    final index = _index > maxIndex ? maxIndex : _index;
 
     return Scaffold(
-      body: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 200),
-        child: IndexedStack(key: ValueKey('$isMusic-$_index'), index: _index, children: pages),
-      ),
+      // No AnimatedSwitcher here. Its key used to include `_index`, so every
+      // tab tap looked like a brand-new widget and the whole IndexedStack was
+      // rebuilt from scratch — defeating the entire point of IndexedStack.
+      // During the 200ms cross-fade both stacks were alive, which meant two
+      // ShortsScreens and therefore two players producing audio at once.
+      body: IndexedStack(key: ValueKey(isMusic), index: index, children: pages),
       bottomNavigationBar: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -109,7 +124,7 @@ class _HomeScreenState extends State<HomeScreen> {
               border: Border(top: BorderSide(color: isDark ? const Color(0xFF303030) : const Color(0xFFE0E0E0), width: 0.5)),
             ),
             child: BottomNavigationBar(
-              currentIndex: _index,
+              currentIndex: index,
               onTap: (i) => setState(() => _index = i),
               selectedItemColor: isMusic ? const Color(0xFFFF0000) : null,
               items: navItems,
@@ -236,10 +251,10 @@ class _HomeFeedState extends State<_HomeFeed> {
           Expanded(
             child: Consumer<AppProvider>(
               builder: (context, provider, _) {
-                if (provider.isLoading && provider.trendingVideos.isEmpty) {
+                if (provider.isFeedLoading && provider.trendingVideos.isEmpty) {
                   return _buildShimmer(c);
                 }
-                if (provider.error != null && provider.trendingVideos.isEmpty) {
+                if (provider.feedError != null && provider.trendingVideos.isEmpty) {
                   return _buildError(provider, c);
                 }
                 if (provider.trendingVideos.isEmpty) {
@@ -250,18 +265,15 @@ class _HomeFeedState extends State<_HomeFeed> {
                   onRefresh: provider.loadTrending,
                   child: ListView.builder(
                     physics: const AlwaysScrollableScrollPhysics(),
-                    itemCount: provider.trendingVideos.length + (provider.isLoading ? 1 : 0) + (provider.selectedCategory == 'All' && provider.musicVideos.isNotEmpty ? 1 : 0),
+                    itemCount: provider.trendingVideos.length + (provider.selectedCategory == 'All' && provider.musicVideos.isNotEmpty ? 1 : 0),
                     itemBuilder: (context, index) {
                       // YouTube Music section (only on 'All' tab)
                       if (provider.selectedCategory == 'All' && provider.musicVideos.isNotEmpty && index == 0) {
                         return _buildMusicSection(provider, c);
                       }
                       final videoIndex = provider.selectedCategory == 'All' && provider.musicVideos.isNotEmpty ? index - 1 : index;
-                      if (videoIndex >= provider.trendingVideos.length) {
-                        return const Padding(
-                          padding: EdgeInsets.all(24),
-                          child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
-                        );
+                      if (videoIndex < 0 || videoIndex >= provider.trendingVideos.length) {
+                        return const SizedBox.shrink();
                       }
                       final video = provider.trendingVideos[videoIndex];
                       return VideoCard(
@@ -420,7 +432,7 @@ class _HomeFeedState extends State<_HomeFeed> {
           children: [
             Icon(Icons.wifi_off_rounded, size: 48, color: c.textMuted),
             const SizedBox(height: 16),
-            Text(provider.error!, textAlign: TextAlign.center, style: TextStyle(color: c.textSecondary, fontSize: 14)),
+            Text(provider.feedError!, textAlign: TextAlign.center, style: TextStyle(color: c.textSecondary, fontSize: 14)),
             const SizedBox(height: 16),
             ElevatedButton(onPressed: provider.loadTrending, child: const Text('Retry')),
           ],
@@ -454,6 +466,48 @@ class _MusicHomeFeed extends StatefulWidget {
 
 class _MusicHomeFeedState extends State<_MusicHomeFeed> {
   static const musicCats = ['All', 'Trending', 'New Releases', 'Bollywood', 'Pop', 'Hip-Hop', 'R&B', 'Classical', 'Devotional', 'Podcasts'];
+
+  /// Search query behind each chip. They were previously inert
+  /// (`selected: false, onSelected: (_) {}`) — ten buttons that did nothing.
+  static const Map<String, String> _catQueries = {
+    'All': 'latest music hits',
+    'Trending': 'trending music',
+    'New Releases': 'new music releases',
+    'Bollywood': 'bollywood songs',
+    'Pop': 'pop music hits',
+    'Hip-Hop': 'hip hop music',
+    'R&B': 'rnb music',
+    'Classical': 'classical music',
+    'Devotional': 'devotional songs',
+    'Podcasts': 'podcast episodes',
+  };
+
+  String _selectedCat = 'All';
+  bool _catLoading = false;
+  List<Video> _catVideos = const [];
+
+  Future<void> _selectCat(String cat) async {
+    if (_catLoading) return;
+    setState(() {
+      _selectedCat = cat;
+      _catLoading = true;
+    });
+    final provider = context.read<AppProvider>();
+    try {
+      if (cat == 'All') {
+        setState(() => _catVideos = const []);
+        await provider.loadMusic();
+      } else {
+        final result = await provider.client.search(_catQueries[cat] ?? cat);
+        if (!mounted) return;
+        setState(() => _catVideos = result.videos);
+      }
+    } catch (_) {
+      if (mounted) setState(() => _catVideos = const []);
+    } finally {
+      if (mounted) setState(() => _catLoading = false);
+    }
+  }
 
   @override
   void initState() {
@@ -516,14 +570,20 @@ class _MusicHomeFeedState extends State<_MusicHomeFeed> {
               itemCount: musicCats.length,
               separatorBuilder: (_, __) => const SizedBox(width: 8),
               itemBuilder: (context, i) {
+                final cat = musicCats[i];
+                final selected = _selectedCat == cat;
                 return FilterChip(
-                  label: Text(musicCats[i]),
-                  selected: false,
-                  onSelected: (_) {},
+                  label: Text(cat),
+                  selected: selected,
+                  onSelected: (_) => _selectCat(cat),
                   showCheckmark: false,
                   selectedColor: const Color(0xFFFF0000),
                   backgroundColor: isDark ? const Color(0xFF2A1515) : const Color(0xFFFFE8E8),
-                  labelStyle: TextStyle(color: c.textPrimary, fontWeight: FontWeight.w500, fontSize: 14),
+                  labelStyle: TextStyle(
+                    color: selected ? Colors.white : c.textPrimary,
+                    fontWeight: FontWeight.w500,
+                    fontSize: 14,
+                  ),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                 );
               },
@@ -533,8 +593,24 @@ class _MusicHomeFeedState extends State<_MusicHomeFeed> {
           Expanded(
             child: Consumer<AppProvider>(
               builder: (context, provider, _) {
-                if (provider.isMusicLoading && provider.musicVideos.isEmpty) {
+                if (_catLoading ||
+                    (provider.isMusicLoading && provider.musicVideos.isEmpty)) {
                   return const Center(child: CircularProgressIndicator(color: Color(0xFFFF0000)));
+                }
+                if (_selectedCat != 'All') {
+                  if (_catVideos.isEmpty) {
+                    return Center(
+                      child: Text('No results for $_selectedCat',
+                          style: TextStyle(color: c.textSecondary)),
+                    );
+                  }
+                  return ListView(
+                    children: [
+                      _musicSectionTitle(c, _selectedCat, Icons.library_music),
+                      _buildMusicList(_catVideos, c),
+                      const SizedBox(height: 24),
+                    ],
+                  );
                 }
                 return RefreshIndicator(
                   color: const Color(0xFFFF0000),

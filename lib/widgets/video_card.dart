@@ -1,8 +1,10 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 import '../models/video.dart';
 import '../providers/app_provider.dart';
+import '../utils/share_links.dart';
 import '../utils/theme.dart';
 
 /// YouTube-exact video card — matches YouTube's layout pixel-for-pixel.
@@ -294,15 +296,26 @@ class VideoCard extends StatelessWidget {
               ListTile(
                 leading: Icon(Icons.thumb_down_outlined, color: c.textPrimary),
                 title: Text('Not interested', style: TextStyle(color: c.textPrimary)),
+                // Honest copy: nothing is filtered yet, and claiming
+                // "Marked as not interested" was simply untrue.
                 onTap: () {
                   Navigator.pop(ctx);
-                  messenger.showSnackBar(const SnackBar(content: Text('Marked as not interested')));
+                  messenger.showSnackBar(const SnackBar(
+                      content: Text('Feed personalisation is not available yet')));
                 },
               ),
               ListTile(
                 leading: Icon(Icons.share_outlined, color: c.textPrimary),
                 title: Text('Share', style: TextStyle(color: c.textPrimary)),
-                onTap: () => Navigator.pop(ctx),
+                // This used to only close the sheet - the menu item looked
+                // functional but shared nothing.
+                onTap: () {
+                  Navigator.pop(ctx);
+                  Share.share(
+                    ShareLinks.shareText(video.id, video.title),
+                    subject: video.title,
+                  );
+                },
               ),
               const SizedBox(height: 8),
             ],

@@ -106,6 +106,18 @@ class LibraryScreen extends StatelessWidget {
             const SizedBox(width: 6),
             Text('($count)', style: TextStyle(color: c.textMuted, fontSize: 13)),
             const Spacer(),
+            // Only the first 8 items are rendered inline; without this there
+            // was no way at all to reach the rest of the list.
+            if (videos.length > 8)
+              TextButton(
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => _LibraryListScreen(title: title, videos: videos),
+                  ),
+                ),
+                child: const Text('See all', style: TextStyle(fontSize: 12)),
+              ),
             if (onClear != null)
               TextButton(
                 onPressed: onClear,
@@ -165,6 +177,43 @@ class LibraryScreen extends StatelessWidget {
           ),
           const Icon(Icons.check_circle, color: AppTheme.success, size: 18),
         ],
+      ),
+    );
+  }
+}
+
+/// Full, scrollable view of a library section (History / Watch Later / Liked).
+class _LibraryListScreen extends StatelessWidget {
+  final String title;
+  final List<Video> videos;
+  const _LibraryListScreen({required this.title, required this.videos});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = VibeColors.of(context);
+    return Scaffold(
+      backgroundColor: c.background,
+      appBar: AppBar(
+        backgroundColor: c.surface,
+        title: Text('$title (${videos.length})',
+            style: TextStyle(color: c.textPrimary, fontSize: 18)),
+      ),
+      body: ListView.builder(
+        padding: const EdgeInsets.all(12),
+        itemCount: videos.length,
+        itemBuilder: (context, i) {
+          final v = videos[i];
+          return VideoCard(
+            video: v,
+            compact: true,
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => PlayerScreen(videoId: v.id, preview: v),
+              ),
+            ),
+          );
+        },
       ),
     );
   }

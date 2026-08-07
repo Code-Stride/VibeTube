@@ -17,17 +17,34 @@ class SearchScreen extends StatefulWidget {
 class _SearchScreenState extends State<SearchScreen> {
   final _controller = TextEditingController();
   final _focus = FocusNode();
+  final _scroll = ScrollController();
 
   @override
   void initState() {
     super.initState();
-    if (widget.standalone) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _focus.requestFocus());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (widget.standalone) _focus.requestFocus();
+      // Keep the field in step with provider state: switching tabs used to
+      // leave the box empty while results were still on screen.
+      final q = context.read<AppProvider>().searchQuery;
+      if (q.isNotEmpty && _controller.text != q) _controller.text = q;
+    });
+    _scroll.addListener(_onScroll);
+  }
+
+  void _onScroll() {
+    if (!_scroll.hasClients) return;
+    if (_scroll.position.pixels >=
+        _scroll.position.maxScrollExtent - 600) {
+      context.read<AppProvider>().loadMoreSearchResults();
     }
   }
 
   @override
   void dispose() {
+    _scroll.removeListener(_onScroll);
+    _scroll.dispose();
     _controller.dispose();
     _focus.dispose();
     super.dispose();
@@ -44,9 +61,12 @@ class _SearchScreenState extends State<SearchScreen> {
     final c = VibeColors.of(context);
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    return Scaffold(
-      backgroundColor: c.background,
-      body: SafeArea(
+    // Only a standalone route owns a Scaffold. Embedded in HomeScreen's
+    // IndexedStack this was a Scaffold inside a Scaffold, which doubled the
+    // SafeArea inset and routed SnackBars to the wrong ScaffoldMessenger.
+    final content = ColoredBox(
+      color: c.background,
+      child: SafeArea(
         child: Column(
           children: [
             // YouTube-exact search bar
@@ -78,20 +98,23 @@ class _SearchScreenState extends State<SearchScreen> {
                             child: Icon(Icons.search, color: c.textMuted, size: 20),
                           ),
                           prefixIconConstraints: const BoxConstraints(minWidth: 40, minHeight: 40),
-                          suffixIcon: _controller.text.isEmpty
-                              ? null
-                              : IconButton(
-                                  icon: Icon(Icons.close, size: 20, color: c.textMuted),
-                                  onPressed: () {
-                                    _controller.clear();
-                                    context.read<AppProvider>().clearSearch();
-                                    setState(() {});
-                                  },
-                                ),
+                          // Rebuilding only the icon, not the whole page
+                          // (results list included) on every keystroke.
+                          suffixIcon: ValueListenableBuilder<TextEditingValue>(
+                            valueListenable: _controller,
+                            builder: (_, value, __) => value.text.isEmpty
+                                ? const SizedBox.shrink()
+                                : IconButton(
+                                    icon: Icon(Icons.close, size: 20, color: c.textMuted),
+                                    onPressed: () {
+                                      _controller.clear();
+                                      context.read<AppProvider>().clearSearch();
+                                    },
+                                  ),
+                          ),
                           border: InputBorder.none,
                           contentPadding: const EdgeInsets.symmetric(vertical: 10),
                         ),
-                        onChanged: (_) => setState(() {}),
                         onSubmitted: _submit,
                       ),
                     ),
@@ -117,8 +140,27 @@ class _SearchScreenState extends State<SearchScreen> {
             Expanded(
               child: Consumer<AppProvider>(
                 builder: (context, provider, _) {
-                  if (provider.isLoading && provider.searchResults.isEmpty) {
+                  if (provider.isSearchLoading && provider.searchResults.isEmpty) {
                     return const Center(child: CircularProgressIndicator());
+                  }
+                  if (provider.searchError != null &&
+                      provider.searchResults.isEmpty) {
+                    return Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.wifi_off_rounded, size: 44, color: c.textMuted),
+                          const SizedBox(height: 12),
+                          Text(provider.searchError!,
+                              style: TextStyle(color: c.textSecondary, fontSize: 15)),
+                          const SizedBox(height: 12),
+                          ElevatedButton(
+                            onPressed: () => _submit(provider.searchQuery),
+                            child: const Text('Retry'),
+                          ),
+                        ],
+                      ),
+                    );
                   }
                   if (provider.searchQuery.isEmpty) return _suggestions(provider, c);
                   if (provider.searchResults.isEmpty) {
@@ -134,8 +176,18 @@ class _SearchScreenState extends State<SearchScreen> {
                     );
                   }
                   return ListView.builder(
-                    itemCount: provider.searchResults.length,
+                    controller: _scroll,
+                    itemCount: provider.searchResults.length +
+                        (provider.hasMoreSearch ? 1 : 0),
                     itemBuilder: (context, i) {
+                      if (i >= provider.searchResults.length) {
+                        // Trailing loader; _onScroll requests the next page.
+                        return const Padding(
+                          padding: EdgeInsets.all(20),
+                          child: Center(
+                              child: CircularProgressIndicator(strokeWidth: 2)),
+                        );
+                      }
                       final v = provider.searchResults[i];
                       return VideoCard(
                         video: v, compact: true,
@@ -151,6 +203,9 @@ class _SearchScreenState extends State<SearchScreen> {
         ),
       ),
     );
+
+    if (!widget.standalone) return content;
+    return Scaffold(backgroundColor: c.background, body: content);
   }
 
   Widget _suggestions(AppProvider provider, VibeColors c) {

@@ -145,9 +145,25 @@ class UpdateDialog extends StatelessWidget {
           ),
         ElevatedButton.icon(
           onPressed: () async {
-            final uri = Uri.parse(info.downloadUrl);
-            if (await canLaunchUrl(uri)) {
-              await launchUrl(uri, mode: LaunchMode.externalApplication);
+            // Previously: if canLaunchUrl() returned false, nothing at all
+            // happened and the dialog stayed put, looking like a dead button.
+            final messenger = ScaffoldMessenger.maybeOf(context);
+            final navigator = Navigator.of(context);
+            var ok = false;
+            try {
+              ok = await launchUrl(
+                Uri.parse(info.downloadUrl),
+                mode: LaunchMode.externalApplication,
+              );
+            } catch (_) {
+              ok = false;
+            }
+            if (ok) {
+              navigator.pop();
+            } else {
+              messenger?.showSnackBar(
+                const SnackBar(content: Text('Could not start the download')),
+              );
             }
           },
           icon: const Icon(Icons.download, size: 18),

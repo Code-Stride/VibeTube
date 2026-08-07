@@ -59,15 +59,36 @@ class DownloadsScreen extends StatelessWidget {
                   children: [
                     ...active.map((id) {
                       final p = provider.downloadProgress[id] ?? 0;
+                      // Show *which* video, and let the user stop it. The row
+                      // used to say only "Downloading..." with no title and no
+                      // way to cancel before the 30 minute timeout.
+                      final meta = provider.downloadTitles[id];
                       return Card(
                         color: c.surface,
                         child: ListTile(
                           leading: const CircularProgressIndicator(strokeWidth: 2),
-                          title: Text('Downloading…',
-                              style: TextStyle(color: c.textPrimary)),
-                          subtitle: LinearProgressIndicator(value: p),
-                          trailing: Text('${(p * 100).toStringAsFixed(0)}%',
-                              style: TextStyle(color: c.textSecondary)),
+                          title: Text(
+                            meta == null || meta.isEmpty ? 'Downloading...' : meta,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(color: c.textPrimary),
+                          ),
+                          subtitle: Padding(
+                            padding: const EdgeInsets.only(top: 6),
+                            child: LinearProgressIndicator(value: p),
+                          ),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text('${(p * 100).toStringAsFixed(0)}%',
+                                  style: TextStyle(color: c.textSecondary)),
+                              IconButton(
+                                tooltip: 'Cancel',
+                                icon: Icon(Icons.close, color: c.textSecondary),
+                                onPressed: () => provider.cancelDownload(id),
+                              ),
+                            ],
+                          ),
                         ),
                       );
                     }),
