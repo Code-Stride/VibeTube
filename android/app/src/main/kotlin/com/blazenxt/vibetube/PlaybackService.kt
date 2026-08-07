@@ -189,6 +189,15 @@ class PlaybackService : Service() {
             Intent(this, PlaybackService::class.java).setAction(ACTION_STOP),
             piFlags
         )
+        // setOngoing(false) while paused makes the notification swipeable.
+        // Without a delete intent the swipe only removed the notification and
+        // left the service running with a live MediaSession — a zombie holding
+        // audio focus that the user had no remaining control surface for.
+        val deletePi = PendingIntent.getService(
+            this, 3,
+            Intent(this, PlaybackService::class.java).setAction(ACTION_STOP),
+            piFlags
+        )
 
         val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL_ID)
@@ -202,6 +211,7 @@ class PlaybackService : Service() {
             .setContentText(artist)
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentIntent(contentPi)
+            .setDeleteIntent(deletePi)
             .setOngoing(playing)
             .setOnlyAlertOnce(true)
             .setCategory(Notification.CATEGORY_TRANSPORT)
