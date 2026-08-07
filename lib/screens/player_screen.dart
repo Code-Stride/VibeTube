@@ -155,12 +155,25 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     final c = _controller;
     if (c == null || !c.value.isInitialized || c.value.isPlaying) return;
     _requestingFocus = true;
-    AudioHelper.requestFocus().then((_) {
-      c.play();
-      _requestingFocus = false;
-      if (mounted) setState(() {});
+    // Guard released from a finally, and the controller re-checked after the
+    // await: the old .then() had no catchError, so a throw from requestFocus()
+    // (or a controller disposed meanwhile) left _requestingFocus stuck on —
+    // and every interruption handler early-returns while it is set, silently
+    // disabling call / headset / duck handling for the rest of the session.
+    () async {
+      try {
+        await AudioHelper.requestFocus();
+        if (!mounted || _controller != c) return;
+        await c.play();
+      } catch (e) {
+        debugPrint('resume after interruption failed: $e');
+      } finally {
+        _releaseFocusGuardSoon();
+      }
+      if (!mounted) return;
+      setState(() {});
       _syncNativePlayback(forceBg: true);
-    });
+    }();
   }
 
   /// Transient sound (notification): duck rather than pause.
@@ -600,9 +613,12 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     }
     _requestingFocus = true;
     _lastPlayTime = DateTime.now();
-    await AudioHelper.requestFocus();
-    await c.play();
-    _releaseFocusGuardSoon();
+    try {
+      await AudioHelper.requestFocus();
+      await c.play();
+    } finally {
+      _releaseFocusGuardSoon();
+    }
     if (!mounted) return true;
     await NativePlayer.setPlaying(true);
     if (!mounted) return true;
@@ -747,16 +763,22 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     if (c == null || !c.value.isInitialized) return;
     if (c.value.isPlaying) {
       _requestingFocus = true;
-      await c.pause();
-      _requestingFocus = false;
-      _pausedByInterruption = false;
+      try {
+        await c.pause();
+        _pausedByInterruption = false;
+      } finally {
+        _releaseFocusGuardSoon();
+      }
       await _applyWakelock(playing: false);
     } else {
       _requestingFocus = true;
       _lastPlayTime = DateTime.now();
-      await AudioHelper.requestFocus();
-      await c.play();
-      _releaseFocusGuardSoon();
+      try {
+        await AudioHelper.requestFocus();
+        await c.play();
+      } finally {
+        _releaseFocusGuardSoon();
+      }
       await _applyWakelock(playing: true);
     }
     if (mounted) setState(() {});
