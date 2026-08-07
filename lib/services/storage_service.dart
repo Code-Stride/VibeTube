@@ -142,7 +142,11 @@ class StorageService {
         await setList(_kDownloads, list);
       });
 
-  Future<void> clearHistory() async => setList(_kHistory, []);
+  /// Must take the same lock as [addToHistory]: an in-flight history write
+  /// (started when playback began) could otherwise land *after* the clear and
+  /// resurrect the entry the user just deleted.
+  Future<void> clearHistory() =>
+      _synchronized(_kHistory, () => setList(_kHistory, []));
 
   // ---- Search History ----
 
@@ -169,8 +173,9 @@ class StorageService {
         await p.setStringList(_kSearchHistory, list);
       });
 
-  Future<void> clearSearchHistory() async {
-    final p = await prefs;
-    await p.remove(_kSearchHistory);
-  }
+  Future<void> clearSearchHistory() =>
+      _synchronized(_kSearchHistory, () async {
+        final p = await prefs;
+        await p.remove(_kSearchHistory);
+      });
 }

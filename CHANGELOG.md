@@ -12,6 +12,104 @@ and this project roughly follows [Semantic Versioning](https://semver.org/).
 - Voice search
 - Playlist support
 
+## [1.12.0] - 2026-07-17
+
+Deep bug audit: 39 findings triaged, 37 fixed. See PR "Deep bug audit" for the
+full analysis.
+
+### Fixed — playback
+- **Screen no longer sleeps mid-video.** Background play defaults to on, and
+  that code path called `WakelockPlus.disable()`, so with stock settings the
+  display slept ~30s into every video while audio kept going. The wakelock now
+  tracks "is playing" (and is released in PiP), independently of background
+  play.
+- **Locked quality no longer reports false success.** `_attachController` now
+  returns whether it actually attached instead of letting callers read a stale
+  `_ready` field, so a failed quality switch reports the failure rather than
+  silently keeping the old stream.
+- **Dead stream URLs removed.** `signatureCipher` formats were emitted with the
+  signature stripped, producing URLs that always 403 — and they outranked the
+  working unciphered ones from the IOS/ANDROID clients. They are now skipped.
+- **Back button can close the player.** Backing out of a *paused* video closes
+  it; only actively playing video is handed to the mini player.
+- **Live detection fixed.** Any video whose text contained "live" ("Delivery",
+  "Oliver") was badged LIVE and routed down the live-only HLS path. Detection
+  now looks at real badge/overlay markers.
+- **`likeCount` is parsed, not cast.** InnerTube returns it as a string, so the
+  `as num?` cast always yielded 0.
+
+### Fixed — feeds and navigation
+- **Infinite scroll works.** `SearchResult.continuation` was never populated,
+  so every "load more" re-requested page 1. Home, search and Shorts now follow
+  real continuation tokens; the Shorts feed no longer dead-ends at ~20 videos.
+- **Tabs keep their state.** The `IndexedStack` key included the tab index, so
+  every switch destroyed and rebuilt all tabs, losing scroll position and typed
+  search text.
+- **Search and Home no longer share a spinner.** Split into `isSearching` /
+  `isLoading`; the shared request-ID guard could also strand a spinner forever.
+- **Feed order is stable.** Trending is no longer reshuffled on every load.
+- **The mini player bar is reachable again.** Overlay ownership moved to a
+  `NavigatorObserver`; the old flag was only set in `HomeScreen.dispose()`,
+  which never runs because HomeScreen is `MaterialApp.home`.
+- **Region setting reaches search.** It was hard-coded to the client default,
+  and changing it now refreshes the feeds.
+- **Music Mode chips do something.** They were decorative (`onSelected: (_) {}`).
+- **No more duplicate music rows.** "More for you" skipped 6 while "Quick picks"
+  showed 10, repeating four videos.
+
+### Fixed — data integrity
+- **Partial downloads are no longer marked complete.** A dropped connection
+  ends the stream without an error; the received byte count is now checked
+  against `Content-Length` before the `.part` file is promoted to `.mp4`.
+- **`clearHistory` takes the storage lock**, so an in-flight write can no longer
+  resurrect a just-cleared entry.
+- **Per-video quality/speed no longer rewrites the global default.**
+- **Build-number-only updates are detected** (`1.11.0+27` over `1.11.0+26`).
+- **Locale-aware view counts.** `1.234.567` (de/es) parsed as 1; comma-decimal
+  and space-grouped locales are handled too.
+
+### Fixed — resources and correctness
+- **Shorts `AnimationController` is disposed** (Ticker leak + debug assertion).
+- **Shorts take audio focus** and pause the mini player instead of playing over
+  it; they also respond to headphone unplug.
+- **Shorts cost ~1 request instead of 5.** A dedicated single-client stream
+  lookup replaces the full `getVideoDetails` fan-out per card.
+- **Shorts like button reflects real state** instead of blind-toggling.
+- **Media/audio handlers register synchronously**, closing a race where a
+  quickly-dismissed player leaked a listener forever.
+- **`/next` is fetched once per video**, not twice (related + comments).
+- **Request-ID guards added** to `loadShorts` / `loadMusic`.
+- **Caption lookup is a binary search**, not a per-frame linear scan.
+- **Sponsor markers stay inside the progress bar.**
+- **Position timer pauses** in PiP and while backgrounded.
+- **Avatar initials are emoji-safe** (`name[0]` returned a lone surrogate).
+- **"Next" cycles** through related videos instead of replaying the first.
+- **Audio-focus guard no longer races itself** on rapid play/pause.
+
+### Changed
+- **SponsorBlock uses the privacy-preserving hash-prefix endpoint**, so the
+  exact video ID never leaves the device.
+- **Update checks are throttled to once every 6 hours** instead of every cold
+  start (the unauthenticated GitHub API allows 60 requests/hour/IP).
+- **Notification permission is requested in context**, when background playback
+  first needs it, rather than over the splash screen on every cold start.
+- **Release builds are minified and resource-shrunk** with a new
+  `proguard-rules.pro`. *Needs a device smoke test before shipping.*
+- **"Ad blocker" is now an honest status row**, not a toggle that did nothing —
+  ad-free playback is a property of the InnerTube clients.
+- Debug logging is compiled out of release builds; it was writing signed stream
+  URLs to logcat.
+- Added `crypto` dependency (SponsorBlock hash prefix).
+
+### Known / deferred
+- **PoToken**: the InnerTube clients still run without one. If Google tightens
+  enforcement, playback breaks. Tracked separately — it needs a real
+  integrity-token flow, not a patch.
+- **Stream-URL expiry**: no mid-playback re-resolve yet.
+- **Download resume**: no `Range` header support; a failed 200MB download still
+  restarts from zero.
+- **Captions** are still scraped from the watch page HTML.
+
 ## [1.7.1] - 2026-07-31
 
 ### Fixed

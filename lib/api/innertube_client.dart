@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../models/video.dart';
@@ -91,26 +92,40 @@ class InnerTubeClient {
   static const String kFilterShorts = 'EgIYAQ==';
   static const String kFilterLive = 'EgJAAQ==';
 
-  Future<List<Video>> getCategoryFeed(String category, {String region = 'IN'}) async {
+  Future<List<Video>> getCategoryFeed(String category, {String region = 'IN'}) async =>
+      (await getCategoryPage(category, region: region)).videos;
+
+  /// Category feed as a pageable result, so callers can keep scrolling.
+  Future<SearchResult> getCategoryPage(String category,
+      {String region = 'IN', String? continuation}) async {
     final c = category.trim().toLowerCase();
     final isIn = region.toUpperCase() == 'IN';
     if (c == 'shorts') {
       final q = isIn ? 'shorts india' : 'shorts';
-      var result = await search(q, params: kFilterShorts);
-      if (result.videos.isEmpty) result = await search('#shorts', params: kFilterShorts);
-      if (result.videos.isEmpty) result = await search('youtube shorts', params: kFilterShorts);
-      return result.videos;
+      var result = await search(q,
+          params: kFilterShorts, region: region, continuation: continuation);
+      if (result.videos.isEmpty && continuation == null) {
+        result = await search('#shorts', params: kFilterShorts, region: region);
+      }
+      if (result.videos.isEmpty && continuation == null) {
+        result = await search('youtube shorts', params: kFilterShorts, region: region);
+      }
+      return result;
     }
     if (c == 'live') {
       final q = isIn ? 'live news india' : 'live news';
-      var result = await search(q, params: kFilterLive);
-      if (result.videos.isEmpty) result = await search('live', params: kFilterLive);
-      return result.videos;
+      var result = await search(q,
+          params: kFilterLive, region: region, continuation: continuation);
+      if (result.videos.isEmpty && continuation == null) {
+        result = await search('live', params: kFilterLive, region: region);
+      }
+      return result;
     }
     final q = _categoryQuery(category, region);
-    final result = await search(q, params: kFilterVideos);
-    if (result.videos.isNotEmpty) return result.videos;
-    return (await search(category, params: kFilterVideos)).videos;
+    final result = await search(q,
+        params: kFilterVideos, region: region, continuation: continuation);
+    if (result.videos.isNotEmpty || continuation != null) return result;
+    return search(category, params: kFilterVideos, region: region);
   }
 
   String _categoryQuery(String category, String region) {
@@ -142,7 +157,7 @@ class InnerTubeClient {
       if (i > 0) await Future.delayed(const Duration(milliseconds: 300));
       final batch = queries.sublist(i, (i + 4).clamp(0, queries.length));
       final results = await Future.wait(batch.map((q) async {
-        try { return (await search(q)).videos; } catch (_) { return <Video>[]; }
+        try { return (await search(q, region: region)).videos; } catch (_) { return <Video>[]; }
       }));
       final lists = results.where((l) => l.isNotEmpty).toList();
       var idx = 0;
@@ -159,20 +174,78 @@ class InnerTubeClient {
     return out;
   }
 
-  Future<SearchResult> search(String query, {String? continuation, String? params}) async {
+  /// Searches, optionally continuing a previous page.
+  ///
+  /// [region] overrides the client `gl` so the Settings region actually
+  /// reaches search — previously every query was hard-coded to the `_webClient`
+  /// default regardless of what the user picked.
+  Future<SearchResult> search(String query,
+      {String? continuation, String? params, String? region}) async {
     final client = Map<String, dynamic>.from(_webClient);
-    final body = <String, dynamic>{'query': query, 'context': {'client': client}, 'params': params ?? kFilterVideos};
-    if (continuation != null) body['continuation'] = continuation;
+    if (region != null && region.isNotEmpty) client['gl'] = region.toUpperCase();
+    // A continuation request must NOT resend query/params: YouTube treats the
+    // token as the complete description of the next page.
+    final body = continuation != null
+        ? <String, dynamic>{'context': {'client': client}, 'continuation': continuation}
+        : <String, dynamic>{'query': query, 'context': {'client': client}, 'params': params ?? kFilterVideos};
     try {
       final response = await _post('search', body, userAgent: _webClient['userAgent'] as String);
       final videos = _parseVideosDeep(response);
-      if (videos.isNotEmpty) return SearchResult(videos: videos);
+      if (videos.isNotEmpty) {
+        return SearchResult(videos: videos, continuation: _extractContinuation(response));
+      }
     } catch (_) {}
+    // The ANDROID client has no continuation support here, so only retry the
+    // first page with it; a failed continuation just ends the feed.
+    if (continuation != null) return const SearchResult(videos: []);
     try {
       final androidClient = {'clientName': 'ANDROID', 'clientVersion': '20.10.38', 'androidSdkVersion': 34, 'hl': client['hl'] ?? 'en', 'gl': client['gl'] ?? 'IN'};
       final response = await _post('search', {'query': query, 'context': {'client': androidClient}, 'params': params ?? kFilterVideos}, userAgent: 'com.google.android.youtube/20.10.38 (Linux; U; Android 14) gzip');
-      return SearchResult(videos: _parseVideosDeep(response));
+      return SearchResult(
+        videos: _parseVideosDeep(response),
+        continuation: _extractContinuation(response),
+      );
     } catch (e) { throw Exception('Search failed: $e'); }
+  }
+
+  /// Pulls the "next page" token out of a browse/search response.
+  ///
+  /// Without this every `SearchResult.continuation` was null, so infinite
+  /// scroll and "load more shorts" silently re-requested page 1 forever.
+  @visibleForTesting
+  static String? extractContinuation(Map<String, dynamic> response) =>
+      _extractContinuation(response);
+
+  static String? _extractContinuation(Map<String, dynamic> response) {
+    String? token;
+    void walk(dynamic node) {
+      if (token != null) return;
+      if (node is Map) {
+        final direct = node['continuationItemRenderer']?['continuationEndpoint']
+            ?['continuationCommand']?['token'];
+        if (direct is String && direct.isNotEmpty) {
+          token = direct;
+          return;
+        }
+        // Older shelf-style responses nest the token differently.
+        final legacy = node['nextContinuationData']?['continuation'];
+        if (legacy is String && legacy.isNotEmpty) {
+          token = legacy;
+          return;
+        }
+        for (final v in node.values) {
+          walk(v);
+          if (token != null) return;
+        }
+      } else if (node is List) {
+        for (final i in node) {
+          walk(i);
+          if (token != null) return;
+        }
+      }
+    }
+    walk(response);
+    return token;
   }
 
   // ═══ Video Details ═══
@@ -245,7 +318,8 @@ class InnerTubeClient {
       else if (h >= 200) { bucket = 240; }
       else { bucket = 144; }
       normalized.putIfAbsent(bucket, () => e.value);
-      normalized[h] = e.value;
+      // Only add the raw height when it isn't already the bucket label.
+      if (h != bucket) normalized[h] = e.value;
     }
     hlsVariants = normalized;
 
@@ -276,6 +350,40 @@ class InnerTubeClient {
     );
   }
 
+  /// Cheap single-client stream lookup used by the Shorts feed.
+  ///
+  /// [getVideoDetails] fans out to every player client *and* downloads and
+  /// parses the HLS master playlist — five network round trips per video. The
+  /// Shorts pager instantiates one of these per card, so scrolling a 20-item
+  /// feed fired ~100 InnerTube requests and reliably tripped rate limiting.
+  /// A Short is short, vertical and always available as progressive MP4, so
+  /// one client and no manifest parsing is enough.
+  Future<String?> getQuickStreamUrl(String videoId) async {
+    Object? lastError;
+    for (final raw in _playerClients.take(2)) {
+      final cfg = Map<String, dynamic>.from(raw);
+      final ua = cfg.remove('_ua') as String?;
+      try {
+        final details = await _fetchPlayer(videoId, cfg, ua);
+        final muxed = details.formats
+            .where((f) => f.isMuxed && f.url.isNotEmpty)
+            .toList()
+          ..sort((a, b) => a.height.compareTo(b.height));
+        // Smallest stream that still looks decent on a phone.
+        for (final f in muxed) {
+          if (f.height >= 360) return f.url;
+        }
+        if (muxed.isNotEmpty) return muxed.last.url;
+        final hls = details.hlsUrl;
+        if (hls != null && hls.isNotEmpty) return hls;
+      } catch (e) {
+        lastError = e;
+      }
+    }
+    if (lastError != null) debugPrint('getQuickStreamUrl: $lastError');
+    return null;
+  }
+
   Future<VideoDetails> _fetchPlayer(String videoId, Map<String, dynamic> client, String? ua) async {
     final body = {
       'videoId': videoId, 'context': {'client': client},
@@ -304,31 +412,103 @@ class InnerTubeClient {
     return _parseVideoDetails(response, videoId);
   }
 
+  /// Related videos and comments both live in the same `/next` payload.
+  ///
+  /// They used to be fetched with two identical POSTs per video open. This
+  /// caches the in-flight/last response per video so the second caller reuses
+  /// it — halving the request count and keeping the two panes consistent.
+  String? _nextCacheVideoId;
+  Future<Map<String, dynamic>>? _nextCacheFuture;
+
+  Future<Map<String, dynamic>> _fetchNext(String videoId) {
+    if (_nextCacheVideoId == videoId && _nextCacheFuture != null) {
+      return _nextCacheFuture!;
+    }
+    final future = _post(
+      'next',
+      {'videoId': videoId, 'context': {'client': _webClient}},
+      userAgent: _webClient['userAgent'] as String,
+    );
+    _nextCacheVideoId = videoId;
+    _nextCacheFuture = future;
+    // A failed request must not be cached, or every retry returns the error.
+    future.catchError((Object e) {
+      if (_nextCacheVideoId == videoId) {
+        _nextCacheVideoId = null;
+        _nextCacheFuture = null;
+      }
+      throw e;
+    });
+    return future;
+  }
+
   Future<List<Video>> getRelatedVideos(String videoId) async {
     try {
-      final response = await _post('next', {'videoId': videoId, 'context': {'client': _webClient}}, userAgent: _webClient['userAgent'] as String);
-      return _parseVideosDeep(response);
+      final response = await _fetchNext(videoId);
+      // Drop the video we are already watching from its own "related" list.
+      return _parseVideosDeep(response).where((v) => v.id != videoId).toList();
     } catch (e) { debugPrint('getRelatedVideos error: $e'); return []; }
   }
 
   Future<List<Comment>> getComments(String videoId) async {
     try {
-      final response = await _post('next', {'videoId': videoId, 'context': {'client': _webClient}}, userAgent: _webClient['userAgent'] as String);
+      final response = await _fetchNext(videoId);
       return _parseCommentsDeep(response);
     } catch (e) { debugPrint('getComments error: $e'); return []; }
   }
 
+  /// SponsorBlock segments, fetched through the privacy-preserving endpoint.
+  ///
+  /// The plain `?videoID=` form tells sponsor.ajay.app exactly what every user
+  /// is watching. The documented alternative sends only the first four hex
+  /// characters of sha256(videoID); the server returns every video sharing
+  /// that prefix and we pick ours locally, so the exact video never leaves the
+  /// device.
   Future<List<SponsorSegment>> getSponsorSegments(String videoId) async {
+    const categories =
+        '%5B%22sponsor%22%2C%22selfpromo%22%2C%22interaction%22%2C%22intro%22%2C%22outro%22%2C%22preview%22%2C%22music_offtopic%22%2C%22filler%22%5D';
+    List<SponsorSegment> parse(List<dynamic> raw) {
+      final out = <SponsorSegment>[];
+      for (final s in raw) {
+        if (s is! Map) continue;
+        final seg = s['segment'];
+        if (seg is! List || seg.length < 2) continue;
+        final start = (seg[0] as num?)?.toDouble();
+        final end = (seg[1] as num?)?.toDouble();
+        if (start == null || end == null || end <= start) continue;
+        out.add(SponsorSegment(
+          start: start,
+          end: end,
+          category: s['category']?.toString() ?? 'sponsor',
+        ));
+      }
+      out.sort((a, b) => a.start.compareTo(b.start));
+      return out;
+    }
+
     try {
-      final uri = Uri.parse('https://sponsor.ajay.app/api/skipSegments?videoID=$videoId&categories=%5B%22sponsor%22%2C%22selfpromo%22%2C%22interaction%22%2C%22intro%22%2C%22outro%22%2C%22preview%22%2C%22music_offtopic%22%2C%22filler%22%5D');
-      final res = await _http.get(uri).timeout(const Duration(seconds: 8));
+      final prefix = sha256
+          .convert(utf8.encode(videoId))
+          .toString()
+          .substring(0, 4);
+      final uri = Uri.parse(
+          'https://sponsor.ajay.app/api/skipSegments/$prefix?categories=$categories');
+      final res = await _http.get(uri, headers: {
+        'Accept': 'application/json',
+        'User-Agent': 'VibeTube',
+      }).timeout(const Duration(seconds: 8));
       if (res.statusCode != 200) return [];
-      final data = jsonDecode(res.body) as List<dynamic>;
-      return data.map((s) {
-        final seg = s['segment'] as List<dynamic>;
-        return SponsorSegment(start: (seg[0] as num).toDouble(), end: (seg[1] as num).toDouble(), category: s['category']?.toString() ?? 'sponsor');
-      }).toList();
-    } catch (_) { return []; }
+      final data = jsonDecode(res.body);
+      if (data is! List) return [];
+      for (final entry in data) {
+        if (entry is Map && entry['videoID']?.toString() == videoId) {
+          return parse(entry['segments'] as List<dynamic>? ?? const []);
+        }
+      }
+      return [];
+    } catch (_) {
+      return [];
+    }
   }
 
   Future<int?> getDislikeCount(String videoId) async {
@@ -366,7 +546,9 @@ class InnerTubeClient {
       formats: _parseFormats(formats),
       hlsUrl: sd['hlsManifestUrl']?.toString(),
       dashUrl: sd['dashManifestUrl']?.toString(),
-      likeCount: (vd['likeCount'] as num?)?.toInt() ?? 0,
+      // InnerTube returns likeCount as a *string* on most clients, so the old
+      // `as num?` cast always produced 0 (and would throw on a plain cast).
+      likeCount: _parseLikeCount(vd['likeCount']),
       isLive: vd['isLiveContent'] == true || vd['isLive'] == true ||
           (vd['isUpcoming'] != true && lengthSec == 0 && (sd['hlsManifestUrl'] != null || sd['dashManifestUrl'] != null)),
       isShort: lengthSec > 0 && lengthSec <= 60 &&
@@ -378,12 +560,17 @@ class InnerTubeClient {
     final out = <VideoFormat>[];
     for (final f in formats) {
       if (f is! Map) continue;
-      String url = f['url']?.toString() ?? '';
+      final String url = f['url']?.toString() ?? '';
       if (url.isEmpty) {
-        final sc = f['signatureCipher']?.toString() ?? '';
-        if (sc.isNotEmpty) { final params = Uri.splitQueryString(sc); url = params['url'] ?? ''; }
+        // signatureCipher formats need the `s` parameter descrambled by
+        // YouTube's player JS before the URL works. We don't ship a JS
+        // interpreter, so the old code's "just use the bare url param"
+        // shortcut produced a URL that always 403s. Emitting it made
+        // bestMuxedUrl/urlForQuality pick a dead stream over a working one,
+        // which is worse than not offering the format at all — the IOS /
+        // ANDROID clients in _playerClients return unciphered URLs anyway.
+        continue;
       }
-      if (url.isEmpty) continue;
       final mime = (f['mimeType']?.toString() ?? '').toLowerCase();
       final hasVideo = mime.contains('video');
       final hasAudioCodec = mime.contains('mp4a') || mime.contains('opus') || f['audioQuality'] != null;
@@ -415,7 +602,9 @@ class InnerTubeClient {
           }
         }
         if (node['lockupViewModel'] is Map) { final v = _extractLockup(Map<String, dynamic>.from(node['lockupViewModel'] as Map)); if (v != null) videos.add(v); }
-        if (node['richItemRenderer'] is Map) { walk(node['richItemRenderer']['content']); }
+        // The explicit richItemRenderer hop is redundant: the generic
+        // node.values walk below already reaches ['content']. Doing both
+        // visited that subtree twice on every feed parse.
         for (final v in node.values) { walk(v); }
       } else if (node is List) { for (final i in node) { walk(i); } }
     }
@@ -455,9 +644,66 @@ class InnerTubeClient {
       String title = '', thumb = 'https://i.ytimg.com/vi/$id/hqdefault.jpg';
       void scan(dynamic n) { if (n is Map) { if (n['text'] is Map) { final tx = _text(n['text']); if (title.isEmpty && tx.length > 3) title = tx; } for (final v in n.values) { scan(v); } } else if (n is List) { for (final i in n) { scan(i); } } }
       scan(r['metadata']);
-      final blob = r.toString().toUpperCase();
-      return Video(id: id, title: title.isEmpty ? 'Video' : title, thumbnailUrl: thumb, isLive: blob.contains('LIVE') || blob.contains('BADGE_STYLE_TYPE_LIVE'));
+      return Video(
+        id: id,
+        title: title.isEmpty ? 'Video' : title,
+        thumbnailUrl: thumb,
+        isLive: _lockupIsLive(r),
+      );
     } catch (_) { return null; }
+  }
+
+  /// Detects a live badge on a lockup renderer.
+  ///
+  /// The old check stringified the whole renderer and looked for "LIVE"
+  /// anywhere in it, so any video whose title contained "live" — "Delivery",
+  /// "Oliver", "Live Aid documentary" — was rendered with a red LIVE badge and
+  /// then routed down the live-only HLS path, which broke normal playback.
+  /// Only real badge/overlay markers count now.
+  @visibleForTesting
+  static bool lockupIsLive(Map<String, dynamic> r) => _lockupIsLive(r);
+
+  static bool _lockupIsLive(Map<String, dynamic> r) {
+    var live = false;
+    void walk(dynamic node) {
+      if (live) return;
+      if (node is Map) {
+        final style = node['style']?.toString().toUpperCase() ?? '';
+        if (style.contains('BADGE_STYLE_TYPE_LIVE') ||
+            style.contains('LIVE_NOW')) {
+          live = true;
+          return;
+        }
+        final badgeType = node['badgeType']?.toString().toUpperCase() ?? '';
+        if (badgeType.contains('LIVE')) {
+          live = true;
+          return;
+        }
+        if (node['isLive'] == true || node['isLiveNow'] == true) {
+          live = true;
+          return;
+        }
+        for (final v in node.values) {
+          walk(v);
+          if (live) return;
+        }
+      } else if (node is List) {
+        for (final i in node) {
+          walk(i);
+          if (live) return;
+        }
+      }
+    }
+    walk(r);
+    return live;
+  }
+
+  /// `likeCount` arrives as "1,234,567", "1.2M" or a bare int depending on the
+  /// client, so route everything through the shared count parser.
+  static int _parseLikeCount(dynamic raw) {
+    if (raw == null) return 0;
+    if (raw is num) return raw.toInt();
+    return parseCount(raw.toString());
   }
 
   List<Comment> _parseCommentsDeep(Map<String, dynamic> response) {
@@ -536,12 +782,19 @@ class InnerTubeClient {
     if (RegExp(r'^[a-zA-Z\s]+$').hasMatch(trimmed)) return 0;
 
     final lower = trimmed.toLowerCase();
-    final cleaned = trimmed.replaceAll(',', '');
-    final m = RegExp(r'([\d.]+)\s*([KMBTkmbt])?').firstMatch(cleaned);
-    if (m == null) {
-      return int.tryParse(cleaned.replaceAll(RegExp(r'[^\d]'), '')) ?? 0;
+    // Grab the numeric token *with* its separators so they can be interpreted
+    // in context. Blindly stripping commas broke locales that use them as the
+    // decimal mark ("1,5 Mio."), and leaving dots in broke locales that group
+    // with them ("1.234.567" parsed as 1).
+    final token = RegExp(r'[\d][\d.,\u00A0\u202F ]*[\d]|[\d]').firstMatch(trimmed);
+    if (token == null) {
+      return int.tryParse(trimmed.replaceAll(RegExp(r'[^\d]'), '')) ?? 0;
     }
-    final n = double.tryParse(m.group(1)!) ?? 0;
+    // Anchored: only a suffix directly after the number counts, so a stray
+    // "t" inside a trailing word can't be read as "trillion".
+    final suffixMatch =
+        RegExp(r'^\s*([KMBTkmbt])\b').firstMatch(trimmed.substring(token.end));
+    final n = _parseLocalisedNumber(token.group(0)!);
 
     // Word-based multipliers are checked first: the single-letter suffix group
     // below cannot match them.
@@ -549,19 +802,58 @@ class InnerTubeClient {
       'crore': 1e7, 'करोड़': 1e7, 'कोटि': 1e7,
       'lakh': 1e5, 'lac': 1e5, 'लाख': 1e5,
       'thousand': 1e3, 'हज़ार': 1e3, 'हजार': 1e3,
-      'million': 1e6, 'billion': 1e9,
+      'million': 1e6, 'billion': 1e9, 'trillion': 1e12,
+      // Common non-English abbreviations YouTube serves for other locales.
+      'mrd': 1e9, 'mio': 1e6, 'tsd': 1e3, 'mio.': 1e6,
     };
     for (final entry in wordMultipliers.entries) {
       if (lower.contains(entry.key)) return (n * entry.value).round();
     }
 
-    switch ((m.group(2) ?? '').toUpperCase()) {
+    switch ((suffixMatch?.group(1) ?? '').toUpperCase()) {
       case 'K': return (n * 1e3).round();
       case 'M': return (n * 1e6).round();
       case 'B': return (n * 1e9).round();
       case 'T': return (n * 1e12).round();
       default: return n.round();
     }
+  }
+
+  /// Turns a locale-formatted numeric token into a double.
+  ///
+  /// Handles `1,234,567` (en), `1.234.567` (de/es), `1,5` (de decimal),
+  /// `1.5` (en decimal) and thin/non-breaking space grouping (fr).
+  @visibleForTesting
+  static double parseLocalisedNumber(String raw) => _parseLocalisedNumber(raw);
+
+  static double _parseLocalisedNumber(String raw) {
+    // Spaces are always grouping separators, never decimal marks.
+    var t = raw.replaceAll(RegExp(r'[\s\u00A0\u202F]'), '');
+    if (t.isEmpty) return 0;
+
+    final hasDot = t.contains('.');
+    final hasComma = t.contains(',');
+
+    if (hasDot && hasComma) {
+      // Whichever comes last is the decimal separator.
+      final decimal = t.lastIndexOf('.') > t.lastIndexOf(',') ? '.' : ',';
+      final grouping = decimal == '.' ? ',' : '.';
+      t = t.replaceAll(grouping, '').replaceAll(decimal, '.');
+      return double.tryParse(t) ?? 0;
+    }
+
+    if (hasDot || hasComma) {
+      final sep = hasDot ? '.' : ',';
+      final parts = t.split(sep);
+      final isGrouped = parts.length > 1 &&
+          parts.first.isNotEmpty &&
+          parts.first.length <= 3 &&
+          parts.skip(1).every((p) => p.length == 3);
+      if (isGrouped) return double.tryParse(parts.join()) ?? 0;
+      return double.tryParse(t.replaceAll(sep, '.')) ?? 0;
+    }
+
+    return double.tryParse(t) ?? 0;
   }
 
   int _parseCount(String text) => parseCount(text);

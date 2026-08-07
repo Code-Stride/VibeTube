@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/video.dart';
 import '../providers/app_provider.dart';
+import '../utils/text_utils.dart';
 import '../utils/theme.dart';
 
 /// YouTube-exact video card — matches YouTube's layout pixel-for-pixel.
@@ -251,7 +252,7 @@ class VideoCard extends StatelessWidget {
         backgroundColor: c.surfaceLight,
       );
     }
-    final letter = v.channelName.isNotEmpty ? v.channelName[0].toUpperCase() : 'V';
+    final letter = initialLetter(v.channelName);
     return CircleAvatar(
       radius: 18,
       backgroundColor: c.surfaceVariant,

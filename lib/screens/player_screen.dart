@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -10,12 +11,14 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import '../models/video.dart';
 import '../providers/app_provider.dart';
 import '../utils/theme.dart';
+import '../utils/text_utils.dart';
 import '../utils/share_links.dart';
 import '../widgets/video_card.dart';
 import '../widgets/caption_overlay.dart';
 import '../services/native_player.dart';
 import '../services/audio_helper.dart';
 import '../providers/mini_player_controller.dart';
+import '../services/permissions.dart';
 
 class PlayerScreen extends StatefulWidget {
   final String videoId;
@@ -35,7 +38,10 @@ class PlayerScreen extends StatefulWidget {
   State<PlayerScreen> createState() => _PlayerScreenState();
 }
 
-class _PlayerScreenState extends State<PlayerScreen> {
+class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver {
+  /// False while the app is backgrounded, so periodic UI work can pause.
+  bool _appResumed = true;
+
   VideoPlayerController? _controller;
   bool _ready = false;
   bool _showControls = true;
@@ -85,6 +91,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   /// WE initiated the focus change (play/pause). Without this guard,
   /// requesting audio focus triggers _onShouldPause which immediately pauses.
   bool _requestingFocus = false;
+  int _focusGuardToken = 0;
   DateTime _lastPlayTime = DateTime.fromMillisecondsSinceEpoch(0);
 
   void _onMediaPlay() async {
@@ -184,32 +191,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
     } else {
       _armHide();
     }
+    _applyWakelock(playing: _controller?.value.isPlaying == true);
   }
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-    _boot();
-  }
-
-  Future<void> _boot() async {
-    final provider = context.read<AppProvider>();
-    final mini = context.read<MiniPlayerController>();
-    mini.setExpanded(true);
-
-    _speed = provider.defaultSpeed;
-    _quality = provider.defaultQuality.isEmpty
-        ? '1080p'
-        : provider.defaultQuality;
-    if (_quality == 'Auto') _quality = '1080p';
-    _liked = await provider.isLiked(widget.videoId);
-    try {
-      _watchLater = provider.watchLater.any((e) => e.id == widget.videoId);
-    } catch (_) {}
-    _pipSupported = await NativePlayer.isPipSupported();
-    await NativePlayer.setAutoPip(provider.isAutoPipEnabled);
-    await NativePlayer.setPlaying(false);
+    // Registered synchronously, before any await. _boot() used to do this
+    // after several awaits, so a screen popped during that window had
+    // dispose() remove handlers that had not been added yet — and _boot then
+    // added them to a dead State, leaking a listener that fired forever.
     NativePlayer.ensureHandlers(
       onPip: _onPipChanged,
       onMediaPlay: _onMediaPlay,
@@ -224,6 +217,39 @@ class _PlayerScreenState extends State<PlayerScreen> {
       onMayResume: _onMayResume,
       onDuck: _onDuck,
     );
+    _boot();
+  }
+
+  Future<void> _boot() async {
+    final provider = context.read<AppProvider>();
+    final mini = context.read<MiniPlayerController>();
+    // Deferred: this runs inside initState, and notifyListeners() there would
+    // mark the global mini-player Consumer dirty during a build.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) mini.setExpanded(true);
+    });
+
+    _speed = provider.defaultSpeed;
+    // Fall back to adaptive, not a hard 1080p lock that many videos cannot
+    // serve (see the defaultQuality mismatch in AppProvider).
+    _quality = provider.defaultQuality.isEmpty
+        ? 'Auto (HLS)'
+        : provider.defaultQuality;
+    if (_quality == 'Auto') _quality = 'Auto (HLS)';
+    _liked = await provider.isLiked(widget.videoId);
+    try {
+      _watchLater = provider.watchLater.any((e) => e.id == widget.videoId);
+    } catch (_) {}
+    _pipSupported = await NativePlayer.isPipSupported();
+    if (!mounted) return;
+    await NativePlayer.setAutoPip(provider.isAutoPipEnabled);
+    await NativePlayer.setPlaying(false);
+    if (!mounted) return;
+    // Ask for the notification permission here rather than at app start:
+    // this is the first moment a media notification is actually needed.
+    if (provider.isBackgroundPlayEnabled) {
+      unawaited(ensureNotificationPermission());
+    }
 
     // Resume from mini player — same controller, no reload
     if (widget.resumeSession &&
@@ -267,7 +293,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         provider.loadVideoDetails(widget.videoId, preview: widget.preview);
         return;
       } catch (e) {
-        debugPrint('local play failed: $e');
+        _log('local play failed: $e');
       }
     }
 
@@ -401,7 +427,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       return;
     }
 
-    debugPrint(
+    _log(
       'Quality=$q candidates=${candidates.length} hlsVars=${details.hlsVariants.keys.toList()} prog=${details.progressiveByHeight.keys.toList()} hlsMaster=${details.hlsUrl != null}',
     );
 
@@ -409,19 +435,19 @@ class _PlayerScreenState extends State<PlayerScreen> {
     for (final url in candidates) {
       if (playbackRequestId != _playbackRequestId) return;
       try {
-        await _attachController(url, resumeAt: resumeAt);
-        if (_ready) {
+        final attached = await _attachController(url, resumeAt: resumeAt);
+        if (attached) {
           final tag = url.contains('m3u8')
               ? (url == details.hlsUrl ? 'HLS-master' : 'HLS-variant')
               : 'MP4';
-          debugPrint('Playing $q via $tag');
+          _log('Playing $q via $tag');
           if (mounted) setState(() {}); // refresh quality label if needed
           return;
         }
       } catch (e) {
         if (playbackRequestId != _playbackRequestId) return;
         lastErr = e;
-        debugPrint('candidate failed: $e');
+        _log('candidate failed: $e');
       }
     }
     if (mounted) {
@@ -435,7 +461,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
   }
 
-  Future<void> _attachController(String url, {Duration? resumeAt}) async {
+  /// Returns true only when this call actually attached a live controller.
+  ///
+  /// Callers used to read the `_ready` *field* afterwards, which could still
+  /// hold `true` from a previous attach when `_finishAttach` bailed out on a
+  /// request-ID mismatch — so a failed quality switch reported success and
+  /// left the old stream playing.
+  Future<bool> _attachController(String url, {Duration? resumeAt}) async {
     final requestId = ++_attachRequestId;
     if (mounted) setState(() => _isBuffering = true);
 
@@ -446,7 +478,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       final candidate = VideoPlayerController.file(File(path));
       try {
         await candidate.initialize().timeout(const Duration(seconds: 20));
-        await _finishAttach(
+        return await _finishAttach(
           candidate,
           url,
           resumeAt: resumeAt,
@@ -459,7 +491,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
         }
         rethrow;
       }
-      return;
     }
 
     final headerSets = <Map<String, String>?>[
@@ -486,7 +517,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     Object? lastErr;
     for (final headers in headerSets) {
-      if (requestId != _attachRequestId) return;
+      if (requestId != _attachRequestId) return false;
       VideoPlayerController? candidate;
       try {
         candidate = headers == null
@@ -496,16 +527,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 httpHeaders: headers,
               );
         await candidate.initialize().timeout(const Duration(seconds: 25));
-        await _finishAttach(
+        return await _finishAttach(
           candidate,
           url,
           resumeAt: resumeAt,
           requestId: requestId,
         );
-        return;
       } catch (e) {
         lastErr = e;
-        debugPrint('attach fail headers=${headers != null}: $e');
+        _log('attach fail headers=${headers != null}: $e');
         try {
           await candidate?.dispose();
         } catch (_) {}
@@ -517,7 +547,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     throw lastErr ?? Exception('Failed to initialize stream');
   }
 
-  Future<void> _finishAttach(
+  Future<bool> _finishAttach(
     VideoPlayerController c,
     String url, {
     Duration? resumeAt,
@@ -525,7 +555,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }) async {
     if (!mounted || requestId != _attachRequestId) {
       await c.dispose();
-      return;
+      return false;
     }
     // Capture the provider up-front: every use below sits after an await and
     // touching BuildContext across an async gap is unsafe once popped.
@@ -542,7 +572,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     await c.setVolume(_muted ? 0 : 1);
     if (!mounted || requestId != _attachRequestId) {
       await c.dispose();
-      return;
+      return false;
     }
 
     final previous = _controller;
@@ -572,33 +602,35 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _lastPlayTime = DateTime.now();
     await AudioHelper.requestFocus();
     await c.play();
-    Future.delayed(const Duration(seconds: 1), () {
-      _requestingFocus = false;
-    });
-    if (!mounted) return;
+    _releaseFocusGuardSoon();
+    if (!mounted) return true;
     await NativePlayer.setPlaying(true);
-    if (!mounted) return;
+    if (!mounted) return true;
     final title =
         provider.currentVideo?.title ?? widget.preview?.title ?? 'VibeTube';
     final artist =
         provider.currentVideo?.channelName ??
         widget.preview?.channelName ??
         'Playing';
+    // Keep the screen awake while the video plays. The old code disabled the
+    // wakelock whenever background play was on — and background play defaults
+    // to ON — so with default settings the screen slept ~30s into every
+    // video and the picture died while the audio kept going.
+    // "Background play" means audio survives the screen going off, not that
+    // we should hurry it along.
+    await _applyWakelock(playing: true);
     if (provider.isBackgroundPlayEnabled) {
-      // Screen can turn off; MediaSession keeps audio on system output.
-      WakelockPlus.disable();
       await NativePlayer.startBackground(
         title: title,
         artist: artist,
         playing: true,
       );
       _bgActive = true;
-    } else {
-      WakelockPlus.enable();
     }
-    if (!mounted) return;
+    if (!mounted) return true;
     _armHide();
     _startPosTimer();
+    return true;
   }
 
   void _onTick() {
@@ -630,6 +662,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
       final c = _controller;
       if (c == null || !c.value.isInitialized || _seeking) return;
       if (!mounted) return;
+      // Nothing on this screen is visible in PiP or while the app is in the
+      // background, so a 4x/second setState there is pure battery drain
+      // during background audio playback.
+      if (_inPip || !_appResumed) return;
       // Only rebuild when controls are visible or progress bar needs updating
       final newPos = c.value.position;
       final newDur = c.value.duration;
@@ -709,30 +745,61 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Future<void> _togglePlay() async {
     final c = _controller;
     if (c == null || !c.value.isInitialized) return;
-    final provider = context.read<AppProvider>();
     if (c.value.isPlaying) {
       _requestingFocus = true;
       await c.pause();
       _requestingFocus = false;
       _pausedByInterruption = false;
-      WakelockPlus.disable();
+      await _applyWakelock(playing: false);
     } else {
       _requestingFocus = true;
       _lastPlayTime = DateTime.now();
       await AudioHelper.requestFocus();
       await c.play();
-      Future.delayed(const Duration(seconds: 1), () {
-        _requestingFocus = false;
-      });
-      if (!provider.isBackgroundPlayEnabled) {
-        WakelockPlus.enable();
-      } else {
-        WakelockPlus.disable();
-      }
+      _releaseFocusGuardSoon();
+      await _applyWakelock(playing: true);
     }
     if (mounted) setState(() {});
     await _syncNativePlayback(forceBg: true);
     _armHide();
+  }
+
+  /// Debug-only logging.
+  ///
+  /// `debugPrint` still runs in release builds (it only rate-limits), so
+  /// signed stream URLs and playback errors were being written to logcat on
+  /// shipped APKs. Everything here is diagnostic, so compile it out.
+  void _log(String message) {
+    if (kDebugMode) debugPrint(message);
+  }
+
+  /// Keeps the screen-on lock in step with playback.
+  ///
+  /// PiP has its own system-managed window, so we drop the lock there.
+  Future<void> _applyWakelock({required bool playing}) async {
+    try {
+      if (playing && !_inPip) {
+        await WakelockPlus.enable();
+      } else {
+        await WakelockPlus.disable();
+      }
+    } catch (_) {
+      // Wakelock is best-effort; never let it break playback.
+    }
+  }
+
+  /// Clears [_requestingFocus] one second after the *latest* play request.
+  ///
+  /// Each call used to schedule an independent `Future.delayed`, so two taps
+  /// 200ms apart meant the first timer opened the guard while the second
+  /// request was still settling — and the resulting focus callback paused the
+  /// video the user had just started. Token check makes only the newest timer
+  /// win.
+  void _releaseFocusGuardSoon() {
+    final token = ++_focusGuardToken;
+    Future.delayed(const Duration(seconds: 1), () {
+      if (token == _focusGuardToken) _requestingFocus = false;
+    });
   }
 
   Future<void> _syncNativePlayback({bool forceBg = false}) async {
@@ -742,6 +809,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     // Read the provider before awaiting — context is unsafe after the gap.
     final provider = context.read<AppProvider>();
     await NativePlayer.setPlaying(playing);
+    await _applyWakelock(playing: playing);
     if (!provider.isBackgroundPlayEnabled) {
       if (_bgActive) {
         await NativePlayer.stopBackground();
@@ -749,8 +817,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
       }
       return;
     }
-    // Background mode: never hold wakelock (allows screen off)
-    WakelockPlus.disable();
     final title =
         provider.currentVideo?.title ?? widget.preview?.title ?? 'VibeTube';
     final artist =
@@ -810,11 +876,22 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   /// YouTube-style: keep playing in bottom mini player.
+  ///
+  /// Only when something is actually playing. Backing out of a *paused* video
+  /// now closes the player outright — previously every back press spawned a
+  /// mini bar the user then had to hunt down and dismiss, and there was no
+  /// way to leave the screen that also stopped playback.
   Future<void> _minimizeToMiniPlayer() async {
     final mini = context.read<MiniPlayerController>();
     final provider = context.read<AppProvider>();
     final c = _controller;
     if (c == null || !c.value.isInitialized) {
+      if (mounted) Navigator.of(context).pop();
+      return;
+    }
+    if (!c.value.isPlaying) {
+      // Nothing to keep alive: tear down instead of minimising.
+      mini.setExpanded(false);
       if (mounted) Navigator.of(context).pop();
       return;
     }
@@ -860,7 +937,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    final resumed = state == AppLifecycleState.resumed;
+    if (resumed == _appResumed) return;
+    _appResumed = resumed;
+    if (resumed && mounted) setState(() {});
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _attachRequestId++;
     _playbackRequestId++;
     _hideTimer?.cancel();
@@ -1529,12 +1616,19 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       return Stack(
                         alignment: Alignment.center,
                         children: segments.map((s) {
-                          final left = (s.start * 1000 / total) * box.maxWidth;
+                          final left = ((s.start * 1000 / total) * box.maxWidth)
+                              .clamp(0.0, box.maxWidth);
+                          // Clamp the width against the *remaining* space:
+                          // clamping both independently let an outro segment
+                          // near the end paint past the right edge.
+                          final available = (box.maxWidth - left).clamp(0.0, box.maxWidth);
                           final width =
-                              ((s.end - s.start) * 1000 / total) * box.maxWidth;
+                              (((s.end - s.start) * 1000 / total) * box.maxWidth)
+                                  .clamp(0.0, available);
+                          if (width <= 0) return const SizedBox.shrink();
                           return Positioned(
-                            left: left.clamp(0, box.maxWidth),
-                            width: width.clamp(2, box.maxWidth),
+                            left: left,
+                            width: width < 2 ? (available < 2 ? available : 2) : width,
                             height: 3,
                             child: DecoratedBox(
                               decoration: BoxDecoration(
@@ -1773,7 +1867,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
               radius: 20,
               backgroundColor: c.surfaceVariant,
               child: Text(
-                channel.isNotEmpty ? channel[0].toUpperCase() : 'C',
+                initialLetter(channel, fallback: 'C'),
                 style: const TextStyle(
                   color: AppTheme.primary,
                   fontWeight: FontWeight.bold,
@@ -1950,7 +2044,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 : null,
             child: comment.authorAvatar.isEmpty
                 ? Text(
-                    comment.author.isNotEmpty ? comment.author[0] : '?',
+                    initialLetter(comment.author, fallback: '?'),
                     style: TextStyle(fontSize: 12, color: col.textPrimary),
                   )
                 : null,
@@ -2132,11 +2226,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
                             : null,
                         onTap: () async {
                           Navigator.pop(ctx);
+                          // Session-only, like quality above. The global
+                          // default lives in Settings.
                           setState(() => _speed = s);
                           await _controller?.setPlaybackSpeed(s);
-                          if (mounted) {
-                            context.read<AppProvider>().setDefaultSpeed(s);
-                          }
                         },
                       );
                     },
@@ -2289,8 +2382,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
                             : null,
                         onTap: () async {
                           Navigator.pop(ctx);
+                          // Session-only. Changing one video's quality used to
+                          // overwrite the app-wide default, so a one-off 360p
+                          // pick on a weak connection silently became the
+                          // setting for every future video.
                           setState(() => _quality = q);
-                          context.read<AppProvider>().setDefaultQuality(q);
                           final d = context.read<AppProvider>().currentVideo;
                           if (d != null) {
                             final pos = _controller?.value.position;
@@ -2467,7 +2563,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   void _showDislikes() {
-    final n = _dislikes;
+    // Side data (dislikes) resolves after loadVideoDetails returns, so the
+    // `_dislikes` snapshot taken in _boot() was essentially always null.
+    final n = context.read<AppProvider>().dislikeCount ?? _dislikes;
     _toast(n == null ? 'Dislike count unavailable' : '${_short(n)} dislikes');
   }
 
@@ -2519,13 +2617,19 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _toast('Audio only');
   }
 
+  int _nextRelatedIndex = 0;
+
   void _playNextRelated() {
     final related = context.read<AppProvider>().relatedVideos;
     if (related.isEmpty) {
       _toast('No related videos');
       return;
     }
-    final next = related.first;
+    // Advance through the list; tapping Next twice used to reopen the same
+    // video because it always took `related.first`.
+    if (_nextRelatedIndex >= related.length) _nextRelatedIndex = 0;
+    final next = related[_nextRelatedIndex];
+    _nextRelatedIndex++;
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
@@ -2704,7 +2808,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 provider.toggleBackgroundPlay();
                 Navigator.pop(ctx);
                 if (provider.isBackgroundPlayEnabled) {
-                  WakelockPlus.disable();
+                  unawaited(ensureNotificationPermission());
                   await AudioHelper.requestFocus();
                   await _syncNativePlayback(forceBg: true);
                   _toast('Background play ON — lock phone to test');

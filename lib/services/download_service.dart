@@ -131,6 +131,19 @@ class DownloadService {
       rethrow;
     }
 
+    // A dropped connection ends the stream without an error, so "we got some
+    // bytes and they start with ftyp" was enough to rename a half-finished
+    // file to .mp4 and list it as a complete download. Compare against the
+    // advertised length before trusting it.
+    if (total > 0 && received < total) {
+      try {
+        await partFile.delete();
+      } catch (_) {}
+      throw Exception(
+        'Download incomplete: got $received of $total bytes',
+      );
+    }
+
     if (!await _isValidMp4(partFile)) {
       try {
         await partFile.delete();

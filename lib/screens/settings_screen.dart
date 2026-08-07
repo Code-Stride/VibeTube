@@ -60,13 +60,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     // ---- Playback Section ----
                     _sectionHeader('Playback', Icons.play_circle_outline),
                     const SizedBox(height: 8),
-                    _tile(
+                    // Not a toggle: ad-free playback comes from the InnerTube
+                    // clients themselves, so a switch here would be a lie.
+                    _statusTile(
                       c,
                       icon: Icons.block,
                       title: 'Ad blocker',
-                      subtitle: 'Ad-free streams via InnerTube clients',
-                      value: p.isAdBlockEnabled,
-                      onChanged: (_) => p.toggleAdBlock(),
+                      subtitle: 'Always on — InnerTube streams carry no ads',
                     ),
                     _tile(
                       c,
@@ -454,6 +454,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
             style: TextStyle(fontSize: 12, color: c.textSecondary)),
         value: value,
         onChanged: onChanged,
+      ),
+    );
+  }
+
+  /// A capability that is always on and cannot be toggled.
+  Widget _statusTile(
+    VibeColors c, {
+    required IconData icon,
+    required String title,
+    required String subtitle,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      decoration: BoxDecoration(
+        color: c.surface,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: ListTile(
+        leading: Icon(icon, color: c.textSecondary),
+        title: Text(title,
+            style: TextStyle(
+                fontWeight: FontWeight.w600, color: c.textPrimary)),
+        subtitle: Text(subtitle,
+            style: TextStyle(fontSize: 12, color: c.textSecondary)),
+        trailing: const Icon(Icons.check_circle, color: AppTheme.success, size: 20),
+        shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
     );
   }

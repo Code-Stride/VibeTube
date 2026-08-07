@@ -47,8 +47,15 @@ android {
             } else if (releaseRequested) {
                 throw new GradleException("Release keystore is missing; refusing to produce a debug-signed release APK")
             }
-            minifyEnabled false
-            shrinkResources false
+            // Shrink + obfuscate release builds. This cuts APK size
+            // substantially and stops the whole app being trivially
+            // decompilable. Keep rules that R8 cannot infer (reflection,
+            // MethodChannel entry points, ExoPlayer renderers) live in
+            // proguard-rules.pro.
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'),
+                    'proguard-rules.pro'
         }
         debug {
             applicationIdSuffix ""

@@ -17,10 +17,12 @@ class SearchScreen extends StatefulWidget {
 class _SearchScreenState extends State<SearchScreen> {
   final _controller = TextEditingController();
   final _focus = FocusNode();
+  final _scroll = ScrollController();
 
   @override
   void initState() {
     super.initState();
+    _scroll.addListener(_onScroll);
     if (widget.standalone) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _focus.requestFocus());
     }
@@ -28,9 +30,19 @@ class _SearchScreenState extends State<SearchScreen> {
 
   @override
   void dispose() {
+    _scroll.removeListener(_onScroll);
+    _scroll.dispose();
     _controller.dispose();
     _focus.dispose();
     super.dispose();
+  }
+
+  void _onScroll() {
+    if (!_scroll.hasClients) return;
+    final remaining = _scroll.position.maxScrollExtent - _scroll.position.pixels;
+    if (remaining < 1200) {
+      context.read<AppProvider>().loadMoreSearch();
+    }
   }
 
   void _submit(String q) {
@@ -117,10 +129,31 @@ class _SearchScreenState extends State<SearchScreen> {
             Expanded(
               child: Consumer<AppProvider>(
                 builder: (context, provider, _) {
-                  if (provider.isLoading && provider.searchResults.isEmpty) {
+                  // Uses the search-specific flag: the shared `isLoading`
+                  // meant a Home-feed refresh put a spinner over the search
+                  // results (and vice versa).
+                  if (provider.isSearching && provider.searchResults.isEmpty) {
                     return const Center(child: CircularProgressIndicator());
                   }
                   if (provider.searchQuery.isEmpty) return _suggestions(provider, c);
+                  if (provider.searchError != null && provider.searchResults.isEmpty) {
+                    return Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.wifi_off_rounded, size: 48, color: c.textMuted),
+                          const SizedBox(height: 12),
+                          Text(provider.searchError!,
+                              style: TextStyle(color: c.textSecondary, fontSize: 16)),
+                          const SizedBox(height: 12),
+                          ElevatedButton(
+                            onPressed: () => provider.searchVideos(provider.searchQuery),
+                            child: const Text('Retry'),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
                   if (provider.searchResults.isEmpty) {
                     return Center(
                       child: Column(
@@ -133,9 +166,19 @@ class _SearchScreenState extends State<SearchScreen> {
                       ),
                     );
                   }
+                  final showFooter =
+                      provider.isLoadingMoreSearch || provider.hasMoreSearch;
                   return ListView.builder(
-                    itemCount: provider.searchResults.length,
+                    controller: _scroll,
+                    itemCount: provider.searchResults.length + (showFooter ? 1 : 0),
                     itemBuilder: (context, i) {
+                      if (i >= provider.searchResults.length) {
+                        return const Padding(
+                          padding: EdgeInsets.all(24),
+                          child: Center(
+                              child: CircularProgressIndicator(strokeWidth: 2)),
+                        );
+                      }
                       final v = provider.searchResults[i];
                       return VideoCard(
                         video: v, compact: true,
