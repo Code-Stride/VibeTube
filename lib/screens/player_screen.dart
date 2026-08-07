@@ -87,6 +87,24 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool _requestingFocus = false;
   DateTime _lastPlayTime = DateTime.fromMillisecondsSinceEpoch(0);
 
+  /// Guards against re-entrant stream-error recovery.
+  bool _recovering = false;
+  int _recoveryAttempts = 0;
+
+  /// Cancellable so back-to-back play/pause taps cannot have an earlier timer
+  /// close a later one's guard window.
+  Timer? _focusGuardTimer;
+
+  void _beginFocusChange() {
+    _focusGuardTimer?.cancel();
+    _requestingFocus = true;
+  }
+
+  void _endFocusChangeAfter(Duration d) {
+    _focusGuardTimer?.cancel();
+    _focusGuardTimer = Timer(d, () => _requestingFocus = false);
+  }
+
   void _onMediaPlay() async {
     final c = _controller;
     if (c != null && c.value.isInitialized && !c.value.isPlaying) {
@@ -147,10 +165,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _pausedByInterruption = false;
     final c = _controller;
     if (c == null || !c.value.isInitialized || c.value.isPlaying) return;
-    _requestingFocus = true;
+    _beginFocusChange();
     AudioHelper.requestFocus().then((_) {
       c.play();
-      _requestingFocus = false;
+      _endFocusChangeAfter(const Duration(milliseconds: 500));
       if (mounted) setState(() {});
       _syncNativePlayback(forceBg: true);
     });
@@ -171,6 +189,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
   /// PiP window rewind / forward buttons.
   void _onMediaRewind() => _seekBy(-10);
   void _onMediaForward() => _seekBy(10);
+
+  /// Lock-screen / Android Auto scrubber.
+  void _onMediaSeek(Duration target) {
+    final c = _controller;
+    if (c == null || !c.value.isInitialized) return;
+    final d = c.value.duration;
+    final clamped = target < Duration.zero
+        ? Duration.zero
+        : (target > d ? d : target);
+    c.seekTo(clamped);
+  }
 
   void _onPipChanged(bool inPip) {
     if (!mounted) return;
@@ -199,14 +228,21 @@ class _PlayerScreenState extends State<PlayerScreen> {
     mini.setExpanded(true);
 
     _speed = provider.defaultSpeed;
+    // Honour the user's default; do NOT silently upgrade "Auto" to a hard
+    // 1080p lock. The locked-quality path deliberately refuses to fall back to
+    // the adaptive master, so that mapping produced "1080p is not available
+    // for this video" on anything without a 1080p rendition.
     _quality = provider.defaultQuality.isEmpty
-        ? '1080p'
+        ? 'Auto (HLS)'
         : provider.defaultQuality;
-    if (_quality == 'Auto') _quality = '1080p';
     _liked = await provider.isLiked(widget.videoId);
     try {
       _watchLater = provider.watchLater.any((e) => e.id == widget.videoId);
     } catch (_) {}
+    final previewChannel = widget.preview?.channelId ?? '';
+    if (previewChannel.isNotEmpty) {
+      _subscribed = provider.isSubscribed(previewChannel);
+    }
     _pipSupported = await NativePlayer.isPipSupported();
     await NativePlayer.setAutoPip(provider.isAutoPipEnabled);
     await NativePlayer.setPlaying(false);
@@ -217,6 +253,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       onMediaStop: _onMediaStop,
       onMediaRewind: _onMediaRewind,
       onMediaForward: _onMediaForward,
+      onMediaSeek: _onMediaSeek,
     );
     AudioHelper.addListeners(
       onBecomingNoisy: _onBecomingNoisy,
@@ -280,6 +317,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
       return;
     }
     _dislikes = provider.dislikeCount;
+    final channelId = details.channelId;
+    if (channelId.isNotEmpty && mounted) {
+      final subbed = provider.isSubscribed(channelId);
+      if (subbed != _subscribed) setState(() => _subscribed = subbed);
+    }
     await _startPlayback(details);
   }
 
@@ -319,21 +361,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
       }
       add(details.preferredPlayUrl);
     } else if (isAuto) {
-      // Try highest quality HLS variants FIRST (not master playlist)
+      // Auto means *adaptive*: hand the player the master playlist so it can
+      // pick and switch renditions (and pick up the separate audio group).
+      // Starting from the highest single variant pinned playback to 2160p and
+      // rebuffered forever on a slow connection.
+      add(details.hlsUrl);
       if (details.hlsVariants.isNotEmpty) {
         final hs = details.hlsVariants.keys.toList()
           ..sort((a, b) => b.compareTo(a));
-        for (final prefer in [2160, 1440, 1080, 720, 480]) {
-          if (details.hlsVariants.containsKey(prefer)) {
-            add(details.hlsVariants[prefer]);
-          }
-        }
         for (final h in hs) {
           add(details.hlsVariants[h]);
         }
       }
-      add(details.hlsUrl);
-      add(details.preferredPlayUrl);
       add(details.bestMuxedUrl);
     } else if (q == 'Audio Only') {
       add(details.urlForQuality(q));
@@ -559,6 +598,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _activeUrl = url;
       _duration = c.value.duration;
     });
+    _recoveryAttempts = 0;
     if (previous != null && previous != c && !_handedToMini) {
       await previous.dispose();
     }
@@ -568,13 +608,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (sz.width > 0 && sz.height > 0) {
       NativePlayer.setVideoAspect(sz.width.round(), sz.height.round());
     }
-    _requestingFocus = true;
+    _beginFocusChange();
     _lastPlayTime = DateTime.now();
     await AudioHelper.requestFocus();
     await c.play();
-    Future.delayed(const Duration(seconds: 1), () {
-      _requestingFocus = false;
-    });
+    _endFocusChangeAfter(const Duration(seconds: 1));
     if (!mounted) return;
     await NativePlayer.setPlaying(true);
     if (!mounted) return;
@@ -605,6 +643,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final c = _controller;
     if (c == null || !mounted) return;
     final v = c.value;
+    // googlevideo URLs expire (~6h). Resuming a long-paused video, or a
+    // mid-playback CDN error, used to leave a frozen frame and an endless
+    // buffering spinner with no message at all.
+    if (v.hasError && !_recovering) {
+      _recoverFromStreamError(v.errorDescription);
+      return;
+    }
     if (v.isBuffering != _isBuffering) {
       setState(() => _isBuffering = v.isBuffering);
     }
@@ -624,6 +669,43 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
   }
 
+  /// Re-resolves the stream and reattaches at the same position.
+  ///
+  /// Attempted at most twice per screen so a permanently dead video cannot
+  /// spin in a refetch loop.
+  Future<void> _recoverFromStreamError(String? description) async {
+    if (_recovering) return;
+    _recovering = true;
+    debugPrint('stream error, attempting recovery: $description');
+    final resumeAt = _position;
+    try {
+      if (_recoveryAttempts >= 2) {
+        if (mounted) {
+          setState(() {
+            _isBuffering = false;
+            _ready = false;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Playback stopped — tap retry')),
+          );
+        }
+        return;
+      }
+      _recoveryAttempts++;
+      if (!mounted) return;
+      final provider = context.read<AppProvider>();
+      await provider.loadVideoDetails(widget.videoId, preview: widget.preview);
+      if (!mounted) return;
+      final fresh = provider.currentVideo;
+      if (fresh == null) return;
+      await _startPlayback(fresh, quality: _quality, resumeAt: resumeAt);
+    } catch (e) {
+      debugPrint('recovery failed: $e');
+    } finally {
+      _recovering = false;
+    }
+  }
+
   void _startPosTimer() {
     _posTimer?.cancel();
     _posTimer = Timer.periodic(const Duration(milliseconds: 250), (_) {
@@ -638,8 +720,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
         _position = newPos;
         _duration = newDur;
       });
+      // Keep the MediaSession scrubber in step (cheap: once per second).
+      if (_bgActive && newPos.inSeconds != _lastPublishedSecond) {
+        _lastPublishedSecond = newPos.inSeconds;
+        NativePlayer.setPlaying(
+          c.value.isPlaying,
+          position: newPos,
+          duration: newDur,
+          speed: _speed,
+        );
+      }
     });
   }
+
+  int _lastPublishedSecond = -1;
 
   void _maybeSkipSponsor(Duration pos) {
     if (!mounted) return;
@@ -711,19 +805,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (c == null || !c.value.isInitialized) return;
     final provider = context.read<AppProvider>();
     if (c.value.isPlaying) {
-      _requestingFocus = true;
+      _beginFocusChange();
       await c.pause();
-      _requestingFocus = false;
+      _endFocusChangeAfter(const Duration(milliseconds: 300));
       _pausedByInterruption = false;
       WakelockPlus.disable();
     } else {
-      _requestingFocus = true;
+      _beginFocusChange();
       _lastPlayTime = DateTime.now();
       await AudioHelper.requestFocus();
       await c.play();
-      Future.delayed(const Duration(seconds: 1), () {
-        _requestingFocus = false;
-      });
+      _endFocusChangeAfter(const Duration(seconds: 1));
       if (!provider.isBackgroundPlayEnabled) {
         WakelockPlus.enable();
       } else {
@@ -867,6 +959,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _posTimer?.cancel();
     _toastTimer?.cancel();
     _sponsorToastTimer?.cancel();
+    _focusGuardTimer?.cancel();
     NativePlayer.removeHandlers(
       onPip: _onPipChanged,
       onMediaPlay: _onMediaPlay,
@@ -874,6 +967,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       onMediaStop: _onMediaStop,
       onMediaRewind: _onMediaRewind,
       onMediaForward: _onMediaForward,
+      onMediaSeek: _onMediaSeek,
     );
     AudioHelper.removeListeners(
       onBecomingNoisy: _onBecomingNoisy,
@@ -2131,12 +2225,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
                             ? const Icon(Icons.check, color: AppTheme.primary)
                             : null,
                         onTap: () async {
+                          // Per-video only. Writing the global default here
+                          // meant watching one video at 2x silently set every
+                          // future video to 2x.
                           Navigator.pop(ctx);
                           setState(() => _speed = s);
                           await _controller?.setPlaybackSpeed(s);
-                          if (mounted) {
-                            context.read<AppProvider>().setDefaultSpeed(s);
-                          }
                         },
                       );
                     },
@@ -2288,9 +2382,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
                             ? const Icon(Icons.check, color: AppTheme.primary)
                             : null,
                         onTap: () async {
+                          // Per-video only — the global default lives in
+                          // Settings and should not change behind the user's
+                          // back just because they bumped one video to 1080p.
                           Navigator.pop(ctx);
                           setState(() => _quality = q);
-                          context.read<AppProvider>().setDefaultQuality(q);
                           final d = context.read<AppProvider>().currentVideo;
                           if (d != null) {
                             final pos = _controller?.value.position;
@@ -2419,9 +2515,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
   }
 
-  void _toggleSubscribe(String channel) {
-    setState(() => _subscribed = !_subscribed);
-    _toast(_subscribed ? "Subscribed to $channel" : "Unsubscribed");
+  Future<void> _toggleSubscribe(String channel) async {
+    final provider = context.read<AppProvider>();
+    final channelId = provider.currentVideo?.channelId ??
+        widget.preview?.channelId ??
+        '';
+    if (channelId.isEmpty) {
+      _toast('Channel unavailable');
+      return;
+    }
+    // Persisted now; this used to be local state that reset on every rebuild.
+    final now = await provider.toggleSubscription(channelId);
+    if (!mounted) return;
+    setState(() => _subscribed = now);
+    _toast(now ? 'Subscribed to $channel' : 'Unsubscribed');
   }
 
   Future<void> _toggleLike() async {

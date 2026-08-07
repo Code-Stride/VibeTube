@@ -14,6 +14,7 @@ class NativePlayer {
   static final List<void Function()> _stopListeners = [];
   static final List<void Function()> _rewindListeners = [];
   static final List<void Function()> _forwardListeners = [];
+  static final List<void Function(Duration)> _seekListeners = [];
 
   static void _ensureChannelWired() {
     if (_wired) return;
@@ -52,6 +53,15 @@ class NativePlayer {
             l();
           }
           break;
+        // Lock-screen / Android Auto scrubber.
+        case 'mediaSeekTo':
+          final ms = call.arguments;
+          if (ms is int) {
+            for (final l in List.of(_seekListeners)) {
+              l(Duration(milliseconds: ms));
+            }
+          }
+          break;
       }
     });
   }
@@ -64,8 +74,12 @@ class NativePlayer {
     void Function()? onMediaStop,
     void Function()? onMediaRewind,
     void Function()? onMediaForward,
+    void Function(Duration)? onMediaSeek,
   }) {
     _ensureChannelWired();
+    if (onMediaSeek != null && !_seekListeners.contains(onMediaSeek)) {
+      _seekListeners.add(onMediaSeek);
+    }
     if (onPip != null && !_pipListeners.contains(onPip)) {
       _pipListeners.add(onPip);
     }
@@ -93,7 +107,9 @@ class NativePlayer {
     void Function()? onMediaStop,
     void Function()? onMediaRewind,
     void Function()? onMediaForward,
+    void Function(Duration)? onMediaSeek,
   }) {
+    if (onMediaSeek != null) _seekListeners.remove(onMediaSeek);
     if (onPip != null) _pipListeners.remove(onPip);
     if (onMediaPlay != null) _playListeners.remove(onMediaPlay);
     if (onMediaPause != null) _pauseListeners.remove(onMediaPause);
@@ -136,9 +152,21 @@ class NativePlayer {
     } catch (_) {}
   }
 
-  static Future<void> setPlaying(bool playing) async {
+  /// [position] / [duration] feed the MediaSession playback state so the
+  /// lock-screen, Bluetooth and Android Auto scrubbers show real progress.
+  static Future<void> setPlaying(
+    bool playing, {
+    Duration? position,
+    Duration? duration,
+    double? speed,
+  }) async {
     try {
-      await _ch.invokeMethod('setPlaying', {'playing': playing});
+      await _ch.invokeMethod('setPlaying', {
+        'playing': playing,
+        if (position != null) 'positionMs': position.inMilliseconds,
+        if (duration != null) 'durationMs': duration.inMilliseconds,
+        if (speed != null) 'speed': speed,
+      });
     } catch (_) {}
   }
 
@@ -160,12 +188,16 @@ class NativePlayer {
     required String title,
     required String artist,
     required bool playing,
+    Duration? position,
+    Duration? duration,
   }) async {
     try {
       await _ch.invokeMethod('updateBackground', {
         'title': title,
         'artist': artist,
         'playing': playing,
+        if (position != null) 'positionMs': position.inMilliseconds,
+        if (duration != null) 'durationMs': duration.inMilliseconds,
       });
     } catch (_) {}
   }

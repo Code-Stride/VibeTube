@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:video_player/video_player.dart';
 import '../models/video.dart';
@@ -74,6 +76,7 @@ class MiniPlayerController extends ChangeNotifier {
       } catch (_) {}
     }
     controller = ctrl;
+    playbackError = null;
     this.video = video;
     this.details = details;
     this.activeUrl = activeUrl;
@@ -100,7 +103,19 @@ class MiniPlayerController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Set when the stream dies (expired googlevideo URL, CDN error) so the
+  /// mini bar can say so instead of sitting on a frozen frame forever.
+  String? playbackError;
+
   void _tick() {
+    final c = controller;
+    if (c != null && c.value.hasError && playbackError == null) {
+      playbackError = c.value.errorDescription ?? 'Playback error';
+      debugPrint('MiniPlayer stream error: $playbackError');
+      NativePlayer.setPlaying(false);
+      notifyListeners();
+      return;
+    }
     final now = DateTime.now();
     if (now.difference(_lastNotify).inMilliseconds < _notifyIntervalMs) return;
     _lastNotify = now;
@@ -111,10 +126,12 @@ class MiniPlayerController extends ChangeNotifier {
     play();
   }
 
-  void _onMediaPause() {
-    _requestingFocus = true;
-    pause();
-    _requestingFocus = false;
+  Future<void> _onMediaPause() async {
+    // Must await: resetting the guard synchronously meant it was already false
+    // by the time pause() actually ran, so the guard did nothing.
+    _beginFocusChange();
+    await pause();
+    _endFocusChangeAfter(const Duration(milliseconds: 300));
   }
 
   void _onMediaStop() {
@@ -125,29 +142,34 @@ class MiniPlayerController extends ChangeNotifier {
     final c = controller;
     if (c == null || !c.value.isInitialized) return;
     if (c.value.isPlaying) {
-      _requestingFocus = true;
+      _beginFocusChange();
       await c.pause();
-      _requestingFocus = false;
       _pausedByInterruption = false;
+      _endFocusChangeAfter(const Duration(milliseconds: 300));
     } else {
-      _requestingFocus = true;
-      _lastPlayTime = DateTime.now();
-      await AudioHelper.requestFocus();
-      await c.play();
-      Future.delayed(const Duration(seconds: 1), () { _requestingFocus = false; });
+      await play();
+      return;
     }
     _syncBackground();
     notifyListeners();
   }
 
   Future<void> play() async {
-    _requestingFocus = true;
+    _beginFocusChange();
     _lastPlayTime = DateTime.now();
     await AudioHelper.requestFocus();
     await controller?.play();
-    Future.delayed(const Duration(seconds: 1), () { _requestingFocus = false; });
+    _endFocusChangeAfter(const Duration(seconds: 1));
     _syncBackground();
     notifyListeners();
+  }
+
+  /// Pause only if we are actually playing. Used when another surface (the
+  /// Shorts feed) takes over audio, so two players never sound at once.
+  Future<void> pauseIfPlaying() async {
+    final c = controller;
+    if (c == null || !c.value.isInitialized || !c.value.isPlaying) return;
+    await pause();
   }
 
   Future<void> pause() async {
@@ -167,6 +189,20 @@ class MiniPlayerController extends ChangeNotifier {
   bool _pausedByInterruption = false;
   bool _requestingFocus = false;
   DateTime _lastPlayTime = DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// Cancellable so two quick play/pause taps cannot have the first timer
+  /// close the second one's guard window.
+  Timer? _focusGuardTimer;
+
+  void _beginFocusChange() {
+    _focusGuardTimer?.cancel();
+    _requestingFocus = true;
+  }
+
+  void _endFocusChangeAfter(Duration d) {
+    _focusGuardTimer?.cancel();
+    _focusGuardTimer = Timer(d, () => _requestingFocus = false);
+  }
 
   void _onBecomingNoisy() {
     if (_requestingFocus) return;
@@ -244,6 +280,8 @@ class MiniPlayerController extends ChangeNotifier {
     _minimized = false;
     _expanded = false;
     _bgStarted = false;
+    playbackError = null;
+    _focusGuardTimer?.cancel();
     _lastNotify = DateTime.fromMillisecondsSinceEpoch(0);
     if (c != null) {
       try {
@@ -254,6 +292,9 @@ class MiniPlayerController extends ChangeNotifier {
     }
     await NativePlayer.setPlaying(false);
     await NativePlayer.stopBackground();
+    // Hand audio focus back, otherwise other apps stay ducked after the user
+    // closes the mini bar.
+    await AudioHelper.abandonFocus();
     notifyListeners();
   }
 
@@ -303,6 +344,7 @@ class MiniPlayerController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _focusGuardTimer?.cancel();
     final c = controller;
     controller = null;
     if (c != null) {

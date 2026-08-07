@@ -5,6 +5,8 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:video_player/video_player.dart';
 import 'package:share_plus/share_plus.dart';
 import '../providers/app_provider.dart';
+import '../providers/mini_player_controller.dart';
+import '../services/audio_helper.dart';
 import '../utils/theme.dart';
 import '../utils/share_links.dart';
 import '../models/video.dart';
@@ -84,6 +86,8 @@ class _ShortsScreenState extends State<ShortsScreen> {
                 provider.loadMoreShorts();
               }
             },
+            // Keep neighbours alive so swiping back does not re-fetch.
+            allowImplicitScrolling: false,
             itemBuilder: (context, index) {
               return _ShortPlayer(
                 video: provider.shortsVideos[index],
@@ -131,6 +135,21 @@ class _ShortPlayerState extends State<_ShortPlayer>
     _heartScale = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(parent: _heartAnimController, curve: Curves.elasticOut),
     );
+    // Shorts previously ignored the audio session entirely: pulling out
+    // headphones kept playing on the loudspeaker and an incoming call talked
+    // over the video.
+    AudioHelper.addListeners(
+      onBecomingNoisy: _onBecomingNoisy,
+      onShouldPause: _onShouldPause,
+      onMayResume: _onMayResume,
+      onDuck: _onDuck,
+    );
+    // Reflect the real stored state instead of always showing "unliked".
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      final liked = await context.read<AppProvider>().isLiked(widget.video.id);
+      if (mounted && liked != _liked) setState(() => _liked = liked);
+    });
     _initPlayer();
   }
 
@@ -138,15 +157,41 @@ class _ShortPlayerState extends State<_ShortPlayer>
   void didUpdateWidget(_ShortPlayer oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.isActive && !oldWidget.isActive) {
-      _controller?.play();
+      _resumeWithFocus();
     } else if (!widget.isActive && oldWidget.isActive) {
       _controller?.pause();
     }
   }
 
+  /// Taking audio focus stops the mini player (or any other app) from playing
+  /// underneath us — previously a Short and the mini player produced sound at
+  /// the same time.
+  Future<void> _resumeWithFocus() async {
+    final c = _controller;
+    if (c == null || !c.value.isInitialized) return;
+    context.read<MiniPlayerController>().pauseIfPlaying();
+    await AudioHelper.requestFocus();
+    if (!mounted || !widget.isActive) return;
+    await c.play();
+  }
+
   Future<void> _initPlayer() async {
     final requestId = ++_playerRequestId;
-    if (mounted) setState(() => _playerError = null);
+    // Retry used to overwrite _controller without disposing the old one. On
+    // Android there are only a handful of hardware decoders, so a few retries
+    // left every Short rendering black.
+    final previous = _controller;
+    _controller = null;
+    if (mounted) {
+      setState(() {
+        _playerError = null;
+        _ready = false;
+      });
+    }
+    try {
+      await previous?.dispose();
+    } catch (_) {}
+
     try {
       final provider = context.read<AppProvider>();
       final details = await provider.client.getVideoDetails(widget.video.id);
@@ -169,10 +214,18 @@ class _ShortPlayerState extends State<_ShortPlayer>
         playUrl = details.bestMuxedUrl;
       }
 
-      if (playUrl == null || playUrl.isEmpty || !mounted) return;
+      // Bailing out silently here left _ready false forever, so the Short sat
+      // on a spinner with no message and no way to retry.
+      if (playUrl == null || playUrl.isEmpty) {
+        if (mounted && requestId == _playerRequestId) {
+          setState(() => _playerError = 'No playable stream for this Short');
+        }
+        return;
+      }
+      if (!mounted || requestId != _playerRequestId) return;
 
       final isHls = playUrl.contains('m3u8');
-      _controller = VideoPlayerController.networkUrl(
+      final candidate = VideoPlayerController.networkUrl(
         Uri.parse(playUrl),
         httpHeaders: isHls
             ? {
@@ -186,14 +239,22 @@ class _ShortPlayerState extends State<_ShortPlayer>
                 'Referer': 'https://www.youtube.com/',
               },
       );
-      await _controller!.initialize().timeout(const Duration(seconds: 25));
+      try {
+        await candidate.initialize().timeout(const Duration(seconds: 25));
+      } catch (_) {
+        await candidate.dispose();
+        rethrow;
+      }
       if (!mounted || requestId != _playerRequestId) {
-        await _controller?.dispose();
+        await candidate.dispose();
         return;
       }
-      await _controller!.setLooping(true);
-      if (widget.isActive) await _controller!.play();
+      _controller = candidate;
+      await candidate.setLooping(true);
+      candidate.addListener(_onControllerTick);
+      if (!mounted || requestId != _playerRequestId) return;
       setState(() => _ready = true);
+      if (widget.isActive) await _resumeWithFocus();
     } catch (e) {
       debugPrint('Short player init failed: $e');
       if (mounted && requestId == _playerRequestId) {
@@ -202,22 +263,67 @@ class _ShortPlayerState extends State<_ShortPlayer>
     }
   }
 
-  void _togglePlayPause() {
+  bool _pausedByInterruption = false;
+
+  void _onBecomingNoisy() {
+    final c = _controller;
+    if (c == null || !c.value.isInitialized || !c.value.isPlaying) return;
+    _pausedByInterruption = false;
+    c.pause();
+    if (mounted) setState(() {});
+  }
+
+  void _onShouldPause(bool permanent) {
+    final c = _controller;
+    if (c == null || !c.value.isInitialized || !c.value.isPlaying) return;
+    _pausedByInterruption = !permanent;
+    c.pause();
+    if (mounted) setState(() {});
+  }
+
+  void _onMayResume() {
+    if (!_pausedByInterruption || !widget.isActive) return;
+    _pausedByInterruption = false;
+    final c = _controller;
+    if (c == null || !c.value.isInitialized || c.value.isPlaying) return;
+    _resumeWithFocus();
+  }
+
+  void _onDuck(bool ducking) {
+    _controller?.setVolume(ducking ? AudioHelper.duckVolume : 1.0);
+  }
+
+  /// Surfaces decoder/network failures instead of freezing on a black frame.
+  void _onControllerTick() {
+    final c = _controller;
+    if (c == null || !mounted) return;
+    if (c.value.hasError && _playerError == null) {
+      setState(() => _playerError = 'Playback error — tap retry');
+    }
+  }
+
+  Future<void> _togglePlayPause() async {
     final c = _controller;
     if (c == null || !c.value.isInitialized) return;
-    setState(() {
-      _showPlayPause = true;
-      c.value.isPlaying ? c.pause() : c.play();
-    });
+    // Do the async work outside setState, then rebuild once it has actually
+    // taken effect — otherwise the icon rendered the pre-toggle state.
+    if (c.value.isPlaying) {
+      await c.pause();
+    } else {
+      await _resumeWithFocus();
+    }
+    if (!mounted) return;
+    setState(() => _showPlayPause = true);
     _hideTimer?.cancel();
     _hideTimer = Timer(const Duration(milliseconds: 800), () {
       if (mounted) setState(() => _showPlayPause = false);
     });
   }
 
+  /// Double-tap is a "like", never a toggle. Double-tapping an already-liked
+  /// Short used to silently remove it from Liked while showing a red heart.
   void _doubleTapLike(TapDownDetails details) {
     setState(() {
-      _liked = true;
       _showHeart = true;
       _heartPosition = details.localPosition;
     });
@@ -225,14 +331,26 @@ class _ShortPlayerState extends State<_ShortPlayer>
     Future.delayed(const Duration(milliseconds: 800), () {
       if (mounted) setState(() => _showHeart = false);
     });
+    if (_liked) return;
+    setState(() => _liked = true);
     context.read<AppProvider>().toggleLike(widget.video);
   }
 
   @override
   void dispose() {
     _playerRequestId++;
+    AudioHelper.removeListeners(
+      onBecomingNoisy: _onBecomingNoisy,
+      onShouldPause: _onShouldPause,
+      onMayResume: _onMayResume,
+      onDuck: _onDuck,
+    );
     _hideTimer?.cancel();
-    _controller?.dispose();
+    _heartAnimController.dispose();
+    final c = _controller;
+    _controller = null;
+    c?.removeListener(_onControllerTick);
+    c?.dispose();
     super.dispose();
   }
 
@@ -402,23 +520,34 @@ class _ShortPlayerState extends State<_ShortPlayer>
                       ),
                     ),
                     const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: const Text(
-                        'Subscribe',
-                        style: TextStyle(
-                          color: Colors.black,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 13,
-                        ),
-                      ),
+                    Consumer<AppProvider>(
+                      builder: (context, p, _) {
+                        final id = widget.video.channelId;
+                        final subbed = p.isSubscribed(id);
+                        return GestureDetector(
+                          onTap: id.isEmpty
+                              ? null
+                              : () => p.toggleSubscription(id),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 6,
+                            ),
+                            decoration: BoxDecoration(
+                              color: subbed ? Colors.white24 : Colors.white,
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Text(
+                              subbed ? 'Subscribed' : 'Subscribe',
+                              style: TextStyle(
+                                color: subbed ? Colors.white : Colors.black,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
+                        );
+                      },
                     ),
                   ],
                 ),
@@ -455,9 +584,11 @@ class _ShortPlayerState extends State<_ShortPlayer>
                 _actionBtn(
                   _liked ? Icons.favorite : Icons.favorite_border,
                   'Like',
-                  onTap: () {
-                    context.read<AppProvider>().toggleLike(widget.video);
-                    setState(() => _liked = !_liked);
+                  onTap: () async {
+                    final now = await context
+                        .read<AppProvider>()
+                        .toggleLike(widget.video);
+                    if (mounted) setState(() => _liked = now);
                   },
                   color: _liked ? Colors.red : Colors.white,
                 ),
