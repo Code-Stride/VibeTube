@@ -43,7 +43,10 @@ class MiniPlayerBar extends StatelessWidget {
                 ),
               ),
               Dismissible(
-                key: ValueKey('mini-${v.id}-${mini.hashCode}'),
+                // Keyed on the video alone: including the controller's
+                // hashCode rebuilt the tile (and cancelled an in-progress
+                // swipe) whenever the session object changed identity.
+                key: ValueKey('mini-${v.id}'),
                 direction: DismissDirection.horizontal,
                 onDismissed: (_) => mini.close(),
                 background: Container(color: AppTheme.error, alignment: Alignment.centerLeft, padding: const EdgeInsets.only(left: 20), child: const Icon(Icons.close, color: Colors.white)),

@@ -26,18 +26,32 @@ class _HomeScreenState extends State<HomeScreen> {
   int _index = 0;
   bool _updateShown = false;
 
+  /// Cached in [didChangeDependencies] because [dispose] runs after this
+  /// element is detached, where `context.read` is not guaranteed to work — the
+  /// old code relied on a bare try/catch around it.
+  MiniPlayerController? _mini;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       context.read<MiniPlayerController>().setUseGlobalOverlay(false);
       _scheduleUpdateCheck();
     });
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _mini = context.read<MiniPlayerController>();
+  }
+
+  @override
   void dispose() {
-    try { context.read<MiniPlayerController>().setUseGlobalOverlay(true); } catch (_) {}
+    // HomeScreen draws its own mini bar above the bottom nav; once it is gone
+    // the global overlay has to take over again.
+    _mini?.setUseGlobalOverlay(true);
     super.dispose();
   }
 
