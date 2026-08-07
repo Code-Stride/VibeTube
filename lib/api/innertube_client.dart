@@ -132,10 +132,11 @@ class InnerTubeClient {
   String _categoryQuery(String category, String region) {
     final c = category.trim().toLowerCase();
     final isIn = region.toUpperCase() == 'IN';
+    final year = DateTime.now().year;
     switch (c) {
       case 'all': return isIn ? 'trending india' : 'trending';
       case 'music': return isIn ? 'bollywood songs' : 'music videos';
-      case 'youtube music': return isIn ? 'latest music india 2025' : 'youtube music hits 2025';
+      case 'youtube music': return isIn ? 'latest music india $year' : 'youtube music hits $year';
       case 'gaming': return isIn ? 'gaming india' : 'gaming';
       case 'news': return isIn ? 'news india today' : 'world news today';
       case 'sports': return isIn ? 'cricket highlights' : 'sports highlights';
@@ -431,7 +432,7 @@ class InnerTubeClient {
   String? _nextCacheVideoId;
   Future<Map<String, dynamic>>? _nextCacheFuture;
 
-  Future<Map<String, dynamic>> _fetchNext(String videoId) {
+  Future<Map<String, dynamic>> _fetchNext(String videoId) async {
     if (_nextCacheVideoId == videoId && _nextCacheFuture != null) {
       return _nextCacheFuture!;
     }
@@ -442,15 +443,18 @@ class InnerTubeClient {
     );
     _nextCacheVideoId = videoId;
     _nextCacheFuture = future;
-    // A failed request must not be cached, or every retry returns the error.
-    future.catchError((Object e) {
-      if (_nextCacheVideoId == videoId) {
+    try {
+      return await future;
+    } catch (_) {
+      // Clear only our own failed request. Handling the error in this awaited
+      // branch avoids creating an ignored catchError future that reports the
+      // same network failure as an unhandled zone error.
+      if (_nextCacheVideoId == videoId && identical(_nextCacheFuture, future)) {
         _nextCacheVideoId = null;
         _nextCacheFuture = null;
       }
-      throw e;
-    });
-    return future;
+      rethrow;
+    }
   }
 
   Future<List<Video>> getRelatedVideos(String videoId) async {
