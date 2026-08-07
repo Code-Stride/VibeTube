@@ -5,7 +5,6 @@ import 'package:http/http.dart' as http;
 import '../models/video.dart';
 import '../services/hls_parser.dart';
 import '../services/caption_service.dart';
-import '../services/caption_service.dart';
 
 /// YouTube InnerTube client — multi-client strategy for maximum playback.
 class InnerTubeClient {

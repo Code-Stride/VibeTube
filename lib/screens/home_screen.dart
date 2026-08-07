@@ -120,7 +120,8 @@ class _HomeScreenState extends State<HomeScreen> {
     final tabs = _tabsFor(isMusic);
     // Derived, never mutated during build. If the active tab does not exist in
     // this mode (Shorts in Music Mode) fall back to Home.
-    final index = tabs.indexOf(_tab) < 0 ? 0 : tabs.indexOf(_tab);
+    final selected = tabs.indexOf(_tab);
+    final index = selected < 0 ? 0 : selected;
 
     return Scaffold(
       body: AnimatedSwitcher(
