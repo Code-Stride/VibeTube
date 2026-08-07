@@ -238,11 +238,24 @@ class VideoDetails extends Video {
 
   String? get progressiveUrl => bestMuxedUrl;
 
+  /// Highest concrete HLS rendition, ignoring the adaptive master.
+  String? get bestVariantUrl {
+    if (hlsVariants.isEmpty) return null;
+    final h = hlsVariants.keys.toList()..sort((a, b) => b.compareTo(a));
+    return hlsVariants[h.first];
+  }
+
   /// Resolve a concrete playable URL for the chosen quality label.
   String? urlForQuality(String quality) {
     final q = quality.trim();
     if (q == 'Auto' || q == 'Best') {
-      return preferredPlayUrl;
+      // Deliberately NOT preferredPlayUrl. "Best" means the highest quality
+      // rendition, whereas preferredPlayUrl now yields the adaptive master
+      // (which lets the player step down). The two labels mean different
+      // things and the distinction is asserted by
+      // "Auto resolves to the adaptive master" in widget_test.dart:
+      //   'Auto (HLS)' -> master, 'Auto'/'Best' -> highest variant.
+      return bestVariantUrl ?? preferredPlayUrl;
     }
     if (q == 'Auto (HLS)') {
       // Auto (HLS) = adaptive master playlist (for adaptive streaming)
