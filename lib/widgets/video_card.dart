@@ -1,6 +1,5 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/painting.dart' show ImageStream, ImageStreamListener;
 import 'package:provider/provider.dart';
 import '../models/video.dart';
 import '../providers/app_provider.dart';
