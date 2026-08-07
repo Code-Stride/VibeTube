@@ -237,16 +237,26 @@ class _ShortPlayerState extends State<_ShortPlayer>
   Future<void> _startPlayback({int? requestId}) async {
     final expectedRequest = requestId ?? _playerRequestId;
     final c = _controller;
-    if (c == null || !c.value.isInitialized || !widget.isActive) return;
+    if (c == null || !c.value.isInitialized || !widget.isActive) {
+      return;
+    }
 
     final mini = context.read<MiniPlayerController>();
     if (mini.isPlaying) await mini.pause();
-    if (!mounted || expectedRequest != _playerRequestId ||
-        !widget.isActive || !identical(c, _controller)) return;
+    if (!mounted ||
+        expectedRequest != _playerRequestId ||
+        !widget.isActive ||
+        !identical(c, _controller)) {
+      return;
+    }
 
     await AudioHelper.requestFocus();
-    if (!mounted || expectedRequest != _playerRequestId ||
-        !widget.isActive || !identical(c, _controller)) return;
+    if (!mounted ||
+        expectedRequest != _playerRequestId ||
+        !widget.isActive ||
+        !identical(c, _controller)) {
+      return;
+    }
     await c.play();
 
     // The page can become inactive while play() crosses the platform channel.

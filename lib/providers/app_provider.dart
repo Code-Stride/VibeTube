@@ -680,7 +680,9 @@ class AppProvider extends ChangeNotifier {
         tracks = await CaptionService.getTracks(videoId);
       }
       if (requestId != _videoRequestId ||
-          captionRequestId != _captionRequestId) return;
+          captionRequestId != _captionRequestId) {
+        return;
+      }
       captionTracks = tracks;
       captionCues = [];
       if (tracks.isNotEmpty && isCaptionsEnabled) {
@@ -690,7 +692,9 @@ class AppProvider extends ChangeNotifier {
         );
         final cues = await CaptionService.getCues(track.baseUrl);
         if (requestId != _videoRequestId ||
-            captionRequestId != _captionRequestId) return;
+            captionRequestId != _captionRequestId) {
+          return;
+        }
         captionCues = cues;
         selectedCaptionLanguage = track.languageCode;
       }
