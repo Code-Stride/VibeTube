@@ -15,6 +15,23 @@ class HlsVariant {
     this.codecs = '',
   });
 
+  /// True when this rendition carries its own audio.
+  ///
+  /// YouTube's master playlist often lists video-only variants plus a separate
+  /// `#EXT-X-MEDIA:TYPE=AUDIO` group. Handing such a variant's media playlist
+  /// straight to the player produces video with **no sound**, because the
+  /// audio group only exists in the master. Only muxed variants are safe to
+  /// use as a standalone quality lock.
+  bool get hasAudio {
+    final c = codecs.toLowerCase();
+    if (c.isEmpty) return true; // unknown: assume muxed, master is the fallback
+    return c.contains('mp4a') ||
+        c.contains('opus') ||
+        c.contains('ec-3') ||
+        c.contains('ac-3') ||
+        c.contains('flac');
+  }
+
   String get label {
     if (height >= 2160) return '2160p';
     if (height >= 1440) return '1440p';
