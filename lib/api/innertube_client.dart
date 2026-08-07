@@ -33,11 +33,23 @@ class InnerTubeClient {
     },
   ];
 
-  static const Map<String, dynamic> _webClient = {
+  /// Region the WEB client reports.
+  ///
+  /// This was hardcoded to 'IN' in [_webClientBase], so the Settings region
+  /// only reached the two browse calls that explicitly overrode `gl` — search,
+  /// `/next` and the WEB player fallback all stayed on India regardless of
+  /// what the user picked. Kept as instance state so [AppProvider.setRegion]
+  /// can move the whole client at once.
+  String region = 'IN';
+
+  static const Map<String, dynamic> _webClientBase = {
     'hl': 'en', 'gl': 'IN', 'clientName': 'WEB',
     'clientVersion': '2.20250713.00.00',
     'userAgent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
   };
+
+  /// WEB client context with the currently selected region applied.
+  Map<String, dynamic> get _webClient => {..._webClientBase, 'gl': region};
 
   final http.Client _http = http.Client();
 
@@ -54,7 +66,7 @@ class InnerTubeClient {
     final headers = {
       ..._headers(userAgent),
       'X-YouTube-Client-Name': clientNameId ?? '1',
-      'X-YouTube-Client-Version': clientVersion ?? (_webClient['clientVersion'] as String?) ?? '2.20250713.00.00',
+      'X-YouTube-Client-Version': clientVersion ?? (_webClientBase['clientVersion'] as String?) ?? '2.20250713.00.00',
     };
     final res = await _http.post(uri, headers: headers, body: jsonEncode(body)).timeout(const Duration(seconds: 18));
     if (res.statusCode != 200) throw Exception('InnerTube $endpoint HTTP ${res.statusCode}');
@@ -166,12 +178,22 @@ class InnerTubeClient {
     try {
       final response = await _post('search', body, userAgent: _webClient['userAgent'] as String);
       final videos = _parseVideosDeep(response);
-      if (videos.isNotEmpty) return SearchResult(videos: videos);
+      if (videos.isNotEmpty) {
+        return SearchResult(
+          videos: videos,
+          continuation: extractContinuation(response),
+        );
+      }
     } catch (_) {}
     try {
       final androidClient = {'clientName': 'ANDROID', 'clientVersion': '20.10.38', 'androidSdkVersion': 34, 'hl': client['hl'] ?? 'en', 'gl': client['gl'] ?? 'IN'};
-      final response = await _post('search', {'query': query, 'context': {'client': androidClient}, 'params': params ?? kFilterVideos}, userAgent: 'com.google.android.youtube/20.10.38 (Linux; U; Android 14) gzip');
-      return SearchResult(videos: _parseVideosDeep(response));
+      final searchBody = <String, dynamic>{'query': query, 'context': {'client': androidClient}, 'params': params ?? kFilterVideos};
+      if (continuation != null) searchBody['continuation'] = continuation;
+      final response = await _post('search', searchBody, userAgent: 'com.google.android.youtube/20.10.38 (Linux; U; Android 14) gzip');
+      return SearchResult(
+        videos: _parseVideosDeep(response),
+        continuation: extractContinuation(response),
+      );
     } catch (e) { throw Exception('Search failed: $e'); }
   }
 
@@ -304,19 +326,30 @@ class InnerTubeClient {
     return _parseVideoDetails(response, videoId);
   }
 
-  Future<List<Video>> getRelatedVideos(String videoId) async {
+  /// Related videos and comments both come out of the same `/next` payload.
+  ///
+  /// [getRelatedVideos] and [getComments] used to POST identical bodies to the
+  /// same endpoint and were run in parallel for every video opened, so the
+  /// response (~1-2 MB) was downloaded and parsed twice. Fetch once, parse
+  /// both.
+  Future<NextResult> getNextData(String videoId) async {
     try {
       final response = await _post('next', {'videoId': videoId, 'context': {'client': _webClient}}, userAgent: _webClient['userAgent'] as String);
-      return _parseVideosDeep(response);
-    } catch (e) { debugPrint('getRelatedVideos error: $e'); return []; }
+      return NextResult(
+        related: _parseVideosDeep(response),
+        comments: _parseCommentsDeep(response),
+      );
+    } catch (e) {
+      debugPrint('getNextData error: $e');
+      return const NextResult();
+    }
   }
 
-  Future<List<Comment>> getComments(String videoId) async {
-    try {
-      final response = await _post('next', {'videoId': videoId, 'context': {'client': _webClient}}, userAgent: _webClient['userAgent'] as String);
-      return _parseCommentsDeep(response);
-    } catch (e) { debugPrint('getComments error: $e'); return []; }
-  }
+  Future<List<Video>> getRelatedVideos(String videoId) async =>
+      (await getNextData(videoId)).related;
+
+  Future<List<Comment>> getComments(String videoId) async =>
+      (await getNextData(videoId)).comments;
 
   Future<List<SponsorSegment>> getSponsorSegments(String videoId) async {
     try {
@@ -401,9 +434,16 @@ class InnerTubeClient {
     return out;
   }
 
+  /// Depth limit for the generic JSON walkers below.
+  ///
+  /// InnerTube payloads nest ~15-20 levels; 40 leaves generous headroom while
+  /// stopping a malformed or hostile response from blowing the stack.
+  static const int _maxWalkDepth = 40;
+
   List<Video> _parseVideosDeep(Map<String, dynamic> response) {
     final videos = <Video>[];
-    void walk(dynamic node) {
+    void walk(dynamic node, int depth) {
+      if (depth > _maxWalkDepth) return;
       if (node is Map) {
         for (final key in ['videoRenderer', 'compactVideoRenderer', 'gridVideoRenderer', 'playlistVideoRenderer', 'reelItemRenderer', 'shortsLockupViewModel']) {
           if (node[key] is Map) {
@@ -415,13 +455,52 @@ class InnerTubeClient {
           }
         }
         if (node['lockupViewModel'] is Map) { final v = _extractLockup(Map<String, dynamic>.from(node['lockupViewModel'] as Map)); if (v != null) videos.add(v); }
-        if (node['richItemRenderer'] is Map) { walk(node['richItemRenderer']['content']); }
-        for (final v in node.values) { walk(v); }
-      } else if (node is List) { for (final i in node) { walk(i); } }
+        if (node['richItemRenderer'] is Map) { walk(node['richItemRenderer']['content'], depth + 1); }
+        for (final v in node.values) { walk(v, depth + 1); }
+      } else if (node is List) { for (final i in node) { walk(i, depth + 1); } }
     }
-    walk(response);
+    walk(response, 0);
     final seen = <String>{};
     return videos.where((v) => v.id.isNotEmpty && seen.add(v.id)).toList();
+  }
+
+  /// Pull the "load more" token out of any InnerTube response.
+  ///
+  /// Both the modern `continuationCommand.token` and the legacy
+  /// `nextContinuationData.continuation` shapes appear, depending on endpoint
+  /// and client, so both are accepted. This was never implemented, so
+  /// [SearchResult.continuation] was always null and every feed stopped dead
+  /// at its first page while `loadMoreShorts` re-ran the same query and
+  /// deduped everything away.
+  @visibleForTesting
+  static String? extractContinuation(Map<String, dynamic> response) {
+    String? token;
+    void walk(dynamic node, int depth) {
+      if (token != null || depth > _maxWalkDepth) return;
+      if (node is Map) {
+        final cmd = node['continuationCommand'];
+        if (cmd is Map && cmd['token'] is String && (cmd['token'] as String).isNotEmpty) {
+          token = cmd['token'] as String;
+          return;
+        }
+        final legacy = node['nextContinuationData'];
+        if (legacy is Map && legacy['continuation'] is String && (legacy['continuation'] as String).isNotEmpty) {
+          token = legacy['continuation'] as String;
+          return;
+        }
+        for (final v in node.values) {
+          walk(v, depth + 1);
+          if (token != null) return;
+        }
+      } else if (node is List) {
+        for (final i in node) {
+          walk(i, depth + 1);
+          if (token != null) return;
+        }
+      }
+    }
+    walk(response, 0);
+    return token;
   }
 
   Video? _extractShort(Map<String, dynamic> r, String kind) {
@@ -537,7 +616,9 @@ class InnerTubeClient {
 
     final lower = trimmed.toLowerCase();
     final cleaned = trimmed.replaceAll(',', '');
-    final m = RegExp(r'([\d.]+)\s*([KMBTkmbt])?').firstMatch(cleaned);
+    // `[\d.]+` happily matched "1.2" out of "1.2.3"; require a well-formed
+    // number with at most one decimal point instead.
+    final m = RegExp(r'(\d+(?:\.\d+)?)\s*([KMBTkmbt])?').firstMatch(cleaned);
     if (m == null) {
       return int.tryParse(cleaned.replaceAll(RegExp(r'[^\d]'), '')) ?? 0;
     }

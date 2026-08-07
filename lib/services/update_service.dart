@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:flutter/foundation.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/video.dart';
@@ -36,7 +37,9 @@ class UpdateService {
       final dismissed = prefs.getString(prefsKeyDismissed);
       if (!force && dismissed == tag) return null;
 
-      final hasUpdate = _isNewer(tag, current);
+      // Compare against version+build so a same-version hotfix (1.11.0+27
+      // over 1.11.0+26) is still detected.
+      final hasUpdate = isNewer(tag, '$current+$build');
       // NEVER show update popup when app is already on latest version
       if (!hasUpdate) return null;
 
@@ -68,24 +71,33 @@ class UpdateService {
     await prefs.setString(prefsKeyDismissed, version);
   }
 
-  /// Semver-ish compare: returns true if remote > local
-  bool _isNewer(String remote, String local) {
-    List<int> parse(String v) {
-      // Strip any build metadata ("1.5.0+11") and pre-release suffix first,
-      // then keep only digits and dots.
-      final core = v.split('+').first.split('-').first;
-      final cleaned = core.replaceAll(RegExp(r'[^0-9.]'), '');
-      final parts = cleaned.split('.');
-      return [
-        int.tryParse(parts.isNotEmpty ? parts[0] : '0') ?? 0,
-        int.tryParse(parts.length > 1 ? parts[1] : '0') ?? 0,
-        int.tryParse(parts.length > 2 ? parts[2] : '0') ?? 0,
-      ];
-    }
+  /// `[major, minor, patch, build]`.
+  ///
+  /// The build component comes from the `+N` suffix and is `0` when absent,
+  /// which is what a plain release tag like `v1.11.0` yields — so an untagged
+  /// build never looks newer than an installed one with the same core.
+  @visibleForTesting
+  static List<int> parseVersion(String v) {
+    final plus = v.indexOf('+');
+    final buildPart = plus >= 0 ? v.substring(plus + 1) : '';
+    // Strip build metadata and any pre-release suffix, then keep digits/dots.
+    final core = v.split('+').first.split('-').first;
+    final cleaned = core.replaceAll(RegExp(r'[^0-9.]'), '');
+    final parts = cleaned.split('.');
+    return [
+      int.tryParse(parts.isNotEmpty ? parts[0] : '0') ?? 0,
+      int.tryParse(parts.length > 1 ? parts[1] : '0') ?? 0,
+      int.tryParse(parts.length > 2 ? parts[2] : '0') ?? 0,
+      int.tryParse(buildPart.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0,
+    ];
+  }
 
-    final r = parse(remote);
-    final l = parse(local);
-    for (var i = 0; i < 3; i++) {
+  /// Semver-ish compare: returns true if remote > local.
+  @visibleForTesting
+  static bool isNewer(String remote, String local) {
+    final r = parseVersion(remote);
+    final l = parseVersion(local);
+    for (var i = 0; i < 4; i++) {
       if (r[i] > l[i]) return true;
       if (r[i] < l[i]) return false;
     }

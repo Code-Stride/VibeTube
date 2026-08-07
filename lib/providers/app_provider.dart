@@ -54,7 +54,6 @@ class AppProvider extends ChangeNotifier {
 
   bool isDarkMode = true;
   bool isMusicMode = false;
-  bool isAdBlockEnabled = true;
   bool isSponsorBlockEnabled = true;
   bool isBackgroundPlayEnabled = true;
   bool isAutoPipEnabled = true;
@@ -64,7 +63,13 @@ class AppProvider extends ChangeNotifier {
   bool sbIntro = false;
   bool sbOutro = false;
   bool sbFiller = false;
-  String defaultQuality = 'Auto (HLS)';
+  /// Out-of-the-box quality. Declared once so the field initialiser and the
+  /// [init] fallback cannot drift apart — they used to disagree
+  /// ('Auto (HLS)' vs '1080p'), which made a fresh install and a settings
+  /// reset behave differently.
+  static const String kDefaultQuality = '1080p';
+
+  String defaultQuality = kDefaultQuality;
   double defaultSpeed = 1.0;
   String region = 'IN';
 
@@ -81,13 +86,15 @@ class AppProvider extends ChangeNotifier {
     final s = await storage.loadSettings();
     isDarkMode = s['isDarkMode'] ?? true;
     isMusicMode = s['isMusicMode'] ?? false;
-    isAdBlockEnabled = s['isAdBlockEnabled'] ?? true;
     isSponsorBlockEnabled = s['isSponsorBlockEnabled'] ?? true;
     isBackgroundPlayEnabled = s['isBackgroundPlayEnabled'] ?? true;
     isAutoPipEnabled = s['isAutoPipEnabled'] ?? true;
-    defaultQuality = s['defaultQuality'] ?? '1080p';
+    defaultQuality = s['defaultQuality'] ?? kDefaultQuality;
     defaultSpeed = (s['defaultSpeed'] as num?)?.toDouble() ?? 1.0;
     region = s['region'] ?? 'IN';
+    // Push it into the client too: search / next / WEB player were all pinned
+    // to India otherwise.
+    _client.region = region;
     isCaptionsEnabled = s['isCaptionsEnabled'] ?? false;
     selectedCaptionLanguage = s['selectedCaptionLanguage'];
     sbSponsor = s['sbSponsor'] ?? true;
@@ -107,7 +114,6 @@ class AppProvider extends ChangeNotifier {
     await storage.saveSettings({
       'isDarkMode': isDarkMode,
       'isMusicMode': isMusicMode,
-      'isAdBlockEnabled': isAdBlockEnabled,
       'isSponsorBlockEnabled': isSponsorBlockEnabled,
       'isBackgroundPlayEnabled': isBackgroundPlayEnabled,
       'isAutoPipEnabled': isAutoPipEnabled,
@@ -166,14 +172,17 @@ class AppProvider extends ChangeNotifier {
           ? await _client.getTrending(region: requestRegion)
           : await _client.getCategoryFeed(category, region: requestRegion);
       if (requestId != _feedRequestId) return;
-      if (videos.length > 3) videos.shuffle();
+      // No shuffle: "trending" is a ranked list, and re-ordering it on every
+      // pull-to-refresh lost the user's place for no benefit.
       trendingVideos = videos;
       if (videos.isEmpty) {
         error = 'No videos found. Check internet & pull to retry.';
       }
     } catch (e) {
       if (requestId != _feedRequestId) return;
-      error = 'Failed to load feed. Pull to retry.\n$e';
+      // Raw exception text can carry a signed googlevideo URL; keep it in the
+      // log, show the user something safe to screenshot.
+      error = 'Failed to load feed. Pull to retry.';
       debugPrint('loadTrending: $e');
     } finally {
       if (requestId == _feedRequestId && loadingId == _loadingRequestId) {
@@ -197,18 +206,28 @@ class AppProvider extends ChangeNotifier {
 
   // ---- Shorts ----
 
+  /// "Load more" token for the Shorts feed, when the server gave us one.
+  String? _shortsContinuation;
+
   Future<void> loadShorts() async {
     isShortsLoading = true;
     notifyListeners();
     try {
-      shortsVideos = await _client.getCategoryFeed('Shorts', region: region);
+      // Same region-aware query getCategoryFeed('Shorts') used, but via
+      // search() directly so we can keep the continuation token.
+      final result = await _client.search(
+        region.toUpperCase() == 'IN' ? 'shorts india' : 'shorts',
+        params: InnerTubeClient.kFilterShorts,
+      );
+      shortsVideos = result.videos;
+      _shortsContinuation = result.continuation;
       if (shortsVideos.isEmpty) {
-        // Fallback: search for shorts
-        final result = await _client.search(
+        final fallback = await _client.search(
           '#shorts',
           params: InnerTubeClient.kFilterShorts,
         );
-        shortsVideos = result.videos;
+        shortsVideos = fallback.videos;
+        _shortsContinuation = fallback.continuation;
       }
       if (shortsVideos.length > 2) shortsVideos.shuffle();
     } catch (e) {
@@ -244,43 +263,49 @@ class AppProvider extends ChangeNotifier {
     }
   }
 
+  bool _loadingMoreShorts = false;
+
+  /// Append the next page of Shorts.
+  ///
+  /// This used to re-run the identical first-page query and dedupe the result,
+  /// which returned nothing new in virtually every case — a wasted request per
+  /// scroll. Now it follows the continuation token when the server supplies
+  /// one, and only falls back to a different query when it does not.
   Future<void> loadMoreShorts() async {
+    if (_loadingMoreShorts) return;
+    _loadingMoreShorts = true;
     try {
-      final more = await _client.search(
-        'shorts',
-        params: InnerTubeClient.kFilterShorts,
-      );
+      final token = _shortsContinuation;
+      final more = token != null
+          ? await _client.search(
+              'shorts',
+              params: InnerTubeClient.kFilterShorts,
+              continuation: token,
+            )
+          : await _client.search(
+              region.toUpperCase() == 'IN'
+                  ? 'trending shorts india'
+                  : 'trending shorts',
+              params: InnerTubeClient.kFilterShorts,
+            );
+      _shortsContinuation = more.continuation;
       final seen = shortsVideos.map((v) => v.id).toSet();
+      var added = false;
       for (final v in more.videos) {
         if (seen.add(v.id)) {
           shortsVideos.add(v);
+          added = true;
         }
       }
-      notifyListeners();
+      if (added) notifyListeners();
     } catch (e) {
       debugPrint('loadMoreShorts: $e');
+    } finally {
+      _loadingMoreShorts = false;
     }
   }
 
   // ---- Captions ----
-
-  Future<void> loadCaptions(String videoId) async {
-    try {
-      captionTracks = await CaptionService.getTracks(videoId);
-      if (captionTracks.isNotEmpty && isCaptionsEnabled) {
-        // Auto-select preferred language or first available
-        final preferred = selectedCaptionLanguage;
-        final track = captionTracks.firstWhere(
-          (t) => t.languageCode == preferred,
-          orElse: () => captionTracks.first,
-        );
-        await selectCaptionTrack(track);
-      }
-      notifyListeners();
-    } catch (e) {
-      debugPrint('loadCaptions: $e');
-    }
-  }
 
   Future<void> selectCaptionTrack(CaptionTrack track) async {
     try {
@@ -390,7 +415,7 @@ class AppProvider extends ChangeNotifier {
       unawaited(_loadVideoSideData(videoId, requestId));
     } catch (e) {
       if (requestId != _videoRequestId) return;
-      playerError = 'Could not load video stream.\n$e';
+      playerError = 'Could not load video stream. Please try again.';
       isPlayerLoading = false;
       debugPrint('loadVideoDetails: $e');
       notifyListeners();
@@ -422,18 +447,12 @@ class AppProvider extends ChangeNotifier {
   }
 
   Future<void> _loadVideoSideData(String videoId, int requestId) async {
-    Future<void> related() async {
-      final value = await _client.getRelatedVideos(videoId);
+    // Related videos and comments share one `/next` response.
+    Future<void> nextData() async {
+      final value = await _client.getNextData(videoId);
       if (requestId == _videoRequestId) {
-        relatedVideos = value;
-        notifyListeners();
-      }
-    }
-
-    Future<void> commentData() async {
-      final value = await _client.getComments(videoId);
-      if (requestId == _videoRequestId) {
-        comments = value;
+        relatedVideos = value.related;
+        comments = value.comments;
         notifyListeners();
       }
     }
@@ -474,7 +493,7 @@ class AppProvider extends ChangeNotifier {
     }
 
     await Future.wait(
-      [related(), commentData(), sponsors(), dislikes(), captions()].map((
+      [nextData(), sponsors(), dislikes(), captions()].map((
         future,
       ) async {
         try {
@@ -599,12 +618,6 @@ class AppProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  void toggleAdBlock() {
-    isAdBlockEnabled = !isAdBlockEnabled;
-    _persistSettings();
-    notifyListeners();
-  }
-
   void toggleSponsorBlock() {
     isSponsorBlockEnabled = !isSponsorBlockEnabled;
     _persistSettings();
@@ -685,6 +698,7 @@ class AppProvider extends ChangeNotifier {
 
   void setRegion(String r) {
     region = r;
+    _client.region = r;
     _persistSettings();
     notifyListeners();
   }

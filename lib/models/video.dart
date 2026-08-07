@@ -29,16 +29,19 @@ class Video {
     this.isShort = false,
   });
 
+  /// Drops a `.0` fraction the way YouTube does: 1000 reads as "1K", not
+  /// "1.0K", while 1500 still reads as "1.5K".
+  static String _compact(num value, String suffix) {
+    final oneDecimal = value.toStringAsFixed(1);
+    final trimmed =
+        oneDecimal.endsWith('.0') ? oneDecimal.substring(0, oneDecimal.length - 2) : oneDecimal;
+    return '$trimmed$suffix';
+  }
+
   String get formattedViewCount {
-    if (viewCount >= 1000000000) {
-      return '${(viewCount / 1000000000).toStringAsFixed(1)}B';
-    }
-    if (viewCount >= 1000000) {
-      return '${(viewCount / 1000000).toStringAsFixed(1)}M';
-    }
-    if (viewCount >= 1000) {
-      return '${(viewCount / 1000).toStringAsFixed(1)}K';
-    }
+    if (viewCount >= 1000000000) return _compact(viewCount / 1000000000, 'B');
+    if (viewCount >= 1000000) return _compact(viewCount / 1000000, 'M');
+    if (viewCount >= 1000) return _compact(viewCount / 1000, 'K');
     return viewCount.toString();
   }
 
@@ -383,6 +386,16 @@ class SearchResult {
   final List<Video> videos;
   final String? continuation;
   const SearchResult({required this.videos, this.continuation});
+}
+
+/// Everything the InnerTube `/next` endpoint returns for a watch page.
+///
+/// Related videos and comments live in the same payload, so they are fetched
+/// and parsed together rather than by two identical requests.
+class NextResult {
+  final List<Video> related;
+  final List<Comment> comments;
+  const NextResult({this.related = const [], this.comments = const []});
 }
 
 class SponsorSegment {

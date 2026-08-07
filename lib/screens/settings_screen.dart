@@ -60,13 +60,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     // ---- Playback Section ----
                     _sectionHeader('Playback', Icons.play_circle_outline),
                     const SizedBox(height: 8),
-                    _tile(
+                    _statusTile(
                       c,
                       icon: Icons.block,
                       title: 'Ad blocker',
-                      subtitle: 'Ad-free streams via InnerTube clients',
-                      value: p.isAdBlockEnabled,
-                      onChanged: (_) => p.toggleAdBlock(),
+                      subtitle:
+                          'Always on — streams come straight from InnerTube, '
+                          'so no in-stream ads are served',
                     ),
                     _tile(
                       c,
@@ -454,6 +454,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
             style: TextStyle(fontSize: 12, color: c.textSecondary)),
         value: value,
         onChanged: onChanged,
+      ),
+    );
+  }
+
+  /// A read-only fact, not a setting.
+  ///
+  /// Used where a switch would imply control the app does not have: the
+  /// previous "Ad blocker" toggle wrote a flag that nothing ever read, so
+  /// turning it off changed nothing while telling the user it had.
+  Widget _statusTile(
+    VibeColors c, {
+    required IconData icon,
+    required String title,
+    required String subtitle,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      decoration: BoxDecoration(
+        color: c.surface,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: ListTile(
+        leading: Icon(icon, color: c.textSecondary),
+        title: Text(title,
+            style: TextStyle(
+                fontWeight: FontWeight.w600, color: c.textPrimary)),
+        subtitle: Text(subtitle,
+            style: TextStyle(fontSize: 12, color: c.textSecondary)),
+        trailing: Icon(Icons.check_circle,
+            size: 20, color: AppTheme.primary),
       ),
     );
   }
