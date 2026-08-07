@@ -142,7 +142,10 @@ class StorageService {
         await setList(_kDownloads, list);
       });
 
-  Future<void> clearHistory() async => setList(_kHistory, []);
+  /// Must take the same lock as [addToHistory]; otherwise an in-flight
+  /// read-modify-write can resurrect entries after the clear.
+  Future<void> clearHistory() =>
+      _synchronized(_kHistory, () => setList(_kHistory, []));
 
   // ---- Search History ----
 

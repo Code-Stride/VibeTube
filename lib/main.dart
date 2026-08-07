@@ -37,6 +37,42 @@ void main() async {
   runApp(VibeTubeApp(provider: provider));
 }
 
+/// Marks routes we pushed for a deep link, so a second link replaces the first
+/// instead of stacking another player on top of it.
+const String _deepLinkRouteName = 'player/deeplink';
+const RouteSettings _playerRouteSettings =
+    RouteSettings(name: _deepLinkRouteName);
+
+/// Tracks whether a deep-linked player is currently the top route.
+///
+/// Without this, tapping three YouTube links in a row pushes three
+/// PlayerScreens — each owning its own VideoPlayerController.
+class _DeepLinkRouteObserver extends NavigatorObserver {
+  bool topIsDeepLinkPlayer = false;
+
+  void _update(Route<dynamic>? top) {
+    topIsDeepLinkPlayer = top?.settings.name == _deepLinkRouteName;
+  }
+
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) =>
+      _update(route);
+
+  @override
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) =>
+      _update(previousRoute);
+
+  @override
+  void didReplace({Route<dynamic>? newRoute, Route<dynamic>? oldRoute}) =>
+      _update(newRoute);
+
+  @override
+  void didRemove(Route<dynamic> route, Route<dynamic>? previousRoute) =>
+      _update(previousRoute);
+}
+
+final _DeepLinkRouteObserver deepLinkRouteObserver = _DeepLinkRouteObserver();
+
 void _setupDeepLinkHandler() {
   // Dedicated channel so we don't clash with the native player command channel.
   // Native buffers any link that arrives before this handler exists and
@@ -48,11 +84,26 @@ void _setupDeepLinkHandler() {
       if (videoId.isEmpty) return;
       // Use the navigator state directly — currentContext can belong to a
       // widget that is not below the Navigator once routes are pushed.
-      navigatorKey.currentState?.push(
-        MaterialPageRoute(
-          builder: (_) => PlayerScreen(videoId: videoId),
-        ),
-      );
+      final nav = navigatorKey.currentState;
+      if (nav == null) return;
+      // Replace an existing player rather than stacking a second one: each
+      // PlayerScreen owns a VideoPlayerController, so stacking them means
+      // several decoders (and audio tracks) alive at once.
+      if (deepLinkRouteObserver.topIsDeepLinkPlayer) {
+        nav.pushReplacement(
+          MaterialPageRoute(
+            settings: _playerRouteSettings,
+            builder: (_) => PlayerScreen(videoId: videoId),
+          ),
+        );
+      } else {
+        nav.push(
+          MaterialPageRoute(
+            settings: _playerRouteSettings,
+            builder: (_) => PlayerScreen(videoId: videoId),
+          ),
+        );
+      }
     }
   });
   // Tell native we're listening; it flushes any cold-start link now.
@@ -67,23 +118,33 @@ class VibeTubeApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
-        ChangeNotifierProvider.value(value: provider),
+        // create (not .value) so the provider owns it and AppProvider.dispose()
+        // — which closes the HTTP clients — is actually reached at teardown.
+        ChangeNotifierProvider<AppProvider>(create: (_) => provider),
         ChangeNotifierProvider(create: (_) => MiniPlayerController()),
       ],
-      child: Consumer<AppProvider>(
-        builder: (context, p, _) {
-          AppTheme.applySystemUi(p.isDarkMode);
+      child: Builder(
+        builder: (context) {
+          // select(), not watch(): AppProvider notifies on feed loads and on
+          // every throttled download-progress tick. Rebuilding MaterialApp (and
+          // issuing a SystemChrome platform call) for those was pure waste.
+          // applySystemUi now runs in AppProvider.toggleDarkMode, where the
+          // value actually changes.
+          final isDark = context.select<AppProvider, bool>((p) => p.isDarkMode);
           return MaterialApp(
             navigatorKey: navigatorKey,
+            navigatorObservers: [deepLinkRouteObserver],
             title: 'VibeTube',
             debugShowCheckedModeBanner: false,
             theme: AppTheme.lightTheme,
             darkTheme: AppTheme.darkTheme,
-            themeMode: p.isDarkMode ? ThemeMode.dark : ThemeMode.light,
+            themeMode: isDark ? ThemeMode.dark : ThemeMode.light,
             // Global mini player for routes outside main shell (e.g. standalone search)
             builder: (context, child) {
-              return Consumer<MiniPlayerController>(
-                builder: (context, mini, _) {
+              return Builder(
+                builder: (context) {
+                  final showOverlay = context.select<MiniPlayerController, bool>(
+                      (m) => m.showMiniBar && m.useGlobalOverlay);
                   return Stack(
                     fit: StackFit.expand,
                     children: [
@@ -91,7 +152,7 @@ class VibeTubeApp extends StatelessWidget {
                       // Only when mini is showing AND we're not inside main shell's own bar
                       // Main shell draws its own bar above bottom nav via HomeScreen.
                       // For other routes (standalone search), show floating mini at bottom.
-                      if (mini.showMiniBar && mini.useGlobalOverlay)
+                      if (showOverlay)
                         const Align(
                           alignment: Alignment.bottomCenter,
                           child: MiniPlayerBar(),

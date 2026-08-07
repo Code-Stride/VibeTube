@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../models/video.dart';
 import '../services/hls_parser.dart';
+import '../services/caption_service.dart';
 
 /// YouTube InnerTube client — multi-client strategy for maximum playback.
 class InnerTubeClient {
@@ -69,11 +70,15 @@ class InnerTubeClient {
       final response = await _post('browse', {'browseId': 'FEtrending', 'context': {'client': client}}, userAgent: _webClient['userAgent'] as String);
       final videos = _parseVideosDeep(response);
       if (videos.length >= 8) return videos;
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('getTrending: browse FEtrending failed: $e');
+    }
     try {
       final home = await getHomeFeed(region: region);
       if (home.length >= 8) return home;
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('getTrending: home feed fallback failed: $e');
+    }
     return _buildDiscoverFeed(region: region);
   }
 
@@ -83,7 +88,9 @@ class InnerTubeClient {
       final response = await _post('browse', {'browseId': 'FEwhat_to_watch', 'context': {'client': client}}, userAgent: _webClient['userAgent'] as String);
       final videos = _parseVideosDeep(response);
       if (videos.isNotEmpty) return videos;
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('getHomeFeed: browse FEwhat_to_watch failed: $e');
+    }
     return _buildDiscoverFeed(region: region);
   }
 
@@ -142,7 +149,12 @@ class InnerTubeClient {
       if (i > 0) await Future.delayed(const Duration(milliseconds: 300));
       final batch = queries.sublist(i, (i + 4).clamp(0, queries.length));
       final results = await Future.wait(batch.map((q) async {
-        try { return (await search(q)).videos; } catch (_) { return <Video>[]; }
+        try {
+        return (await search(q)).videos;
+      } catch (e) {
+        debugPrint('discover feed query "$q" failed: $e');
+        return <Video>[];
+      }
       }));
       final lists = results.where((l) => l.isNotEmpty).toList();
       var idx = 0;
@@ -167,7 +179,9 @@ class InnerTubeClient {
       final response = await _post('search', body, userAgent: _webClient['userAgent'] as String);
       final videos = _parseVideosDeep(response);
       if (videos.isNotEmpty) return SearchResult(videos: videos);
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('search: WEB client failed, trying ANDROID: $e');
+    }
     try {
       final androidClient = {'clientName': 'ANDROID', 'clientVersion': '20.10.38', 'androidSdkVersion': 34, 'hl': client['hl'] ?? 'en', 'gl': client['gl'] ?? 'IN'};
       final response = await _post('search', {'query': query, 'context': {'client': androidClient}, 'params': params ?? kFilterVideos}, userAgent: 'com.google.android.youtube/20.10.38 (Linux; U; Android 14) gzip');
@@ -177,7 +191,7 @@ class InnerTubeClient {
 
   // ═══ Video Details ═══
 
-  Future<VideoDetails> getVideoDetails(String videoId) async {
+  Future<VideoDetails> getVideoDetails(String videoId, {String? region}) async {
     Object? lastError;
     VideoDetails? androidDetails, iosDetails, mediaConnectDetails;
 
@@ -185,6 +199,9 @@ class InnerTubeClient {
     final futures = <Future<void>>[];
     for (final raw in _playerClients) {
       final cfg = Map<String, dynamic>.from(raw);
+      // Honour the user's region here too; it previously only reached
+      // search/browse, so the player always used the hardcoded IN/US values.
+      if (region != null && region.isNotEmpty) cfg['gl'] = region.toUpperCase();
       final ua = cfg.remove('_ua') as String?;
       final name = cfg['clientName']?.toString() ?? '';
       futures.add(() async {
@@ -258,6 +275,11 @@ class InnerTubeClient {
     for (final d in [iosDetails, androidDetails, mediaConnectDetails, webDetails, base]) {
       if (d != null && d.channelName.isNotEmpty) { bestChannel = d.channelName; break; }
     }
+    // Not every client returns captions (MEDIACONNECT usually does not).
+    var bestCaptions = const <CaptionTrack>[];
+    for (final d in [webDetails, iosDetails, androidDetails, mediaConnectDetails, base]) {
+      if (d != null && d.captionTracks.isNotEmpty) { bestCaptions = d.captionTracks; break; }
+    }
     String bestThumb = '';
     for (final d in [iosDetails, androidDetails, mediaConnectDetails, webDetails, base]) {
       if (d != null && d.thumbnailUrl.isNotEmpty) { bestThumb = d.thumbnailUrl; break; }
@@ -273,6 +295,7 @@ class InnerTubeClient {
       likeCount: base.likeCount, isLive: liveGuess,
       isShort: base.isShort, hlsVariants: hlsVariants,
       progressiveByHeight: progressive,
+      captionTracks: bestCaptions,
     );
   }
 
@@ -289,7 +312,7 @@ class InnerTubeClient {
     if (status != null && status != 'OK') {
       throw Exception('Unplayable ($status): ${response['playabilityStatus']?['reason']}');
     }
-    return _parseVideoDetails(response, videoId);
+    return _parseVideoDetails(response, videoId, clientUserAgent: ua);
   }
 
   Future<VideoDetails> _fetchWebPlayer(String videoId) async {
@@ -301,7 +324,29 @@ class InnerTubeClient {
     final response = await _post('player', body, userAgent: _webClient['userAgent'] as String, clientNameId: '1', clientVersion: _webClient['clientVersion'] as String);
     final status = response['playabilityStatus']?['status']?.toString();
     if (status != null && status != 'OK') throw Exception('WEB Unplayable: $status');
-    return _parseVideoDetails(response, videoId);
+    return _parseVideoDetails(response, videoId,
+        clientUserAgent: _webClient['userAgent'] as String?);
+  }
+
+  /// Related videos and comments both live in the same `next` response.
+  ///
+  /// They used to be fetched with two identical requests (~200-600 KB each),
+  /// issued concurrently for every video opened. One request, two parsers.
+  Future<NextData> getNextData(String videoId) async {
+    try {
+      final response = await _post(
+        'next',
+        {'videoId': videoId, 'context': {'client': _webClient}},
+        userAgent: _webClient['userAgent'] as String,
+      );
+      return NextData(
+        related: _parseVideosDeep(response),
+        comments: _parseCommentsDeep(response),
+      );
+    } catch (e) {
+      debugPrint('getNextData error: $e');
+      return const NextData(related: [], comments: []);
+    }
   }
 
   Future<List<Video>> getRelatedVideos(String videoId) async {
@@ -328,7 +373,10 @@ class InnerTubeClient {
         final seg = s['segment'] as List<dynamic>;
         return SponsorSegment(start: (seg[0] as num).toDouble(), end: (seg[1] as num).toDouble(), category: s['category']?.toString() ?? 'sponsor');
       }).toList();
-    } catch (_) { return []; }
+    } catch (e) {
+      debugPrint('getSponsorSegments error: $e');
+      return [];
+    }
   }
 
   Future<int?> getDislikeCount(String videoId) async {
@@ -342,7 +390,8 @@ class InnerTubeClient {
 
   // ═══ Parsers ═══
 
-  VideoDetails _parseVideoDetails(Map<String, dynamic> response, String videoId) {
+  VideoDetails _parseVideoDetails(Map<String, dynamic> response, String videoId,
+      {String? clientUserAgent}) {
     final vd = response['videoDetails'] as Map<String, dynamic>? ?? {};
     final sd = response['streamingData'] as Map<String, dynamic>? ?? {};
     final micro = response['microformat']?['playerMicroformatRenderer'] as Map<String, dynamic>?;
@@ -363,18 +412,25 @@ class InnerTubeClient {
       duration: Duration(seconds: lengthSec),
       thumbnailUrl: thumb,
       publishedAt: micro?['publishDate']?.toString() ?? '',
-      formats: _parseFormats(formats),
+      formats: _parseFormats(formats, clientUserAgent),
       hlsUrl: sd['hlsManifestUrl']?.toString(),
       dashUrl: sd['dashManifestUrl']?.toString(),
       likeCount: (vd['likeCount'] as num?)?.toInt() ?? 0,
-      isLive: vd['isLiveContent'] == true || vd['isLive'] == true ||
-          (vd['isUpcoming'] != true && lengthSec == 0 && (sd['hlsManifestUrl'] != null || sd['dashManifestUrl'] != null)),
+      // Only trust explicit live signals. The old heuristic ("no
+      // lengthSeconds + an HLS/DASH manifest") fired on ordinary videos
+      // whenever a client omitted lengthSeconds — MEDIACONNECT routinely does
+      // — which forced Auto (HLS), disabled the quality sheet and blocked
+      // downloads on perfectly normal VODs.
+      isLive: vd['isLiveContent'] == true ||
+          vd['isLive'] == true ||
+          micro?['liveBroadcastDetails']?['isLiveNow'] == true,
+      captionTracks: CaptionService.parseTracks(response),
       isShort: lengthSec > 0 && lengthSec <= 60 &&
           (vd['title']?.toString().toLowerCase().contains('#short') == true || (micro?['isShort'] == true)),
     );
   }
 
-  List<VideoFormat> _parseFormats(List<dynamic> formats) {
+  List<VideoFormat> _parseFormats(List<dynamic> formats, [String? clientUserAgent]) {
     final out = <VideoFormat>[];
     for (final f in formats) {
       if (f is! Map) continue;
@@ -395,6 +451,7 @@ class InnerTubeClient {
         mimeType: f['mimeType']?.toString() ?? '', width: f['width'] as int? ?? 0, height: f['height'] as int? ?? 0,
         bitrate: f['bitrate'] as int? ?? 0, itag: f['itag'] as int? ?? 0,
         isVideoOnly: isVideoOnly, isAudioOnly: isAudioOnly,
+        clientUserAgent: clientUserAgent ?? '',
         hasAudio: isAudioOnly || isMuxed || f['audioQuality'] != null, hasVideo: hasVideo,
       ));
     }
@@ -552,7 +609,12 @@ class InnerTubeClient {
       'million': 1e6, 'billion': 1e9,
     };
     for (final entry in wordMultipliers.entries) {
-      if (lower.contains(entry.key)) return (n * entry.value).round();
+      // Word-boundary match: a bare contains() meant any string holding "lac"
+      // (e.g. "black") was multiplied by 100,000.
+      final key = RegExp.escape(entry.key);
+      if (RegExp('(?:^|[^a-z])$key(?:\$|[^a-z])').hasMatch(lower)) {
+        return (n * entry.value).round();
+      }
     }
 
     switch ((m.group(2) ?? '').toUpperCase()) {

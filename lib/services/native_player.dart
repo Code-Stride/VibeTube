@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 /// Bridges to Android MainActivity for PiP + MediaSession background service.
@@ -121,7 +122,9 @@ class NativePlayer {
   static Future<void> setAutoPip(bool enabled) async {
     try {
       await _ch.invokeMethod('setAutoPip', {'enabled': enabled});
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('NativePlayer.setAutoPip failed: $e');
+    }
   }
 
   /// Tell native the real video dimensions so the PiP window matches the
@@ -133,13 +136,17 @@ class NativePlayer {
         'width': width,
         'height': height,
       });
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('NativePlayer channel call failed: $e');
+    }
   }
 
   static Future<void> setPlaying(bool playing) async {
     try {
       await _ch.invokeMethod('setPlaying', {'playing': playing});
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('NativePlayer.setPlaying failed: $e');
+    }
   }
 
   static Future<void> startBackground({
@@ -153,7 +160,9 @@ class NativePlayer {
         'artist': artist,
         'playing': playing,
       });
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('NativePlayer channel call failed: $e');
+    }
   }
 
   static Future<void> updateBackground({
@@ -167,12 +176,16 @@ class NativePlayer {
         'artist': artist,
         'playing': playing,
       });
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('NativePlayer channel call failed: $e');
+    }
   }
 
   static Future<void> stopBackground() async {
     try {
       await _ch.invokeMethod('stopBackground');
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('NativePlayer channel call failed: $e');
+    }
   }
 }

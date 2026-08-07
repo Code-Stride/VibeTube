@@ -232,6 +232,10 @@ class _ShortPlayerState extends State<_ShortPlayer>
   void dispose() {
     _playerRequestId++;
     _hideTimer?.cancel();
+    // Ticker must be released before super.dispose(), otherwise a heart
+    // animation still running at swipe time throws
+    // "AnimationController was disposed with an active Ticker".
+    _heartAnimController.dispose();
     _controller?.dispose();
     super.dispose();
   }

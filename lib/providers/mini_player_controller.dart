@@ -38,10 +38,15 @@ class MiniPlayerController extends ChangeNotifier {
     if (_expanded == v) return;
     _expanded = v;
     if (v) {
+      // PlayerScreen registers its own handlers in _boot; release ours so a
+      // single notification tap doesn't drive playback twice.
+      _detachSystemHandlers();
       _minimized = false;
       // Full player owns ticks while expanded
       controller?.removeListener(_tick);
     } else if (controller != null) {
+      // Collapsed back to the bar: we own the media controls again.
+      _attachSystemHandlers();
       // Collapsing while a session is alive: fall back to the mini bar,
       // otherwise playback would continue with no visible control surface.
       _minimized = true;
@@ -85,6 +90,21 @@ class MiniPlayerController extends ChangeNotifier {
     _bgStarted = false;
     controller!.removeListener(_tick);
     controller!.addListener(_tick);
+    // We own playback again now that the full player has handed it back.
+    _attachSystemHandlers();
+    _syncBackground();
+    notifyListeners();
+  }
+
+  /// Exactly one of {mini player, expanded PlayerScreen} may own the media
+  /// notification / audio-focus callbacks at a time. When both were
+  /// registered, one notification tap ran play()/pause() twice, and a
+  /// notification "stop" disposed the controller the open player still used.
+  bool _systemHandlersAttached = false;
+
+  void _attachSystemHandlers() {
+    if (_systemHandlersAttached) return;
+    _systemHandlersAttached = true;
     NativePlayer.ensureHandlers(
       onMediaPlay: _onMediaPlay,
       onMediaPause: _onMediaPause,
@@ -96,8 +116,22 @@ class MiniPlayerController extends ChangeNotifier {
       onMayResume: _onMayResume,
       onDuck: _onDuck,
     );
-    _syncBackground();
-    notifyListeners();
+  }
+
+  void _detachSystemHandlers() {
+    if (!_systemHandlersAttached) return;
+    _systemHandlersAttached = false;
+    NativePlayer.removeHandlers(
+      onMediaPlay: _onMediaPlay,
+      onMediaPause: _onMediaPause,
+      onMediaStop: _onMediaStop,
+    );
+    AudioHelper.removeListeners(
+      onBecomingNoisy: _onBecomingNoisy,
+      onShouldPause: _onShouldPause,
+      onMayResume: _onMayResume,
+      onDuck: _onDuck,
+    );
   }
 
   void _tick() {
@@ -225,17 +259,7 @@ class MiniPlayerController extends ChangeNotifier {
 
   /// Close mini player completely and free decoder.
   Future<void> close() async {
-    NativePlayer.removeHandlers(
-      onMediaPlay: _onMediaPlay,
-      onMediaPause: _onMediaPause,
-      onMediaStop: _onMediaStop,
-    );
-    AudioHelper.removeListeners(
-      onBecomingNoisy: _onBecomingNoisy,
-      onShouldPause: _onShouldPause,
-      onMayResume: _onMayResume,
-      onDuck: _onDuck,
-    );
+    _detachSystemHandlers();
     final c = controller;
     controller = null;
     video = null;
@@ -283,6 +307,8 @@ class MiniPlayerController extends ChangeNotifier {
 
   /// After full player rebuilds with same session, re-bind.
   void bindExisting(VideoPlayerController ctrl) {
+    // The expanded player drives playback and the notification from here.
+    _detachSystemHandlers();
     if (!identical(controller, ctrl)) {
       controller?.removeListener(_tick);
       controller = ctrl;
@@ -303,6 +329,7 @@ class MiniPlayerController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _detachSystemHandlers();
     final c = controller;
     controller = null;
     if (c != null) {

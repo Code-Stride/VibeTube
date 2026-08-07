@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/video.dart';
 
@@ -36,7 +37,7 @@ class UpdateService {
       final dismissed = prefs.getString(prefsKeyDismissed);
       if (!force && dismissed == tag) return null;
 
-      final hasUpdate = _isNewer(tag, current);
+      final hasUpdate = isNewer(tag, '$current+$build');
       // NEVER show update popup when app is already on latest version
       if (!hasUpdate) return null;
 
@@ -69,23 +70,28 @@ class UpdateService {
   }
 
   /// Semver-ish compare: returns true if remote > local
-  bool _isNewer(String remote, String local) {
+  @visibleForTesting
+  static bool isNewer(String remote, String local) {
+    // [major, minor, patch, build]. Build is the tiebreaker so a re-release
+    // like 1.11.0+27 is still offered over an installed 1.11.0+26.
     List<int> parse(String v) {
-      // Strip any build metadata ("1.5.0+11") and pre-release suffix first,
-      // then keep only digits and dots.
       final core = v.split('+').first.split('-').first;
       final cleaned = core.replaceAll(RegExp(r'[^0-9.]'), '');
       final parts = cleaned.split('.');
+      final build = v.contains('+')
+          ? int.tryParse(v.split('+').last.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0
+          : 0;
       return [
         int.tryParse(parts.isNotEmpty ? parts[0] : '0') ?? 0,
         int.tryParse(parts.length > 1 ? parts[1] : '0') ?? 0,
         int.tryParse(parts.length > 2 ? parts[2] : '0') ?? 0,
+        build,
       ];
     }
 
     final r = parse(remote);
     final l = parse(local);
-    for (var i = 0; i < 3; i++) {
+    for (var i = 0; i < 4; i++) {
       if (r[i] > l[i]) return true;
       if (r[i] < l[i]) return false;
     }
