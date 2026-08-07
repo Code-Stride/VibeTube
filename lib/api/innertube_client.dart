@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../models/video.dart';
 import '../services/hls_parser.dart';
+import '../services/caption_service.dart';
 
 /// YouTube InnerTube client — multi-client strategy for maximum playback.
 class InnerTubeClient {
@@ -250,7 +251,7 @@ class InnerTubeClient {
 
   // ═══ Video Details ═══
 
-  Future<VideoDetails> getVideoDetails(String videoId) async {
+  Future<VideoDetails> getVideoDetails(String videoId, {String? region}) async {
     Object? lastError;
     VideoDetails? androidDetails, iosDetails, mediaConnectDetails;
 
@@ -258,6 +259,9 @@ class InnerTubeClient {
     final futures = <Future<void>>[];
     for (final raw in _playerClients) {
       final cfg = Map<String, dynamic>.from(raw);
+      // Honour the user's region here too. It previously reached search and
+      // browse only, so the player always used the hardcoded IN/US values.
+      if (region != null && region.isNotEmpty) cfg['gl'] = region.toUpperCase();
       final ua = cfg.remove('_ua') as String?;
       final name = cfg['clientName']?.toString() ?? '';
       futures.add(() async {
@@ -332,6 +336,11 @@ class InnerTubeClient {
     for (final d in [iosDetails, androidDetails, mediaConnectDetails, webDetails, base]) {
       if (d != null && d.channelName.isNotEmpty) { bestChannel = d.channelName; break; }
     }
+    // Not every client returns captions (MEDIACONNECT usually does not).
+    var bestCaptions = const <CaptionTrack>[];
+    for (final d in [webDetails, iosDetails, androidDetails, mediaConnectDetails, base]) {
+      if (d != null && d.captionTracks.isNotEmpty) { bestCaptions = d.captionTracks; break; }
+    }
     String bestThumb = '';
     for (final d in [iosDetails, androidDetails, mediaConnectDetails, webDetails, base]) {
       if (d != null && d.thumbnailUrl.isNotEmpty) { bestThumb = d.thumbnailUrl; break; }
@@ -347,6 +356,7 @@ class InnerTubeClient {
       likeCount: base.likeCount, isLive: liveGuess,
       isShort: base.isShort, hlsVariants: hlsVariants,
       progressiveByHeight: progressive,
+      captionTracks: bestCaptions,
     );
   }
 
@@ -397,7 +407,7 @@ class InnerTubeClient {
     if (status != null && status != 'OK') {
       throw Exception('Unplayable ($status): ${response['playabilityStatus']?['reason']}');
     }
-    return _parseVideoDetails(response, videoId);
+    return _parseVideoDetails(response, videoId, clientUserAgent: ua);
   }
 
   Future<VideoDetails> _fetchWebPlayer(String videoId) async {
@@ -409,7 +419,8 @@ class InnerTubeClient {
     final response = await _post('player', body, userAgent: _webClient['userAgent'] as String, clientNameId: '1', clientVersion: _webClient['clientVersion'] as String);
     final status = response['playabilityStatus']?['status']?.toString();
     if (status != null && status != 'OK') throw Exception('WEB Unplayable: $status');
-    return _parseVideoDetails(response, videoId);
+    return _parseVideoDetails(response, videoId,
+        clientUserAgent: _webClient['userAgent'] as String?);
   }
 
   /// Related videos and comments both live in the same `/next` payload.
@@ -522,7 +533,8 @@ class InnerTubeClient {
 
   // ═══ Parsers ═══
 
-  VideoDetails _parseVideoDetails(Map<String, dynamic> response, String videoId) {
+  VideoDetails _parseVideoDetails(Map<String, dynamic> response, String videoId,
+      {String? clientUserAgent}) {
     final vd = response['videoDetails'] as Map<String, dynamic>? ?? {};
     final sd = response['streamingData'] as Map<String, dynamic>? ?? {};
     final micro = response['microformat']?['playerMicroformatRenderer'] as Map<String, dynamic>?;
@@ -543,7 +555,7 @@ class InnerTubeClient {
       duration: Duration(seconds: lengthSec),
       thumbnailUrl: thumb,
       publishedAt: micro?['publishDate']?.toString() ?? '',
-      formats: _parseFormats(formats),
+      formats: _parseFormats(formats, clientUserAgent),
       hlsUrl: sd['hlsManifestUrl']?.toString(),
       dashUrl: sd['dashManifestUrl']?.toString(),
       // InnerTube returns likeCount as a *string* on most clients, so the old
@@ -551,12 +563,13 @@ class InnerTubeClient {
       likeCount: _parseLikeCount(vd['likeCount']),
       isLive: vd['isLiveContent'] == true || vd['isLive'] == true ||
           (vd['isUpcoming'] != true && lengthSec == 0 && (sd['hlsManifestUrl'] != null || sd['dashManifestUrl'] != null)),
+      captionTracks: CaptionService.parseTracks(response),
       isShort: lengthSec > 0 && lengthSec <= 60 &&
           (vd['title']?.toString().toLowerCase().contains('#short') == true || (micro?['isShort'] == true)),
     );
   }
 
-  List<VideoFormat> _parseFormats(List<dynamic> formats) {
+  List<VideoFormat> _parseFormats(List<dynamic> formats, [String? clientUserAgent]) {
     final out = <VideoFormat>[];
     for (final f in formats) {
       if (f is! Map) continue;
@@ -582,6 +595,7 @@ class InnerTubeClient {
         mimeType: f['mimeType']?.toString() ?? '', width: f['width'] as int? ?? 0, height: f['height'] as int? ?? 0,
         bitrate: f['bitrate'] as int? ?? 0, itag: f['itag'] as int? ?? 0,
         isVideoOnly: isVideoOnly, isAudioOnly: isAudioOnly,
+        clientUserAgent: clientUserAgent ?? '',
         hasAudio: isAudioOnly || isMuxed || f['audioQuality'] != null, hasVideo: hasVideo,
       ));
     }
@@ -807,7 +821,13 @@ class InnerTubeClient {
       'mrd': 1e9, 'mio': 1e6, 'tsd': 1e3, 'mio.': 1e6,
     };
     for (final entry in wordMultipliers.entries) {
-      if (lower.contains(entry.key)) return (n * entry.value).round();
+      // Word-boundary match. A bare contains() meant any string holding "lac"
+      // — most obviously "black" — was multiplied by 100,000. The boundary is
+      // letter-based so "1.2mio." and "5 lakh," still match.
+      final key = RegExp.escape(entry.key);
+      if (RegExp('(?:^|[^a-z])$key(?:\$|[^a-z])').hasMatch(lower)) {
+        return (n * entry.value).round();
+      }
     }
 
     switch ((suffixMatch?.group(1) ?? '').toUpperCase()) {

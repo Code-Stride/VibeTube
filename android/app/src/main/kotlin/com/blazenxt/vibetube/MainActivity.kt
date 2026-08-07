@@ -96,10 +96,7 @@ class MainActivity : FlutterActivity() {
                         action = PlaybackService.ACTION_PLAYING_STATE
                         putExtra("playing", isPlaying)
                     }
-                    try {
-                        startService(intent)
-                    } catch (_: Exception) {
-                    }
+                    sendToPlaybackService(intent)
                     result.success(null)
                 }
                 "startBackground" -> {
@@ -113,11 +110,7 @@ class MainActivity : FlutterActivity() {
                         putExtra("artist", artist)
                         putExtra("playing", playing)
                     }
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        startForegroundService(intent)
-                    } else {
-                        startService(intent)
-                    }
+                    sendToPlaybackService(intent)
                     result.success(true)
                 }
                 "updateBackground" -> {
@@ -131,10 +124,7 @@ class MainActivity : FlutterActivity() {
                         putExtra("artist", artist)
                         putExtra("playing", playing)
                     }
-                    try {
-                        startService(intent)
-                    } catch (_: Exception) {
-                    }
+                    sendToPlaybackService(intent)
                     result.success(true)
                 }
                 "stopBackground" -> {
@@ -142,10 +132,7 @@ class MainActivity : FlutterActivity() {
                     val intent = Intent(this, PlaybackService::class.java).apply {
                         action = PlaybackService.ACTION_STOP
                     }
-                    try {
-                        startService(intent)
-                    } catch (_: Exception) {
-                    }
+                    sendToPlaybackService(intent)
                     result.success(true)
                 }
                 "setVideoAspect" -> {
@@ -239,6 +226,33 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    /**
+     * Sends a command to [PlaybackService].
+     *
+     * startService() throws IllegalStateException on API 26+ when the app is in
+     * the background, and the blanket catch that used to wrap it meant
+     * setPlaying / updateBackground / stopBackground were silently dropped —
+     * leaving the notification showing the wrong state, or a zombie
+     * notification after stop. The service promotes itself with
+     * startForeground() for every action it handles, so startForegroundService()
+     * is the correct entry point.
+     */
+    private fun sendToPlaybackService(intent: Intent) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(intent)
+            } else {
+                startService(intent)
+            }
+        } catch (e: Exception) {
+            android.util.Log.w(
+                "VibeTube",
+                "PlaybackService command ${intent.action} failed",
+                e
+            )
+        }
+    }
+
     private fun registerPipReceiver() {
         if (pipReceiver != null) return
         val r = object : BroadcastReceiver() {
@@ -259,6 +273,23 @@ class MainActivity : FlutterActivity() {
             registerReceiver(r, filter)
         }
         pipReceiver = r
+    }
+
+    /**
+     * Release the process-global channel reference.
+     *
+     * PlaybackService.flutterChannel is a companion-object field: leaving it set
+     * after the engine is torn down keeps the BinaryMessenger (and therefore the
+     * whole FlutterEngine) reachable, and notifyFlutter() then invokes into a
+     * dead engine.
+     */
+    override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        PlaybackService.flutterChannel = null
+        methodChannel?.setMethodCallHandler(null)
+        deepLinkChannel?.setMethodCallHandler(null)
+        methodChannel = null
+        deepLinkChannel = null
+        super.cleanUpFlutterEngine(flutterEngine)
     }
 
     override fun onDestroy() {

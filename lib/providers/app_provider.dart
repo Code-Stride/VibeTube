@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../api/innertube_client.dart';
 import '../models/video.dart';
+import '../utils/theme.dart';
 import '../services/download_service.dart';
 import '../services/hls_parser.dart';
 import '../services/storage_service.dart';
@@ -558,7 +559,7 @@ class AppProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final details = await _client.getVideoDetails(videoId);
+      final details = await _client.getVideoDetails(videoId, region: region);
       if (requestId != _videoRequestId) return;
       currentVideo = details;
       isPlayerLoading = false;
@@ -636,7 +637,14 @@ class AppProvider extends ChangeNotifier {
     }
 
     Future<void> captions() async {
-      final tracks = await CaptionService.getTracks(videoId);
+      // The player response already carried the track list in almost every
+      // case; only fall back to scraping the watch page when it did not.
+      var tracks = currentVideo?.id == videoId
+          ? (currentVideo?.captionTracks ?? const <CaptionTrack>[])
+          : const <CaptionTrack>[];
+      if (tracks.isEmpty) {
+        tracks = await CaptionService.getTracks(videoId);
+      }
       if (requestId != _videoRequestId) return;
       captionTracks = tracks;
       captionCues = [];
@@ -683,7 +691,7 @@ class AppProvider extends ChangeNotifier {
       final muxed = currentVideo?.bestMuxedUrl;
       if (isProgressive(muxed)) return muxed;
     }
-    final d = await _client.getVideoDetails(videoId);
+    final d = await _client.getVideoDetails(videoId, region: region);
     if (d.isLive) {
       throw Exception('Live streams cannot be downloaded');
     }
@@ -769,6 +777,10 @@ class AppProvider extends ChangeNotifier {
 
   void toggleDarkMode() {
     isDarkMode = !isDarkMode;
+    // Applied here rather than in MaterialApp's builder: this is the only
+    // place the value changes, and calling it during build issued a platform
+    // channel message on every unrelated notifyListeners().
+    AppTheme.applySystemUi(isDarkMode);
     _persistSettings();
     notifyListeners();
   }

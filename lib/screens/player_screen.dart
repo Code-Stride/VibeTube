@@ -55,8 +55,26 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
   String _sponsorLabel = '';
   Timer? _hideTimer;
   Timer? _posTimer;
-  Duration _position = Duration.zero;
-  Duration _duration = Duration.zero;
+  /// Position/duration live in ValueNotifiers rather than setState fields.
+  ///
+  /// The 250ms position timer used to setState the whole screen, rebuilding
+  /// the non-lazy info ListView (up to 8 comment tiles + 15 related
+  /// VideoCards, each with a network image) four times a second. Only the few
+  /// widgets that actually render a timestamp subscribe now.
+  final ValueNotifier<Duration> _positionVN =
+      ValueNotifier<Duration>(Duration.zero);
+  final ValueNotifier<Duration> _durationVN =
+      ValueNotifier<Duration>(Duration.zero);
+  Duration get _position => _positionVN.value;
+  Duration get _duration => _durationVN.value;
+
+  /// Rebuilds [build] when position or duration changes, and nothing else.
+  Widget _timeBuilder(Widget Function(Duration pos, Duration dur) build) {
+    return AnimatedBuilder(
+      animation: Listenable.merge([_positionVN, _durationVN]),
+      builder: (_, __) => build(_positionVN.value, _durationVN.value),
+    );
+  }
   bool _seeking = false;
   double _seekValue = 0;
   int? _dislikes;
@@ -69,6 +87,10 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
   /// True when this screen borrowed the mini player's controller instead of
   /// creating its own — it must not dispose it.
   bool _borrowedFromMini = false;
+
+  /// Cached MiniPlayerController so dispose() can return control of the media
+  /// notification without reading an inherited widget mid-teardown.
+  MiniPlayerController? _mini;
   bool _lastNativePlaying = false;
   bool _looping = false;
   bool _muted = false;
@@ -223,6 +245,8 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
   Future<void> _boot() async {
     final provider = context.read<AppProvider>();
     final mini = context.read<MiniPlayerController>();
+    // Captured so dispose() can hand ownership back without context.
+    _mini = mini;
     // Deferred: this runs inside initState, and notifyListeners() there would
     // mark the global mini-player Consumer dirty during a build.
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -251,8 +275,16 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
       unawaited(ensureNotificationPermission());
     }
 
-    // Resume from mini player — same controller, no reload
-    if (widget.resumeSession &&
+    // Resume from the mini player — same controller, no reload.
+    //
+    // Deliberately NOT gated on widget.resumeSession: only the mini bar passes
+    // that flag, so opening the already-playing video from the feed, search,
+    // the related list or a deep link fell through and built a SECOND
+    // controller on the same URL — two decoders, two audio tracks.
+    // A local-file request must still get its own controller.
+    final wantsLocal =
+        widget.localPath != null && widget.localPath!.isNotEmpty;
+    if (!wantsLocal &&
         mini.hasSession &&
         mini.video?.id == widget.videoId &&
         mini.controller != null &&
@@ -265,8 +297,8 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
       _speed = mini.speed;
       _ready = true;
       _isBuffering = false;
-      _duration = resumed.value.duration;
-      _position = resumed.value.position;
+      _durationVN.value = resumed.value.duration;
+      _positionVN.value = resumed.value.position;
       resumed.removeListener(_onTick);
       resumed.addListener(_onTick);
       mini.bindExisting(resumed);
@@ -281,8 +313,9 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
       return;
     }
 
-    // Opening a different video while mini is open — close mini first
-    if (mini.hasSession && mini.video?.id != widget.videoId) {
+    // Anything not adopted above (different video, uninitialised controller,
+    // or a local-file request) must be torn down before we create another.
+    if (mini.hasSession) {
       await mini.close();
     }
 
@@ -435,7 +468,11 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     for (final url in candidates) {
       if (playbackRequestId != _playbackRequestId) return;
       try {
-        final attached = await _attachController(url, resumeAt: resumeAt);
+        final attached = await _attachController(
+          url,
+          resumeAt: resumeAt,
+          preferredUa: details.userAgentForUrl(url),
+        );
         if (attached) {
           final tag = url.contains('m3u8')
               ? (url == details.hlsUrl ? 'HLS-master' : 'HLS-variant')
@@ -467,7 +504,8 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
   /// hold `true` from a previous attach when `_finishAttach` bailed out on a
   /// request-ID mismatch — so a failed quality switch reported success and
   /// left the old stream playing.
-  Future<bool> _attachController(String url, {Duration? resumeAt}) async {
+  Future<bool> _attachController(String url,
+      {Duration? resumeAt, String? preferredUa}) async {
     final requestId = ++_attachRequestId;
     if (mounted) setState(() => _isBuffering = true);
 
@@ -494,6 +532,15 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     }
 
     final headerSets = <Map<String, String>?>[
+      // The UA this URL was actually issued to, when known. googlevideo binds
+      // URLs to the requesting client, so trying the right one first avoids up
+      // to three failed initialize() round-trips per candidate.
+      if (!isHls && preferredUa != null && preferredUa.isNotEmpty)
+        {
+          'User-Agent': preferredUa,
+          'Referer': 'https://www.youtube.com/',
+          'Origin': 'https://www.youtube.com',
+        },
       if (isHls)
         {
           'User-Agent':
@@ -587,8 +634,8 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
       _ready = true;
       _isBuffering = false;
       _activeUrl = url;
-      _duration = c.value.duration;
     });
+    _durationVN.value = c.value.duration;
     if (previous != null && previous != c && !_handedToMini) {
       await previous.dispose();
     }
@@ -670,10 +717,9 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
       final newPos = c.value.position;
       final newDur = c.value.duration;
       if (newPos == _position && newDur == _duration) return; // no change
-      setState(() {
-        _position = newPos;
-        _duration = newDur;
-      });
+      // Notifier assignment, not setState: only the timestamp widgets rebuild.
+      _positionVN.value = newPos;
+      _durationVN.value = newDur;
     });
   }
 
@@ -991,6 +1037,18 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     }
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+    // Safety net: if we borrowed the mini player's controller and never handed
+    // it back explicitly, give the bar its media handlers back so the
+    // notification keeps working. Deferred a frame — notifyListeners() during
+    // teardown can mark other widgets dirty mid-build.
+    final mini = _mini;
+    if (mini != null && _borrowedFromMini && !_handedToMini) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mini.hasSession) mini.setExpanded(false);
+      });
+    }
+    _positionVN.dispose();
+    _durationVN.dispose();
     super.dispose();
   }
 
@@ -1189,10 +1247,12 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
                     provider.captionCues.isEmpty) {
                   return const SizedBox.shrink();
                 }
-                return CaptionOverlay(
-                  cues: provider.captionCues,
-                  position: _position,
-                  visible: true,
+                return _timeBuilder(
+                  (pos, _) => CaptionOverlay(
+                    cues: provider.captionCues,
+                    position: pos,
+                    visible: true,
+                  ),
                 );
               },
             ),
@@ -1396,13 +1456,15 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
                             ],
                           )
                         else
-                          Text(
-                            '${_fmt(_position)} / ${_fmt(_duration)}',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w500,
-                              fontFeatures: [FontFeature.tabularFigures()],
+                          _timeBuilder(
+                            (pos, dur) => Text(
+                              '${_fmt(pos)} / ${_fmt(dur)}',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                                fontFeatures: [FontFeature.tabularFigures()],
+                              ),
                             ),
                           ),
                         const Spacer(),
@@ -1577,106 +1639,108 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
   /// hidden, so the user still has a sense of position without a full slider
   /// (and without a stray thumb floating over the video).
   Widget _idleProgressBar() {
-    final total = _duration.inMilliseconds;
-    if (total <= 0) return const SizedBox.shrink();
-    final value = (_position.inMilliseconds / total).clamp(0.0, 1.0);
-    return IgnorePointer(
-      child: LinearProgressIndicator(
-        value: value,
-        minHeight: 2.5,
-        backgroundColor: Colors.white24,
-        valueColor: const AlwaysStoppedAnimation(AppTheme.primary),
-      ),
-    );
+    return _timeBuilder((pos, dur) {
+      final total = dur.inMilliseconds;
+      if (total <= 0) return const SizedBox.shrink();
+      final value = (pos.inMilliseconds / total).clamp(0.0, 1.0);
+      return IgnorePointer(
+        child: LinearProgressIndicator(
+          value: value,
+          minHeight: 2.5,
+          backgroundColor: Colors.white24,
+          valueColor: const AlwaysStoppedAnimation(AppTheme.primary),
+        ),
+      );
+    });
   }
 
   Widget _progressBar() {
-    final total = _duration.inMilliseconds.toDouble().clamp(1, double.infinity);
-    final value = _seeking
-        ? _seekValue
-        : (_position.inMilliseconds / total).clamp(0.0, 1.0);
     final segments = context.read<AppProvider>().activeSponsorSegments;
+    return _timeBuilder((pos, dur) {
+      final total = dur.inMilliseconds.toDouble().clamp(1, double.infinity);
+      final value = _seeking
+          ? _seekValue
+          : (pos.inMilliseconds / total).clamp(0.0, 1.0);
 
-    return SizedBox(
-      height: 24,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          // Sponsor segments, drawn on the same centre line as the track so
-          // they read as part of the bar rather than a stripe above it.
-          if (_duration.inMilliseconds > 0 && segments.isNotEmpty)
-            Positioned.fill(
-              child: IgnorePointer(
-                child: Padding(
-                  // Match the Slider's own horizontal inset so markers line
-                  // up with the track instead of drifting at the edges.
-                  padding: const EdgeInsets.symmetric(horizontal: 10),
-                  child: LayoutBuilder(
-                    builder: (context, box) {
-                      return Stack(
-                        alignment: Alignment.center,
-                        children: segments.map((s) {
-                          final left = ((s.start * 1000 / total) * box.maxWidth)
-                              .clamp(0.0, box.maxWidth);
-                          // Clamp the width against the *remaining* space:
-                          // clamping both independently let an outro segment
-                          // near the end paint past the right edge.
-                          final available = (box.maxWidth - left).clamp(0.0, box.maxWidth);
-                          final width =
-                              (((s.end - s.start) * 1000 / total) * box.maxWidth)
-                                  .clamp(0.0, available);
-                          if (width <= 0) return const SizedBox.shrink();
-                          return Positioned(
-                            left: left,
-                            width: width < 2 ? (available < 2 ? available : 2) : width,
-                            height: 3,
-                            child: DecoratedBox(
-                              decoration: BoxDecoration(
-                                color: AppTheme.sbSponsor,
-                                borderRadius: BorderRadius.circular(2),
+      return SizedBox(
+        height: 24,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            // Sponsor segments, drawn on the same centre line as the track so
+            // they read as part of the bar rather than a stripe above it.
+            if (dur.inMilliseconds > 0 && segments.isNotEmpty)
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: Padding(
+                    // Match the Slider's own horizontal inset so markers line
+                    // up with the track instead of drifting at the edges.
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    child: LayoutBuilder(
+                      builder: (context, box) {
+                        return Stack(
+                          alignment: Alignment.center,
+                          children: segments.map((s) {
+                            final left = ((s.start * 1000 / total) * box.maxWidth)
+                                .clamp(0.0, box.maxWidth);
+                            // Clamp the width against the *remaining* space:
+                            // clamping both independently let an outro segment
+                            // near the end paint past the right edge.
+                            final available = (box.maxWidth - left).clamp(0.0, box.maxWidth);
+                            final width =
+                                (((s.end - s.start) * 1000 / total) * box.maxWidth)
+                                    .clamp(0.0, available);
+                            if (width <= 0) return const SizedBox.shrink();
+                            return Positioned(
+                              left: left,
+                              width: width < 2 ? (available < 2 ? available : 2) : width,
+                              height: 3,
+                              child: DecoratedBox(
+                                decoration: BoxDecoration(
+                                  color: AppTheme.sbSponsor,
+                                  borderRadius: BorderRadius.circular(2),
+                                ),
                               ),
-                            ),
-                          );
-                        }).toList(),
-                      );
-                    },
+                            );
+                          }).toList(),
+                        );
+                      },
+                    ),
                   ),
                 ),
               ),
+            SliderTheme(
+              data: SliderTheme.of(context).copyWith(
+                trackHeight: 3,
+                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+                activeTrackColor: AppTheme.primary,
+                inactiveTrackColor: Colors.white24,
+                thumbColor: AppTheme.primary,
+                trackShape: const RoundedRectSliderTrackShape(),
+              ),
+              child: Slider(
+                value: value.isNaN ? 0 : value,
+                onChangeStart: (_) {
+                  setState(() {
+                    _seeking = true;
+                    _seekValue = value;
+                  });
+                },
+                onChanged: (v) => setState(() => _seekValue = v),
+                onChangeEnd: (v) async {
+                  final target = Duration(milliseconds: (v * total).round());
+                  await _controller?.seekTo(target);
+                  _positionVN.value = target;
+                  if (mounted) setState(() => _seeking = false);
+                  _armHide();
+                },
+              ),
             ),
-          SliderTheme(
-            data: SliderTheme.of(context).copyWith(
-              trackHeight: 3,
-              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-              overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
-              activeTrackColor: AppTheme.primary,
-              inactiveTrackColor: Colors.white24,
-              thumbColor: AppTheme.primary,
-              trackShape: const RoundedRectSliderTrackShape(),
-            ),
-            child: Slider(
-              value: value.isNaN ? 0 : value,
-              onChangeStart: (_) {
-                setState(() {
-                  _seeking = true;
-                  _seekValue = value;
-                });
-              },
-              onChanged: (v) => setState(() => _seekValue = v),
-              onChangeEnd: (v) async {
-                final target = Duration(milliseconds: (v * total).round());
-                await _controller?.seekTo(target);
-                setState(() {
-                  _seeking = false;
-                  _position = target;
-                });
-                _armHide();
-              },
-            ),
-          ),
-        ],
-      ),
-    );
+          ],
+        ),
+      );
+    });
   }
 
   Widget _infoPane(AppProvider provider, VideoDetails? video, Video? preview) {
