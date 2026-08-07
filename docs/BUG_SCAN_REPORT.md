@@ -74,3 +74,23 @@ and are the ground truth for compile health. The historically fragile areas —
 the quality ladder, HLS master parsing, view-count locales, download integrity,
 continuation tokens and deep-link ID extraction — are all covered by tests;
 extend those rather than re-deriving them by hand.
+
+---
+
+## Round 4 — pending release
+
+- Guarded Shorts playback across async audio-focus/platform calls and disposed
+  failed/stale native controllers.
+- Added stable video keys to Shorts player state.
+- Removed the unobserved `_fetchNext().catchError` future.
+- Added region and caption request invalidation.
+- Made update prompting response-driven and Music query years dynamic.
+- Added a capability nonce to pre-Android 13 PiP broadcasts.
+- Pinned CI actions, fixed fork debug artifact upload, and added signing
+  certificate fingerprint verification.
+- Corrected stale signing documentation and added
+  `docs/SIGNING_KEY_MIGRATION.md`.
+
+The historical Android signing identity remains compromised and requires the
+owner migration decision documented above; this cannot be repaired by source
+code alone.

@@ -74,6 +74,7 @@ class AppProvider extends ChangeNotifier {
   int _videoRequestId = 0;
   int _shortsRequestId = 0;
   int _musicRequestId = 0;
+  int _captionRequestId = 0;
 
   // download progress videoId -> 0..1
   final Map<String, double> downloadProgress = {};
@@ -321,7 +322,8 @@ class AppProvider extends ChangeNotifier {
     final isIn = region.toUpperCase() == 'IN';
     switch (category.trim().toLowerCase()) {
       case 'all':
-        return isIn ? 'latest music india 2025' : 'music hits 2025';
+        final year = DateTime.now().year;
+        return isIn ? 'latest music india $year' : 'music hits $year';
       case 'trending':
         return isIn ? 'trending songs india' : 'trending songs';
       case 'new releases':
@@ -417,36 +419,53 @@ class AppProvider extends ChangeNotifier {
   // ---- Captions ----
 
   Future<void> loadCaptions(String videoId) async {
+    final requestId = ++_captionRequestId;
     try {
-      captionTracks = await CaptionService.getTracks(videoId);
-      if (captionTracks.isNotEmpty && isCaptionsEnabled) {
-        // Auto-select preferred language or first available
+      final tracks = await CaptionService.getTracks(videoId);
+      if (requestId != _captionRequestId) return;
+      captionTracks = tracks;
+      captionCues = [];
+      if (tracks.isNotEmpty && isCaptionsEnabled) {
         final preferred = selectedCaptionLanguage;
-        final track = captionTracks.firstWhere(
+        final track = tracks.firstWhere(
           (t) => t.languageCode == preferred,
-          orElse: () => captionTracks.first,
+          orElse: () => tracks.first,
         );
-        await selectCaptionTrack(track);
+        await _selectCaptionTrack(track, requestId);
+        return;
       }
       notifyListeners();
     } catch (e) {
-      debugPrint('loadCaptions: $e');
+      if (requestId == _captionRequestId) {
+        debugPrint('loadCaptions: $e');
+      }
     }
   }
 
-  Future<void> selectCaptionTrack(CaptionTrack track) async {
+  Future<void> selectCaptionTrack(CaptionTrack track) =>
+      _selectCaptionTrack(track, ++_captionRequestId);
+
+  Future<void> _selectCaptionTrack(
+    CaptionTrack track,
+    int requestId,
+  ) async {
     try {
-      captionCues = await CaptionService.getCues(track.baseUrl);
+      final cues = await CaptionService.getCues(track.baseUrl);
+      if (requestId != _captionRequestId) return;
+      captionCues = cues;
       selectedCaptionLanguage = track.languageCode;
       notifyListeners();
     } catch (e) {
-      debugPrint('selectCaptionTrack: $e');
+      if (requestId == _captionRequestId) {
+        debugPrint('selectCaptionTrack: $e');
+      }
     }
   }
 
   void toggleCaptions() {
     isCaptionsEnabled = !isCaptionsEnabled;
     if (!isCaptionsEnabled) {
+      _captionRequestId++;
       captionCues = [];
     }
     _persistSettings();
@@ -454,6 +473,7 @@ class AppProvider extends ChangeNotifier {
   }
 
   void clearCaptions({bool notify = true}) {
+    _captionRequestId++;
     captionTracks = [];
     captionCues = [];
     if (notify) notifyListeners();
@@ -650,6 +670,7 @@ class AppProvider extends ChangeNotifier {
     }
 
     Future<void> captions() async {
+      final captionRequestId = ++_captionRequestId;
       // The player response already carried the track list in almost every
       // case; only fall back to scraping the watch page when it did not.
       var tracks = currentVideo?.id == videoId
@@ -658,7 +679,10 @@ class AppProvider extends ChangeNotifier {
       if (tracks.isEmpty) {
         tracks = await CaptionService.getTracks(videoId);
       }
-      if (requestId != _videoRequestId) return;
+      if (requestId != _videoRequestId ||
+          captionRequestId != _captionRequestId) {
+        return;
+      }
       captionTracks = tracks;
       captionCues = [];
       if (tracks.isNotEmpty && isCaptionsEnabled) {
@@ -667,7 +691,10 @@ class AppProvider extends ChangeNotifier {
           orElse: () => tracks.first,
         );
         final cues = await CaptionService.getCues(track.baseUrl);
-        if (requestId != _videoRequestId) return;
+        if (requestId != _videoRequestId ||
+            captionRequestId != _captionRequestId) {
+          return;
+        }
         captionCues = cues;
         selectedCaptionLanguage = track.languageCode;
       }
@@ -885,14 +912,22 @@ class AppProvider extends ChangeNotifier {
   void setRegion(String r) {
     if (region == r) return;
     region = r;
-    _persistSettings();
-    notifyListeners();
-    // Cached feeds belong to the old region; refetch so the change is visible
-    // immediately instead of on the next cold start.
+    // Invalidate every region-dependent request before clearing its results.
+    // Without this, a response started under the old region could arrive late
+    // and repopulate the new-region UI.
+    _feedRequestId++;
+    _shortsRequestId++;
+    _musicRequestId++;
+    _feedContinuation = null;
+    _shortsContinuation = null;
     trendingVideos = [];
     musicVideos = [];
     shortsVideos = [];
-    loadTrending();
+    _persistSettings();
+    notifyListeners();
+    unawaited(loadTrending());
+    unawaited(loadMusic());
+    unawaited(loadShorts());
   }
 
   List<SponsorSegment> get activeSponsorSegments {
@@ -907,6 +942,7 @@ class AppProvider extends ChangeNotifier {
     _videoRequestId++;
     _shortsRequestId++;
     _musicRequestId++;
+    _captionRequestId++;
     _client.dispose();
     downloader.dispose();
     HlsParser.dispose();

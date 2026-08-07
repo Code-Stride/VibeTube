@@ -88,8 +88,10 @@ class _ShortsScreenState extends State<ShortsScreen> {
               }
             },
             itemBuilder: (context, index) {
+              final video = provider.shortsVideos[index];
               return _ShortPlayer(
-                video: provider.shortsVideos[index],
+                key: ValueKey(video.id),
+                video: video,
                 isActive: widget.isActive && index == _currentIndex,
               );
             },
@@ -103,7 +105,11 @@ class _ShortsScreenState extends State<ShortsScreen> {
 class _ShortPlayer extends StatefulWidget {
   final Video video;
   final bool isActive;
-  const _ShortPlayer({required this.video, required this.isActive});
+  const _ShortPlayer({
+    super.key,
+    required this.video,
+    required this.isActive,
+  });
 
   @override
   State<_ShortPlayer> createState() => _ShortPlayerState();
@@ -150,15 +156,29 @@ class _ShortPlayerState extends State<_ShortPlayer>
   void didUpdateWidget(_ShortPlayer oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.isActive && !oldWidget.isActive) {
-      _startPlayback();
+      if (_controller == null) {
+        _initPlayer();
+      } else {
+        _startPlayback();
+      }
     } else if (!widget.isActive && oldWidget.isActive) {
+      _playerRequestId++;
       _controller?.pause();
     }
   }
 
   Future<void> _initPlayer() async {
     final requestId = ++_playerRequestId;
-    if (mounted) setState(() => _playerError = null);
+    final previous = _controller;
+    _controller = null;
+    if (mounted) {
+      setState(() {
+        _ready = false;
+        _playerError = null;
+      });
+    }
+    await previous?.dispose();
+    if (!mounted || requestId != _playerRequestId) return;
     try {
       final provider = context.read<AppProvider>();
       // Single-client lookup instead of the full getVideoDetails fan-out
@@ -186,15 +206,22 @@ class _ShortPlayerState extends State<_ShortPlayer>
                 'Referer': 'https://www.youtube.com/',
               },
       );
-      await controller.initialize().timeout(const Duration(seconds: 25));
-      if (!mounted || requestId != _playerRequestId) {
-        await controller.dispose();
-        return;
+      try {
+        await controller.initialize().timeout(const Duration(seconds: 25));
+        if (!mounted || requestId != _playerRequestId) return;
+
+        await controller.setLooping(true);
+        if (!mounted || requestId != _playerRequestId) return;
+        _controller = controller;
+        setState(() => _ready = true);
+        if (widget.isActive) await _startPlayback(requestId: requestId);
+      } finally {
+        // Until assigned to _controller this local owns the native decoder.
+        // Dispose it on timeout, initialization failure, or stale completion.
+        if (!identical(_controller, controller)) {
+          await controller.dispose();
+        }
       }
-      _controller = controller;
-      await controller.setLooping(true);
-      if (widget.isActive) await _startPlayback();
-      setState(() => _ready = true);
     } catch (e) {
       debugPrint('Short player init failed: $e');
       if (mounted && requestId == _playerRequestId) {
@@ -207,15 +234,36 @@ class _ShortPlayerState extends State<_ShortPlayer>
   ///
   /// Shorts used to call `play()` directly, so a mini-player session kept
   /// running underneath and both played at once.
-  Future<void> _startPlayback() async {
+  Future<void> _startPlayback({int? requestId}) async {
+    final expectedRequest = requestId ?? _playerRequestId;
     final c = _controller;
-    if (c == null || !c.value.isInitialized) return;
-    if (mounted) {
-      final mini = context.read<MiniPlayerController>();
-      if (mini.isPlaying) await mini.pause();
+    if (c == null || !c.value.isInitialized || !widget.isActive) {
+      return;
     }
+
+    final mini = context.read<MiniPlayerController>();
+    if (mini.isPlaying) await mini.pause();
+    if (!mounted ||
+        expectedRequest != _playerRequestId ||
+        !widget.isActive ||
+        !identical(c, _controller)) {
+      return;
+    }
+
     await AudioHelper.requestFocus();
+    if (!mounted ||
+        expectedRequest != _playerRequestId ||
+        !widget.isActive ||
+        !identical(c, _controller)) {
+      return;
+    }
     await c.play();
+
+    // The page can become inactive while play() crosses the platform channel.
+    if (!mounted || expectedRequest != _playerRequestId ||
+        !widget.isActive || !identical(c, _controller)) {
+      await c.pause();
+    }
   }
 
   void _togglePlayPause() {

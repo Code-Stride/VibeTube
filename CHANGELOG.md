@@ -7,6 +7,23 @@ and this project roughly follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- Prevent inactive Shorts from resuming after delayed audio-focus/platform calls.
+- Dispose failed/stale Shorts video controllers and key player state by video ID.
+- Remove the unobserved `_fetchNext` error future.
+- Invalidate old-region Music and Shorts requests when the region changes.
+- Prevent late caption requests from overwriting a newer track or video.
+- Show update prompts when the network response arrives after the initial delay.
+- Use the current year in Music discovery queries.
+- Authenticate PiP broadcast controls on Android 12L and older.
+- Upload debug artifacts correctly for fork pull requests.
+
+### Security
+- Pin every GitHub Action to a full commit SHA.
+- Verify the release certificate SHA-256 fingerprint before CI signs an APK.
+- Correct signing documentation: no keystore is committed, and the historical
+  signing identity remains compromised pending owner-led migration.
+
 ### Planned
 - Further video quality selection polish
 - Voice search

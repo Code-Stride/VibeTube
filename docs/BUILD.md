@@ -58,7 +58,11 @@ flutter build apk --release --split-per-abi
 ### CI / official Code-Stride sideload builds
 
 - Workflow: `.github/workflows/build.yml`
-- Uses committed `android/app/vibetube-release.jks` so users can upgrade without “package conflict” across CI builds.
+- Decodes the private keystore from `VIBETUBE_KEYSTORE_BASE64`; no keystore is committed.
+- Verifies its SHA-256 certificate fingerprint against the protected
+  `VIBETUBE_EXPECTED_CERT_SHA256` secret before signing.
+- Requires `VIBETUBE_STORE_PASSWORD`, `VIBETUBE_KEY_ALIAS`, and
+  `VIBETUBE_KEY_PASSWORD` as protected secrets.
 - **Security note:** a keystore in a public repo is not a secret. Anyone can sign APKs that look like “updates”. For a trusted brand identity, use a **private** key and GitHub Actions secrets.
 
 ### Your own fork / store build

@@ -33,6 +33,7 @@ enum _Tab { home, search, shorts, library, downloads, settings }
 class _HomeScreenState extends State<HomeScreen> {
   _Tab _tab = _Tab.home;
   bool _updateShown = false;
+  bool _updateCheckScheduled = false;
 
   List<_Tab> _tabsFor(bool isMusic) => [
         _Tab.home,
@@ -94,20 +95,33 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _scheduleUpdateCheck() async {
     await Future.delayed(const Duration(seconds: 4));
+    await _showUpdateIfAvailable();
+  }
+
+  void _queueUpdateCheck() {
+    if (_updateCheckScheduled || _updateShown) return;
+    _updateCheckScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      _updateCheckScheduled = false;
+      await _showUpdateIfAvailable();
+    });
+  }
+
+  Future<void> _showUpdateIfAvailable() async {
     if (!mounted || _updateShown) return;
-    // Capture the provider before any further await: the dialog show below
-    // crosses an async gap, and reading context after it trips
-    // use_build_context_synchronously (and is unsafe once popped).
     final provider = context.read<AppProvider>();
     final u = provider.pendingUpdate;
-    if (u != null && u.hasUpdate) {
-      _updateShown = true;
-      if (!mounted) return;
-      await UpdateDialog.show(context, info: u,
-        onLater: () { _updateShown = false; },
-        onSkip: () { provider.dismissUpdate(); _updateShown = false; },
-      );
-    }
+    if (u == null || !u.hasUpdate) return;
+    _updateShown = true;
+    await UpdateDialog.show(
+      context,
+      info: u,
+      onLater: () => _updateShown = false,
+      onSkip: () {
+        provider.dismissUpdate();
+        _updateShown = false;
+      },
+    );
   }
 
   @override
@@ -116,6 +130,10 @@ class _HomeScreenState extends State<HomeScreen> {
     // mini bar plays, and AppProvider notifies on feed loads and download
     // ticks; watching either whole object rebuilt all six pages 4x/second.
     final isMusic = context.select<AppProvider, bool>((p) => p.isMusicMode);
+    final hasPendingUpdate = context.select<AppProvider, bool>(
+      (p) => p.pendingUpdate?.hasUpdate == true,
+    );
+    if (hasPendingUpdate && !_updateShown) _queueUpdateCheck();
     final showMini =
         context.select<MiniPlayerController, bool>((m) => m.showMiniBar);
     final isDark = Theme.of(context).brightness == Brightness.dark;

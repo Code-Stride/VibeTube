@@ -69,8 +69,14 @@ flutter build apk --release
 # Output: build/app/outputs/flutter-apk/app-release.apk
 ```
 
-The repo includes `android/app/vibetube-release.jks` for **consistent sideload upgrades** in CI.  
-For your own distribution fork, **generate a new keystore** and do not reuse public demo keys for production identity.
+No release keystore is committed. A release build requires a private keystore and
+`VIBETUBE_STORE_PASSWORD`, `VIBETUBE_KEY_ALIAS`, and `VIBETUBE_KEY_PASSWORD`
+credentials. CI additionally verifies `VIBETUBE_EXPECTED_CERT_SHA256` before
+signing. See `docs/BUILD.md` for setup.
+
+> Security notice: the historical signing key was exposed in old revisions and
+> must not be treated as proof of release authenticity. New distributions
+> should use a new application ID and a newly generated private key.
 
 More detail: [docs/BUILD.md](docs/BUILD.md)
 

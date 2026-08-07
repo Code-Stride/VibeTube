@@ -14,6 +14,7 @@ import android.util.Rational
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import java.util.UUID
 
 class MainActivity : FlutterActivity() {
     companion object {
@@ -24,6 +25,7 @@ class MainActivity : FlutterActivity() {
         /** Broadcast the PiP action buttons send back to us. */
         private const val ACTION_PIP_CONTROL = "com.blazenxt.vibetube.PIP_CONTROL"
         private const val EXTRA_CONTROL = "control"
+        private const val EXTRA_PIP_NONCE = "pip_nonce"
         private const val CONTROL_PLAY = 1
         private const val CONTROL_PAUSE = 2
         private const val CONTROL_REWIND = 3
@@ -33,6 +35,9 @@ class MainActivity : FlutterActivity() {
     /** Video aspect ratio reported by Flutter, so PiP isn't always 16:9. */
     private var videoAspect: Rational = Rational(16, 9)
     private var pipReceiver: BroadcastReceiver? = null
+    // Pre-Android 13 dynamic receivers have no reliable NOT_EXPORTED flag.
+    // A per-process capability prevents another app from forging PiP controls.
+    private val pipNonce = UUID.randomUUID().toString()
 
     private val channelName = "com.blazenxt.vibetube/player"
     private val deepLinkChannelName = "com.blazenxt.vibetube/deeplink"
@@ -177,6 +182,7 @@ class MainActivity : FlutterActivity() {
                 control,
                 Intent(ACTION_PIP_CONTROL)
                     .putExtra(EXTRA_CONTROL, control)
+                    .putExtra(EXTRA_PIP_NONCE, pipNonce)
                     .setPackage(packageName),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
@@ -257,7 +263,9 @@ class MainActivity : FlutterActivity() {
         if (pipReceiver != null) return
         val r = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
-                when (intent?.getIntExtra(EXTRA_CONTROL, -1)) {
+                val received = intent ?: return
+                if (received.getStringExtra(EXTRA_PIP_NONCE) != pipNonce) return
+                when (received.getIntExtra(EXTRA_CONTROL, -1)) {
                     CONTROL_PLAY -> methodChannel?.invokeMethod("mediaPlay", null)
                     CONTROL_PAUSE -> methodChannel?.invokeMethod("mediaPause", null)
                     CONTROL_REWIND -> methodChannel?.invokeMethod("mediaRewind", null)
