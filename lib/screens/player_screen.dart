@@ -87,6 +87,41 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool _requestingFocus = false;
   DateTime _lastPlayTime = DateTime.fromMillisecondsSinceEpoch(0);
 
+  /// Hold the screen awake only while the user is actually watching.
+  ///
+  /// This used to be tied to the background-play setting, which defaults to
+  /// ON: the code called `WakelockPlus.disable()` on every play/attach/sync
+  /// whenever background play was enabled, so the screen blanked mid-video.
+  /// Background *audio* is kept alive by the foreground MediaSession service
+  /// and never needed a wakelock.
+  void _updateWakelock() {
+    final c = _controller;
+    final playing = c != null && c.value.isInitialized && c.value.isPlaying;
+    final shouldHold = mounted && playing && !_inPip;
+    if (shouldHold) {
+      WakelockPlus.enable();
+    } else {
+      WakelockPlus.disable();
+    }
+  }
+
+  /// Clears the "we caused this focus change" guard a moment after a play or
+  /// pause we initiated.
+  ///
+  /// Always scheduled from a `finally`. Previously the reset sat after an
+  /// un-guarded `await` / inside `.then()`, so one throw from requestFocus()
+  /// left the guard permanently on — and every interruption handler
+  /// early-returns while it is set, silently killing call, headset-unplug and
+  /// ducking handling for the rest of the session.
+  Timer? _focusGuardTimer;
+
+  void _scheduleFocusGuardRelease() {
+    _focusGuardTimer?.cancel();
+    _focusGuardTimer = Timer(const Duration(seconds: 1), () {
+      _requestingFocus = false;
+    });
+  }
+
   void _onMediaPlay() async {
     final c = _controller;
     if (c != null && c.value.isInitialized && !c.value.isPlaying) {
@@ -148,12 +183,21 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final c = _controller;
     if (c == null || !c.value.isInitialized || c.value.isPlaying) return;
     _requestingFocus = true;
-    AudioHelper.requestFocus().then((_) {
-      c.play();
-      _requestingFocus = false;
-      if (mounted) setState(() {});
+    () async {
+      try {
+        await AudioHelper.requestFocus();
+        if (!mounted || _controller != c) return;
+        await c.play();
+      } catch (e) {
+        debugPrint('resume after interruption failed: $e');
+      } finally {
+        _scheduleFocusGuardRelease();
+      }
+      if (!mounted) return;
+      setState(() {});
+      _updateWakelock();
       _syncNativePlayback(forceBg: true);
-    });
+    }();
   }
 
   /// Transient sound (notification): duck rather than pause.
@@ -179,6 +223,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       // Entering PiP: drop the overlay so it can't reappear on exit.
       if (inPip) _showControls = false;
     });
+    _updateWakelock();
     if (inPip) {
       _hideTimer?.cancel();
     } else {
@@ -431,7 +476,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
       });
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('Playback failed ($q): $lastErr')));
+      ).showSnackBar(SnackBar(content: Text('Playback failed ($q)')));
+      // $lastErr can embed the signed googlevideo URL — log only.
+      debugPrint('Playback failed ($q): $lastErr');
     }
   }
 
@@ -570,11 +617,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
     _requestingFocus = true;
     _lastPlayTime = DateTime.now();
-    await AudioHelper.requestFocus();
-    await c.play();
-    Future.delayed(const Duration(seconds: 1), () {
-      _requestingFocus = false;
-    });
+    try {
+      await AudioHelper.requestFocus();
+      await c.play();
+    } finally {
+      _scheduleFocusGuardRelease();
+    }
     if (!mounted) return;
     await NativePlayer.setPlaying(true);
     if (!mounted) return;
@@ -584,17 +632,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
         provider.currentVideo?.channelName ??
         widget.preview?.channelName ??
         'Playing';
+    // Keep the screen on while watching, independently of background play.
+    _updateWakelock();
     if (provider.isBackgroundPlayEnabled) {
-      // Screen can turn off; MediaSession keeps audio on system output.
-      WakelockPlus.disable();
+      // MediaSession keeps audio alive once the screen does turn off.
       await NativePlayer.startBackground(
         title: title,
         artist: artist,
         playing: true,
       );
       _bgActive = true;
-    } else {
-      WakelockPlus.enable();
     }
     if (!mounted) return;
     _armHide();
@@ -612,6 +659,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (playing != _lastNativePlaying) {
       _lastNativePlaying = playing;
       NativePlayer.setPlaying(playing);
+      _updateWakelock();
     }
     // Guard context.read against post-dispose listener callbacks
     try {
@@ -709,27 +757,25 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Future<void> _togglePlay() async {
     final c = _controller;
     if (c == null || !c.value.isInitialized) return;
-    final provider = context.read<AppProvider>();
     if (c.value.isPlaying) {
       _requestingFocus = true;
-      await c.pause();
-      _requestingFocus = false;
-      _pausedByInterruption = false;
-      WakelockPlus.disable();
+      try {
+        await c.pause();
+        _pausedByInterruption = false;
+      } finally {
+        _scheduleFocusGuardRelease();
+      }
     } else {
       _requestingFocus = true;
       _lastPlayTime = DateTime.now();
-      await AudioHelper.requestFocus();
-      await c.play();
-      Future.delayed(const Duration(seconds: 1), () {
-        _requestingFocus = false;
-      });
-      if (!provider.isBackgroundPlayEnabled) {
-        WakelockPlus.enable();
-      } else {
-        WakelockPlus.disable();
+      try {
+        await AudioHelper.requestFocus();
+        await c.play();
+      } finally {
+        _scheduleFocusGuardRelease();
       }
     }
+    _updateWakelock();
     if (mounted) setState(() {});
     await _syncNativePlayback(forceBg: true);
     _armHide();
@@ -749,8 +795,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
       }
       return;
     }
-    // Background mode: never hold wakelock (allows screen off)
-    WakelockPlus.disable();
+    // Wakelock follows "is the user watching", not this setting.
+    _updateWakelock();
     final title =
         provider.currentVideo?.title ?? widget.preview?.title ?? 'VibeTube';
     final artist =
@@ -867,6 +913,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _posTimer?.cancel();
     _toastTimer?.cancel();
     _sponsorToastTimer?.cancel();
+    _focusGuardTimer?.cancel();
     NativePlayer.removeHandlers(
       onPip: _onPipChanged,
       onMediaPlay: _onMediaPlay,
@@ -1754,9 +1801,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       ),
                     );
                   } catch (e) {
+                    // Keep the signed URL out of the UI; log has the detail.
+                    debugPrint('download failed: $e');
                     if (!mounted) return;
                     ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Download failed: $e')),
+                      const SnackBar(content: Text('Download failed')),
                     );
                   }
                 },
@@ -2704,7 +2753,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 provider.toggleBackgroundPlay();
                 Navigator.pop(ctx);
                 if (provider.isBackgroundPlayEnabled) {
-                  WakelockPlus.disable();
                   await AudioHelper.requestFocus();
                   await _syncNativePlayback(forceBg: true);
                   _toast('Background play ON — lock phone to test');

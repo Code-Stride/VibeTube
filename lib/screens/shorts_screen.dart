@@ -5,6 +5,8 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:video_player/video_player.dart';
 import 'package:share_plus/share_plus.dart';
 import '../providers/app_provider.dart';
+import '../providers/mini_player_controller.dart';
+import '../services/audio_helper.dart';
 import '../utils/theme.dart';
 import '../utils/share_links.dart';
 import '../models/video.dart';
@@ -29,6 +31,10 @@ class _ShortsScreenState extends State<ShortsScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final provider = context.read<AppProvider>();
       if (provider.shortsVideos.isEmpty) provider.loadShorts();
+      // A mini-player session keeps playing when this tab opens, so two
+      // streams came out of the speaker at once. Shorts takes the audio.
+      final mini = context.read<MiniPlayerController>();
+      if (mini.isPlaying) mini.pause();
     });
   }
 
@@ -121,9 +127,62 @@ class _ShortPlayerState extends State<_ShortPlayer>
   late AnimationController _heartAnimController;
   late Animation<double> _heartScale;
 
+  /// Paused by the OS (call, other app) rather than by the user.
+  bool _pausedByInterruption = false;
+  double _preDuckVolume = 1.0;
+
+  /// Headphones pulled / Bluetooth dropped — pause instead of switching to the
+  /// loudspeaker, like every other media app.
+  void _onBecomingNoisy() {
+    final c = _controller;
+    if (c == null || !c.value.isInitialized || !c.value.isPlaying) return;
+    _pausedByInterruption = false;
+    c.pause();
+    if (mounted) setState(() {});
+  }
+
+  void _onShouldPause(bool permanent) {
+    final c = _controller;
+    if (c == null || !c.value.isInitialized || !c.value.isPlaying) return;
+    _pausedByInterruption = !permanent;
+    c.pause();
+    if (mounted) setState(() {});
+  }
+
+  void _onMayResume() {
+    if (!_pausedByInterruption) return;
+    _pausedByInterruption = false;
+    final c = _controller;
+    if (c == null || !c.value.isInitialized || c.value.isPlaying) return;
+    // Only the Short the user is actually looking at may resume.
+    if (!widget.isActive || !mounted) return;
+    c.play();
+    if (mounted) setState(() {});
+  }
+
+  void _onDuck(bool ducking) {
+    final c = _controller;
+    if (c == null || !c.value.isInitialized) return;
+    if (ducking) {
+      _preDuckVolume = c.value.volume;
+      c.setVolume(AudioHelper.duckVolume);
+    } else {
+      c.setVolume(_preDuckVolume);
+    }
+  }
+
   @override
   void initState() {
     super.initState();
+    // Shorts previously bypassed the audio session entirely: no focus request,
+    // no interruption handling, so it played over the mini player, kept
+    // blasting after a headset unplug and talked over incoming calls.
+    AudioHelper.addListeners(
+      onBecomingNoisy: _onBecomingNoisy,
+      onShouldPause: _onShouldPause,
+      onMayResume: _onMayResume,
+      onDuck: _onDuck,
+    );
     _heartAnimController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 600),
@@ -138,8 +197,12 @@ class _ShortPlayerState extends State<_ShortPlayer>
   void didUpdateWidget(_ShortPlayer oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.isActive && !oldWidget.isActive) {
-      _controller?.play();
+      _pausedByInterruption = false;
+      AudioHelper.requestFocus().then((_) {
+        if (mounted && widget.isActive) _controller?.play();
+      });
     } else if (!widget.isActive && oldWidget.isActive) {
+      _pausedByInterruption = false;
       _controller?.pause();
     }
   }
@@ -192,7 +255,12 @@ class _ShortPlayerState extends State<_ShortPlayer>
         return;
       }
       await _controller!.setLooping(true);
-      if (widget.isActive) await _controller!.play();
+      if (widget.isActive) {
+        await AudioHelper.requestFocus();
+        if (!mounted || requestId != _playerRequestId) return;
+        await _controller!.play();
+      }
+      if (!mounted || requestId != _playerRequestId) return;
       setState(() => _ready = true);
     } catch (e) {
       debugPrint('Short player init failed: $e');
@@ -205,10 +273,18 @@ class _ShortPlayerState extends State<_ShortPlayer>
   void _togglePlayPause() {
     final c = _controller;
     if (c == null || !c.value.isInitialized) return;
+    final wasPlaying = c.value.isPlaying;
     setState(() {
       _showPlayPause = true;
-      c.value.isPlaying ? c.pause() : c.play();
+      if (wasPlaying) {
+        c.pause();
+      } else {
+        AudioHelper.requestFocus().then((_) {
+          if (mounted) c.play();
+        });
+      }
     });
+    _pausedByInterruption = false;
     _hideTimer?.cancel();
     _hideTimer = Timer(const Duration(milliseconds: 800), () {
       if (mounted) setState(() => _showPlayPause = false);
@@ -231,7 +307,14 @@ class _ShortPlayerState extends State<_ShortPlayer>
   @override
   void dispose() {
     _playerRequestId++;
+    AudioHelper.removeListeners(
+      onBecomingNoisy: _onBecomingNoisy,
+      onShouldPause: _onShouldPause,
+      onMayResume: _onMayResume,
+      onDuck: _onDuck,
+    );
     _hideTimer?.cancel();
+    _heartAnimController.dispose();
     _controller?.dispose();
     super.dispose();
   }
