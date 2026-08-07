@@ -290,6 +290,12 @@ class MiniPlayerController extends ChangeNotifier {
     }
     await NativePlayer.setPlaying(false);
     await NativePlayer.stopBackground();
+    // Hand audio focus back. PlayerScreen.dispose() does this when it owns the
+    // controller, but a session closed from the mini bar (swipe-away, or the
+    // notification's Stop button) never did — so Android still considered
+    // VibeTube the focus owner and the next app to start music got ducked, or
+    // was refused focus outright, until the process died.
+    await AudioHelper.abandonFocus();
     notifyListeners();
   }
 
@@ -333,8 +339,22 @@ class MiniPlayerController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// True once [dispose] has run, so late async callbacks stop notifying.
+  bool _disposed = false;
+
+  /// Same guard as AppProvider: `play`, `pause`, `close` and the throttled
+  /// `_tick` all notify after an await or from a controller listener, and any
+  /// of those can land after teardown — which makes ChangeNotifier throw
+  /// "used after being disposed" from a background future.
+  @override
+  void notifyListeners() {
+    if (_disposed) return;
+    super.notifyListeners();
+  }
+
   @override
   void dispose() {
+    _disposed = true;
     _detachSystemHandlers();
     final c = controller;
     controller = null;

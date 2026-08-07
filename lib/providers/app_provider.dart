@@ -900,8 +900,27 @@ class AppProvider extends ChangeNotifier {
     return sponsorSegments.where((s) => sbEnabled(s.category)).toList();
   }
 
+  /// True once [dispose] has run, so late async callbacks stop notifying.
+  bool _disposed = false;
+
+  /// Swallows notifications that arrive after disposal.
+  ///
+  /// Almost every loader here writes state and calls this *after* an await.
+  /// The request-id guards stop a stale response from overwriting fresh data,
+  /// but they do not help when the provider itself is gone: ChangeNotifier
+  /// throws "A AppProvider was used after being disposed" from the
+  /// notifyListeners() in a `finally` block, which is an unhandled exception
+  /// on a background future rather than a catchable error. Hot restart and
+  /// any teardown-during-load hit this.
+  @override
+  void notifyListeners() {
+    if (_disposed) return;
+    super.notifyListeners();
+  }
+
   @override
   void dispose() {
+    _disposed = true;
     _feedRequestId++;
     _searchRequestId++;
     _videoRequestId++;

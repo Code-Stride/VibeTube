@@ -88,8 +88,15 @@ class _ShortsScreenState extends State<ShortsScreen> {
               }
             },
             itemBuilder: (context, index) {
+              final short = provider.shortsVideos[index];
               return _ShortPlayer(
-                video: provider.shortsVideos[index],
+                // Keyed by video id: without this the element for a given
+                // slot is recycled when the list grows (loadMoreShorts) and
+                // Flutter reuses the old State — so a Short inherited the
+                // previous video's controller, `_liked` flag and error text
+                // while showing the new thumbnail.
+                key: ValueKey(short.id),
+                video: short,
                 isActive: widget.isActive && index == _currentIndex,
               );
             },
@@ -103,7 +110,11 @@ class _ShortsScreenState extends State<ShortsScreen> {
 class _ShortPlayer extends StatefulWidget {
   final Video video;
   final bool isActive;
-  const _ShortPlayer({required this.video, required this.isActive});
+  const _ShortPlayer({
+    super.key,
+    required this.video,
+    required this.isActive,
+  });
 
   @override
   State<_ShortPlayer> createState() => _ShortPlayerState();
@@ -149,6 +160,23 @@ class _ShortPlayerState extends State<_ShortPlayer>
   @override
   void didUpdateWidget(_ShortPlayer oldWidget) {
     super.didUpdateWidget(oldWidget);
+    // A different video in the same slot must re-resolve its stream. The
+    // ValueKey in the builder normally forces a fresh State, but if the key
+    // is ever dropped this silently kept playing the previous Short's video
+    // under the new one's title and buttons.
+    if (widget.video.id != oldWidget.video.id) {
+      _playerRequestId++;
+      final old = _controller;
+      _controller = null;
+      _ready = false;
+      _playerError = null;
+      old?.dispose();
+      _liked = context.read<AppProvider>().liked.any(
+            (v) => v.id == widget.video.id,
+          );
+      _initPlayer();
+      return;
+    }
     if (widget.isActive && !oldWidget.isActive) {
       _startPlayback();
     } else if (!widget.isActive && oldWidget.isActive) {
