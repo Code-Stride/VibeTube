@@ -8,7 +8,12 @@ issue_tracker: https://github.com/Code-Stride/VibeTube/issues
 documentation: https://github.com/Code-Stride/VibeTube/blob/main/README.md
 
 environment:
-  sdk: '>=3.0.0 <4.0.0'
+  # The UI uses Switch/SwitchListTile `activeThumbColor`, which landed in
+  # Flutter 3.35 (Dart 3.9). Without these bounds the project appeared to
+  # support Flutter 3.32 and failed with a bare "No named parameter with the
+  # name 'activeThumbColor'" instead of a clear toolchain message.
+  sdk: '>=3.9.0 <4.0.0'
+  flutter: '>=3.35.0'
 
 dependencies:
   flutter:

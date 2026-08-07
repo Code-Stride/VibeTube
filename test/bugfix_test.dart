@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vibetube/api/innertube_client.dart';
 import 'package:vibetube/models/video.dart';
 import 'package:vibetube/services/caption_service.dart';
+import 'package:vibetube/services/download_service.dart';
 import 'package:vibetube/services/storage_service.dart';
 
 /// Regression tests for bugs found during the code audit. Each test fails
@@ -199,6 +200,111 @@ void main() {
       ]);
 
       expect((await storage.getHistory()).length, 100);
+    });
+  });
+
+  group('Download completeness (audit fix)', () {
+    // A googlevideo URL that expires mid-transfer closes the connection
+    // cleanly: the stream just ends, no error is raised, and the partial file
+    // still starts with a valid ftyp box. The old code only checked that
+    // header, renamed .part -> .mp4 and recorded a "finished" download the
+    // user could never replace, because the early-exit handed the truncated
+    // file straight back on every retry.
+    test('a short read is rejected even when the header is valid', () {
+      expect(
+        DownloadService.isCompleteTransfer(received: 4000000, total: 10000000),
+        false,
+      );
+    });
+
+    test('an exact-length read is accepted', () {
+      expect(
+        DownloadService.isCompleteTransfer(received: 10000000, total: 10000000),
+        true,
+      );
+    });
+
+    test('no Content-Length falls back to the structural check alone', () {
+      expect(DownloadService.isCompleteTransfer(received: 123, total: 0), true);
+      expect(DownloadService.isCompleteTransfer(received: 123, total: -1), true);
+    });
+  });
+
+  group('Continuation tokens (audit fix)', () {
+    // SearchResult.continuation was never populated, so every feed stopped at
+    // its first page and loadMoreShorts re-ran the same query for nothing.
+    test('reads the modern continuationCommand shape', () {
+      final response = <String, dynamic>{
+        'contents': {
+          'items': [
+            {'continuationItemRenderer': {
+              'continuationEndpoint': {
+                'continuationCommand': {'token': 'TOKEN_ABC', 'request': 'x'},
+              },
+            }},
+          ],
+        },
+      };
+      expect(InnerTubeClient.extractContinuation(response), 'TOKEN_ABC');
+    });
+
+    test('reads the legacy nextContinuationData shape', () {
+      final response = <String, dynamic>{
+        'continuations': [
+          {'nextContinuationData': {'continuation': 'LEGACY_XYZ'}},
+        ],
+      };
+      expect(InnerTubeClient.extractContinuation(response), 'LEGACY_XYZ');
+    });
+
+    test('returns null when there is no next page', () {
+      expect(InnerTubeClient.extractContinuation({'contents': {}}), isNull);
+    });
+
+    test('ignores empty tokens', () {
+      final response = <String, dynamic>{
+        'a': {'continuationCommand': {'token': ''}},
+      };
+      expect(InnerTubeClient.extractContinuation(response), isNull);
+    });
+
+    test('survives a deeply nested payload without blowing the stack', () {
+      // _parseVideosDeep / extractContinuation walk arbitrary JSON; a depth
+      // cap keeps a malformed response from overflowing the stack.
+      dynamic node = <String, dynamic>{'leaf': true};
+      for (var i = 0; i < 5000; i++) {
+        node = <String, dynamic>{'n': node};
+      }
+      expect(
+        () => InnerTubeClient.extractContinuation(node as Map<String, dynamic>),
+        returnsNormally,
+      );
+    });
+  });
+
+  group('Compact view counts (audit fix)', () {
+    test('drops a .0 fraction the way YouTube does', () {
+      expect(const Video(id: 'a', title: 't', viewCount: 1000).formattedViewCount, '1K');
+      expect(const Video(id: 'a', title: 't', viewCount: 2000000).formattedViewCount, '2M');
+      expect(const Video(id: 'a', title: 't', viewCount: 3000000000).formattedViewCount, '3B');
+    });
+
+    test('keeps a real fraction', () {
+      expect(const Video(id: 'a', title: 't', viewCount: 1500).formattedViewCount, '1.5K');
+      expect(const Video(id: 'a', title: 't', viewCount: 45600).formattedViewCount, '45.6K');
+    });
+  });
+
+  group('parseCount robustness (audit fix)', () {
+    test('a version-like string does not parse as a truncated decimal', () {
+      // `[\d.]+` matched "1.2" out of "1.2.3".
+      expect(InnerTubeClient.parseCount('1.2.3'), 1);
+    });
+
+    test('existing suffix handling is unchanged', () {
+      expect(InnerTubeClient.parseCount('1.2M views'), 1200000);
+      expect(InnerTubeClient.parseCount('532K views'), 532000);
+      expect(InnerTubeClient.parseCount('4.2 lakh views'), 420000);
     });
   });
 }

@@ -7,6 +7,110 @@ and this project roughly follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+Deep audit pass — lifecycle, audio-session and platform-behaviour bugs that the
+analyzer cannot see. Each item was reproduced by reading the failing path; the
+ones with a pure decision rule now have regression tests.
+
+**Critical**
+- **Cold start could hang on the splash screen.** The Android 13+ notification
+  permission was requested with `await` *before* `runApp()`, so nothing was
+  drawn until the user answered — and nothing ever was if the dialog was
+  suppressed by OEM policy or a restricted profile. Moved after the first frame.
+- **Deep links were silently dropped on cold start.** Dart told native it was
+  "ready" before `runApp()`, native immediately replayed the buffered link, and
+  `navigatorKey.currentState` was still null so `?.push` discarded it. The
+  ready signal now waits for the first frame, and links arriving early are
+  buffered on the Dart side too.
+- **Mini player and full player both handled the same media events.** The mini
+  player registered its media-button and audio-interruption handlers in
+  `adopt()` but only removed them in `close()`, so after minimise → reopen both
+  were live on one controller: a single notification "Pause" fired twice, and
+  un-ducking reset the volume to 1.0, un-muting a muted video. Ownership is now
+  explicit and handed over on expand/collapse.
+- **Shorts bypassed the audio session entirely.** No focus request, no
+  interruption handling — a Short played on top of an active mini-player
+  session, kept playing out of the loudspeaker after a headset unplug, and
+  talked over incoming calls. Shorts now take audio focus and honour
+  noisy/pause/resume/duck, and opening the tab pauses the mini player.
+- **Truncated downloads were recorded as complete.** An expiring googlevideo URL
+  ends the stream cleanly, and the partial file still has a valid `ftyp`
+  header, so it passed validation, was renamed to `.mp4` and cached forever —
+  re-downloading returned the broken file. Byte count is now checked against
+  `Content-Length`.
+- **FlutterEngine and Activity leaked on every recreate.** `PlaybackService`
+  held a static `MethodChannel` that was never cleared, retaining the whole
+  engine; a service outliving its Activity also pushed media-button callbacks
+  into a dead messenger, silently breaking the notification Play button.
+
+**High**
+- **The screen switched off during playback.** Background play defaults to on,
+  and the code disabled the wakelock whenever it was on — including while the
+  user was watching. The wakelock now tracks "playing and visible"; background
+  audio is held up by the foreground service, which never needed one.
+- **One thrown exception disabled interruption handling for the session.** The
+  `_requestingFocus` guard was cleared after an unguarded `await` (and inside a
+  `.then()` with no `catchError`), so a single failure left it stuck on and
+  every handler early-returned from then on. Now released from `finally`.
+- **"Ad blocker" setting did nothing.** The flag was stored, persisted and
+  toggled but never read. Ad-free playback is a property of streaming via
+  InnerTube, not something the user can switch off, so it is now shown as
+  status rather than a control that lies.
+- **Pagination was dead code.** `SearchResult.continuation` was never populated,
+  so feeds stopped at one page and `loadMoreShorts` re-ran the first-page query
+  and deduped the entire result away. Continuation tokens are now extracted
+  (modern and legacy shapes) and followed.
+- **Every video made two identical `/next` requests.** Related videos and
+  comments were fetched separately from the same endpoint with the same body.
+  Now one request, both parsed.
+- **`startService()` used where Android 8+ requires `startForegroundService()`**
+  in three of four call sites, with the resulting `IllegalStateException`
+  swallowed by an empty catch — play/pause state stopped reaching the
+  MediaSession with nothing in the log.
+- **Swiping away a paused notification left a zombie service** holding audio
+  focus with no remaining control surface. Added a delete intent.
+- **Raw exception text reached the UI**, which can embed signed
+  `googlevideo.com` URLs. Messages are now generic; detail goes to the log.
+
+**Medium / low**
+- Region setting only reached two of the browse calls; search, `/next` and the
+  WEB player fallback stayed pinned to India.
+- Trending is no longer shuffled on every refresh (it is a ranked list).
+- `clearHistory()` now takes the same per-key lock as every other mutator, so an
+  in-flight write cannot resurrect a cleared entry.
+- JSON walkers are depth-capped, so a malformed payload cannot overflow the
+  stack.
+- Update check compares build numbers, so a `1.11.0+27` hotfix over `1.11.0+26`
+  is detected.
+- Default quality had two disagreeing defaults (`Auto (HLS)` vs `1080p`);
+  there is now one constant.
+- Removed the dead duplicate `loadCaptions()` path.
+- `isDownloaded()` caches its header check instead of opening the file on every
+  Downloads-list rebuild.
+- `_heartAnimController` in the Shorts player was never disposed.
+- View counts read `1K` rather than `1.0K`; `parseCount` no longer reads
+  `"1.2.3"` as `1.2`.
+- Mini-bar `Dismissible` key no longer includes the controller hash, which
+  cancelled in-progress swipes.
+- `HomeScreen.dispose()` no longer reaches for `context.read` behind a
+  try/catch.
+
+### Changed
+- **Declared the real toolchain floor.** `lib/screens/settings_screen.dart` uses
+  `activeThumbColor`, which requires Flutter 3.35 / Dart 3.9, but the pubspec
+  claimed `sdk: >=3.0.0` and set no Flutter bound — building on 3.32 failed with
+  a bare "No named parameter" error. Now `sdk: >=3.9.0` and `flutter: >=3.35.0`.
+
+### Added
+- `test/compile_coverage_test.dart` imports every library under `lib/`, so
+  `flutter test` type-checks the whole app. The `settings_screen` breakage above
+  survived precisely because no test imported it.
+- Regression tests for download truncation, continuation extraction, compact
+  view counts, `parseCount`, and same-version hotfix detection. The update
+  comparison tests now exercise the shipped implementation instead of a copy of
+  it. 60 tests → 74.
+
 ### Planned
 - Further video quality selection polish
 - Voice search

@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vibetube/models/video.dart';
 import 'package:vibetube/services/download_service.dart';
+import 'package:vibetube/services/update_service.dart';
 import 'package:vibetube/utils/share_links.dart';
 
 void main() {
@@ -232,32 +233,15 @@ void main() {
   });
 
   group('Update version compare', () {
-    // Mirrors UpdateService._isNewer, which must ignore build metadata
-    // ("1.5.0+11") and a leading "v" so the dialog doesn't loop forever.
-    List<int> parse(String v) {
-      final core = v.split('+').first.split('-').first;
-      final cleaned = core.replaceAll(RegExp(r'[^0-9.]'), '');
-      final parts = cleaned.split('.');
-      return [
-        int.tryParse(parts.isNotEmpty ? parts[0] : '0') ?? 0,
-        int.tryParse(parts.length > 1 ? parts[1] : '0') ?? 0,
-        int.tryParse(parts.length > 2 ? parts[2] : '0') ?? 0,
-      ];
-    }
+    // Exercises the real UpdateService implementation rather than a copy of
+    // it: the previous version of this group duplicated the algorithm inline,
+    // so the tests would keep passing even if the shipped comparison broke.
+    const parse = UpdateService.parseVersion;
+    const isNewer = UpdateService.isNewer;
 
-    bool isNewer(String remote, String local) {
-      final r = parse(remote);
-      final l = parse(local);
-      for (var i = 0; i < 3; i++) {
-        if (r[i] > l[i]) return true;
-        if (r[i] < l[i]) return false;
-      }
-      return false;
-    }
-
-    test('build metadata does not make a version look newer', () {
+    test('a bare tag never looks newer than the same version + build', () {
       expect(isNewer('1.5.0', '1.5.0+11'), false);
-      expect(parse('1.5.0+11'), [1, 5, 0]);
+      expect(parse('1.5.0+11'), [1, 5, 0, 11]);
     });
 
     test('detects genuinely newer versions', () {
@@ -272,8 +256,16 @@ void main() {
     });
 
     test('pre-release suffix is ignored', () {
-      expect(parse('1.6.0-beta'), [1, 6, 0]);
+      expect(parse('1.6.0-beta'), [1, 6, 0, 0]);
       expect(isNewer('1.6.0-beta', '1.5.0'), true);
+    });
+
+    test('same-version hotfix build is detected as newer', () {
+      // Regression: build numbers were dropped entirely, so a 1.11.0+27
+      // hotfix published over an installed 1.11.0+26 was never offered.
+      expect(isNewer('1.11.0+27', '1.11.0+26'), true);
+      expect(isNewer('1.11.0+26', '1.11.0+26'), false);
+      expect(isNewer('1.11.0+25', '1.11.0+26'), false);
     });
   });
 
