@@ -22,9 +22,66 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
+/// Stable identity for each tab.
+///
+/// Music Mode removes the Shorts tab, so a raw integer index silently refers to
+/// a different page before and after the toggle — clamping the index keeps it
+/// in range but still teleports the user (index 2 is Shorts normally, Library
+/// in Music Mode). Keying on the enum keeps them on the page they were on.
+enum _Tab { home, search, shorts, library, downloads, settings }
+
 class _HomeScreenState extends State<HomeScreen> {
-  int _index = 0;
+  _Tab _tab = _Tab.home;
   bool _updateShown = false;
+
+  List<_Tab> _tabsFor(bool isMusic) => [
+        _Tab.home,
+        _Tab.search,
+        if (!isMusic) _Tab.shorts,
+        _Tab.library,
+        _Tab.downloads,
+        _Tab.settings,
+      ];
+
+  Widget _pageFor(_Tab t, {required bool isMusic, required bool active}) {
+    switch (t) {
+      case _Tab.home:
+        return isMusic ? const _MusicHomeFeed() : const _HomeFeed();
+      case _Tab.search:
+        return const SearchScreen();
+      case _Tab.shorts:
+        return ShortsScreen(isActive: active);
+      case _Tab.library:
+        return const LibraryScreen();
+      case _Tab.downloads:
+        return const DownloadsScreen();
+      case _Tab.settings:
+        return const SettingsScreen();
+    }
+  }
+
+  BottomNavigationBarItem _navItemFor(_Tab t) {
+    switch (t) {
+      case _Tab.home:
+        return const BottomNavigationBarItem(
+            icon: Icon(Icons.home_filled), label: 'Home');
+      case _Tab.search:
+        return const BottomNavigationBarItem(
+            icon: Icon(Icons.search), label: 'Search');
+      case _Tab.shorts:
+        return const BottomNavigationBarItem(
+            icon: Icon(Icons.play_circle_outline), label: 'Shorts');
+      case _Tab.library:
+        return const BottomNavigationBarItem(
+            icon: Icon(Icons.video_library_outlined), label: 'Library');
+      case _Tab.downloads:
+        return const BottomNavigationBarItem(
+            icon: Icon(Icons.download_outlined), label: 'Downloads');
+      case _Tab.settings:
+        return const BottomNavigationBarItem(
+            icon: Icon(Icons.settings_outlined), label: 'Settings');
+    }
+  }
 
   @override
   void initState() {
@@ -52,44 +109,18 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final p = context.watch<AppProvider>();
-    final showMini = context.watch<MiniPlayerController>().showMiniBar;
+    // Narrow subscriptions. MiniPlayerController notifies every 250ms while the
+    // mini bar plays, and AppProvider notifies on feed loads and download
+    // ticks; watching either whole object rebuilt all six pages 4x/second.
+    final isMusic = context.select<AppProvider, bool>((p) => p.isMusicMode);
+    final showMini =
+        context.select<MiniPlayerController, bool>((m) => m.showMiniBar);
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final isMusic = p.isMusicMode;
 
-    // Pages change based on mode
-    final pages = <Widget>[
-      isMusic ? const _MusicHomeFeed() : const _HomeFeed(),
-      const SearchScreen(),
-      if (!isMusic) ShortsScreen(isActive: !isMusic && _index == 2),
-      const LibraryScreen(),
-      const DownloadsScreen(),
-      const SettingsScreen(),
-    ];
-
-    // Bottom nav items change based on mode
-    final navItems = isMusic
-        ? const [
-            BottomNavigationBarItem(icon: Icon(Icons.home_filled), label: 'Home'),
-            BottomNavigationBarItem(icon: Icon(Icons.search), label: 'Search'),
-            BottomNavigationBarItem(icon: Icon(Icons.video_library_outlined), label: 'Library'),
-            BottomNavigationBarItem(icon: Icon(Icons.download_outlined), label: 'Downloads'),
-            BottomNavigationBarItem(icon: Icon(Icons.settings_outlined), label: 'Settings'),
-          ]
-        : const [
-            BottomNavigationBarItem(icon: Icon(Icons.home_filled), label: 'Home'),
-            BottomNavigationBarItem(icon: Icon(Icons.search), label: 'Search'),
-            BottomNavigationBarItem(icon: Icon(Icons.play_circle_outline), label: 'Shorts'),
-            BottomNavigationBarItem(icon: Icon(Icons.video_library_outlined), label: 'Library'),
-            BottomNavigationBarItem(icon: Icon(Icons.download_outlined), label: 'Downloads'),
-            BottomNavigationBarItem(icon: Icon(Icons.settings_outlined), label: 'Settings'),
-          ];
-
-    // Clamp for *rendering* only — mutating State inside build() (the old
-    // `if (_index > maxIndex) _index = maxIndex;`) is an anti-pattern that can
-    // drop a frame when Music Mode shrinks the bar from 6 tabs to 5.
-    final maxIndex = navItems.length - 1;
-    final index = _index > maxIndex ? maxIndex : _index;
+    final tabs = _tabsFor(isMusic);
+    // Derived, never mutated during build. If the active tab does not exist in
+    // this mode (Shorts in Music Mode) fall back to Home.
+    final index = tabs.indexOf(_tab) < 0 ? 0 : tabs.indexOf(_tab);
 
     return Scaffold(
       body: AnimatedSwitcher(
@@ -98,7 +129,14 @@ class _HomeScreenState extends State<HomeScreen> {
         // away) every page on each tab switch, so scroll position, typed
         // search text and in-flight loads were lost — which defeats the whole
         // point of IndexedStack.
-        child: IndexedStack(key: ValueKey(isMusic), index: index, children: pages),
+        child: IndexedStack(
+          key: ValueKey(isMusic),
+          index: index,
+          children: [
+            for (final t in tabs)
+              _pageFor(t, isMusic: isMusic, active: t == _tab),
+          ],
+        ),
       ),
       bottomNavigationBar: Column(
         mainAxisSize: MainAxisSize.min,
@@ -111,9 +149,9 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             child: BottomNavigationBar(
               currentIndex: index,
-              onTap: (i) => setState(() => _index = i),
+              onTap: (i) => setState(() => _tab = tabs[i]),
               selectedItemColor: isMusic ? const Color(0xFFFF0000) : null,
-              items: navItems,
+              items: [for (final t in tabs) _navItemFor(t)],
             ),
           ),
         ],

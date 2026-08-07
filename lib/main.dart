@@ -22,6 +22,9 @@ void main() async {
   // Owned here (not created inside the widget tree) so the route observer
   // below can talk to the same instance.
   final mini = MiniPlayerController();
+  // Held globally so the deep-link handler can ask what the top route is.
+  final routeObserver = MiniPlayerRouteObserver(mini);
+  miniPlayerRouteObserver = routeObserver;
 
   // Background / headset / lock-screen audio routing
   await AudioHelper.configure();
@@ -32,9 +35,16 @@ void main() async {
   runApp(VibeTubeApp(
     provider: provider,
     mini: mini,
-    routeObserver: MiniPlayerRouteObserver(mini),
+    routeObserver: routeObserver,
   ));
 }
+
+/// The live route observer, set in [main].
+///
+/// The deep-link handler is a top-level function with no BuildContext, so it
+/// needs a way to ask whether the current top route is already a deep-linked
+/// player.
+MiniPlayerRouteObserver? miniPlayerRouteObserver;
 
 /// Keeps [MiniPlayerController.useGlobalOverlay] in sync with the navigation
 /// stack.
@@ -50,6 +60,16 @@ class MiniPlayerRouteObserver extends NavigatorObserver {
 
   final MiniPlayerController mini;
   int _depth = 0;
+
+  /// Whether the route on top was pushed by a deep link.
+  ///
+  /// Without this, tapping three YouTube links in a row pushes three
+  /// PlayerScreens — each owning its own VideoPlayerController.
+  bool topIsDeepLinkPlayer = false;
+
+  void _trackTop(Route<dynamic>? top) {
+    topIsDeepLinkPlayer = top?.settings.name == deepLinkRouteName;
+  }
 
   void _sync() {
     final wantOverlay = _depth > 0;
@@ -69,6 +89,7 @@ class MiniPlayerRouteObserver extends NavigatorObserver {
       _depth++;
       _sync();
     }
+    _trackTop(route);
     super.didPush(route, previousRoute);
   }
 
@@ -78,6 +99,7 @@ class MiniPlayerRouteObserver extends NavigatorObserver {
       _depth--;
       _sync();
     }
+    _trackTop(previousRoute);
     super.didPop(route, previousRoute);
   }
 
@@ -87,6 +109,7 @@ class MiniPlayerRouteObserver extends NavigatorObserver {
       _depth--;
       _sync();
     }
+    _trackTop(previousRoute);
     super.didRemove(route, previousRoute);
   }
 
@@ -94,9 +117,14 @@ class MiniPlayerRouteObserver extends NavigatorObserver {
   void didReplace({Route<dynamic>? newRoute, Route<dynamic>? oldRoute}) {
     // Depth is unchanged by a replacement, but resync in case the kinds differ.
     _sync();
+    _trackTop(newRoute);
     super.didReplace(newRoute: newRoute, oldRoute: oldRoute);
   }
 }
+
+/// Route name for players opened from a deep link, so a second link replaces
+/// the first instead of stacking another player (and decoder) on top of it.
+const String deepLinkRouteName = 'player/deeplink';
 
 void _setupDeepLinkHandler() {
   // Dedicated channel so we don't clash with the native player command channel.
@@ -109,11 +137,19 @@ void _setupDeepLinkHandler() {
       if (videoId.isEmpty) return;
       // Use the navigator state directly — currentContext can belong to a
       // widget that is not below the Navigator once routes are pushed.
-      navigatorKey.currentState?.push(
-        MaterialPageRoute(
-          builder: (_) => PlayerScreen(videoId: videoId),
-        ),
+      final nav = navigatorKey.currentState;
+      if (nav == null) return;
+      final route = MaterialPageRoute<void>(
+        settings: const RouteSettings(name: deepLinkRouteName),
+        builder: (_) => PlayerScreen(videoId: videoId),
       );
+      // Replace an existing deep-linked player rather than stacking a second
+      // one: each PlayerScreen owns a VideoPlayerController.
+      if (miniPlayerRouteObserver?.topIsDeepLinkPlayer == true) {
+        nav.pushReplacement(route);
+      } else {
+        nav.push(route);
+      }
     }
   });
   // Tell native we're listening; it flushes any cold-start link now.
@@ -135,12 +171,20 @@ class VibeTubeApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
-        ChangeNotifierProvider.value(value: provider),
-        ChangeNotifierProvider.value(value: mini),
+        // create (not .value) so the providers are owned here and their
+        // dispose() — which closes the HTTP clients and the video controller —
+        // is actually reached at teardown.
+        ChangeNotifierProvider<AppProvider>(create: (_) => provider),
+        ChangeNotifierProvider<MiniPlayerController>(create: (_) => mini),
       ],
-      child: Consumer<AppProvider>(
-        builder: (context, p, _) {
-          AppTheme.applySystemUi(p.isDarkMode);
+      child: Builder(
+        builder: (context) {
+          // select(), not watch(): AppProvider notifies on feed loads and on
+          // every throttled download-progress tick. Rebuilding MaterialApp —
+          // and issuing a SystemChrome platform call — for those was waste.
+          // applySystemUi now runs in AppProvider.toggleDarkMode, where the
+          // value actually changes.
+          final isDark = context.select<AppProvider, bool>((p) => p.isDarkMode);
           return MaterialApp(
             navigatorKey: navigatorKey,
             navigatorObservers: [routeObserver],
@@ -148,11 +192,13 @@ class VibeTubeApp extends StatelessWidget {
             debugShowCheckedModeBanner: false,
             theme: AppTheme.lightTheme,
             darkTheme: AppTheme.darkTheme,
-            themeMode: p.isDarkMode ? ThemeMode.dark : ThemeMode.light,
+            themeMode: isDark ? ThemeMode.dark : ThemeMode.light,
             // Global mini player for routes outside main shell (e.g. standalone search)
             builder: (context, child) {
-              return Consumer<MiniPlayerController>(
-                builder: (context, mini, _) {
+              return Builder(
+                builder: (context) {
+                  final showOverlay = context.select<MiniPlayerController, bool>(
+                      (m) => m.showMiniBar && m.useGlobalOverlay);
                   return Stack(
                     fit: StackFit.expand,
                     children: [
@@ -160,7 +206,7 @@ class VibeTubeApp extends StatelessWidget {
                       // Only when mini is showing AND we're not inside main shell's own bar
                       // Main shell draws its own bar above bottom nav via HomeScreen.
                       // For other routes (standalone search), show floating mini at bottom.
-                      if (mini.showMiniBar && mini.useGlobalOverlay)
+                      if (showOverlay)
                         const Align(
                           alignment: Alignment.bottomCenter,
                           child: MiniPlayerBar(),

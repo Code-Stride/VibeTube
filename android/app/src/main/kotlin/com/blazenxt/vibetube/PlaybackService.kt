@@ -200,7 +200,7 @@ class PlaybackService : Service() {
         builder
             .setContentTitle(title)
             .setContentText(artist)
-            .setSmallIcon(android.R.drawable.ic_media_play)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentIntent(contentPi)
             .setOngoing(playing)
             .setOnlyAlertOnce(true)
@@ -216,7 +216,7 @@ class PlaybackService : Service() {
             )
 
         val session = mediaSession
-        if (session != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+        if (session != null) {
             builder.style = Notification.MediaStyle()
                 .setMediaSession(session.sessionToken)
                 .setShowActionsInCompactView(0, 1)
