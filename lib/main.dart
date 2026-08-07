@@ -23,40 +23,84 @@ void main() async {
   // Background / headset / lock-screen audio routing
   await AudioHelper.configure();
 
-  // Android 13+ media notification permission (best-effort)
+  // Install the Dart-side deep link handler before the first frame so nothing
+  // can arrive unhandled, but do not tell native we are ready yet — see below.
+  _setupDeepLinkHandler();
+
+  runApp(VibeTubeApp(provider: provider));
+
+  // Everything that must not block the first frame runs after it.
+  //
+  // The notification permission request in particular used to be awaited
+  // *before* runApp: request() only completes once the user answers the system
+  // dialog, so the app sat on the native splash until then — and stayed there
+  // forever if the dialog was suppressed (OEM policy, restricted profile).
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    _announceDeepLinkReady();
+    _requestNotificationPermission();
+  });
+}
+
+/// Android 13+ media notification permission (best-effort, never blocking).
+Future<void> _requestNotificationPermission() async {
   try {
     final status = await Permission.notification.status;
     if (!status.isGranted) {
       await Permission.notification.request();
     }
   } catch (_) {}
-
-  // Wire up deep link handler (YouTube URLs from other apps)
-  _setupDeepLinkHandler();
-
-  runApp(VibeTubeApp(provider: provider));
 }
 
+/// Dedicated channel so we don't clash with the native player command channel.
+/// Native buffers any link that arrives before we announce 'ready' and replays
+/// it at that point.
+const MethodChannel _deepLinkChannel = MethodChannel(
+  'com.blazenxt.vibetube/deeplink',
+);
+
+String? _pendingDeepLinkId;
+int _deepLinkRetries = 0;
+
 void _setupDeepLinkHandler() {
-  // Dedicated channel so we don't clash with the native player command channel.
-  // Native buffers any link that arrives before this handler exists and
-  // replays it when we announce 'ready' below.
-  const deepChannel = MethodChannel('com.blazenxt.vibetube/deeplink');
-  deepChannel.setMethodCallHandler((call) async {
+  _deepLinkChannel.setMethodCallHandler((call) async {
     if (call.method == 'onDeepLink' && call.arguments is String) {
       final videoId = (call.arguments as String).trim();
       if (videoId.isEmpty) return;
-      // Use the navigator state directly — currentContext can belong to a
-      // widget that is not below the Navigator once routes are pushed.
-      navigatorKey.currentState?.push(
-        MaterialPageRoute(
-          builder: (_) => PlayerScreen(videoId: videoId),
-        ),
-      );
+      _openDeepLink(videoId);
     }
   });
-  // Tell native we're listening; it flushes any cold-start link now.
-  deepChannel.invokeMethod('ready').catchError((_) => null);
+}
+
+/// Tell native we're listening; it flushes any cold-start link now.
+///
+/// Deliberately called after the first frame: native replays the buffered link
+/// synchronously on receiving this, and before the first frame
+/// `navigatorKey.currentState` is still null, so the link was silently dropped
+/// by the `?.` below.
+void _announceDeepLinkReady() {
+  _deepLinkChannel.invokeMethod('ready').catchError((_) => null);
+}
+
+void _openDeepLink(String videoId) {
+  // Use the navigator state directly — currentContext can belong to a widget
+  // that is not below the Navigator once routes are pushed.
+  final nav = navigatorKey.currentState;
+  if (nav == null) {
+    // Navigator not mounted yet. Buffer and retry on the next frame rather
+    // than dropping the link. Capped so a genuinely broken navigator cannot
+    // spin frame callbacks forever.
+    if (_deepLinkRetries >= 10) return;
+    _deepLinkRetries++;
+    _pendingDeepLinkId = videoId;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final pending = _pendingDeepLinkId;
+      _pendingDeepLinkId = null;
+      if (pending != null) _openDeepLink(pending);
+    });
+    return;
+  }
+  _deepLinkRetries = 0;
+  nav.push(MaterialPageRoute(builder: (_) => PlayerScreen(videoId: videoId)));
 }
 
 class VibeTubeApp extends StatelessWidget {
