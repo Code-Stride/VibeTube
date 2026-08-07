@@ -9,6 +9,16 @@
 # packages, and plugins designed to encourage good coding practices.
 include: package:flutter_lints/flutter.yaml
 
+analyzer:
+  errors:
+    # Using BuildContext across an async gap is the root of "setState() called
+    # after dispose()" crashes (a like/share/download starts, the user backs
+    # out, then the post-await setState / native-channel call fires on a dead
+    # State). Surfacing it as a warning keeps it visible in `flutter analyze`
+    # without failing CI for the many existing guarded call sites that read
+    # context after an await; new unguarded sites will show up yellow.
+    use_build_context_synchronously: warning
+
 linter:
   # The lint rules applied to this project can be customized in the
   # section below to disable rules from the `package:flutter_lints/flutter.yaml`

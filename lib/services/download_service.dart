@@ -160,7 +160,13 @@ class DownloadService {
   Future<void> delete(String videoId) async {
     final p = await pathFor(videoId);
     final f = File(p);
-    if (await f.exists()) await f.delete();
+    // best-effort: a missing file (already gone / never finished) or a
+    // file held open by another handle used to throw here, which aborted
+    // removeDownload() before it could clean up the metadata row — leaving
+    // a Downloads entry that pointed at nothing.
+    try {
+      if (await f.exists()) await f.delete();
+    } catch (_) {}
   }
 
   void dispose() => _http.close();

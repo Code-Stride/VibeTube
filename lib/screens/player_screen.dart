@@ -1842,6 +1842,12 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
                   final v = video ?? preview;
                   if (v == null) return;
                   final now = await provider.toggleLike(v);
+                  // Backing out of the player during the await leaves this
+                  // State disposed; the dedicated _toggleLike() method guards
+                  // this same path, but this inline closure did not, so a
+                  // fast back-press during a like toggle could throw
+                  // "setState() called after dispose()".
+                  if (!mounted) return;
                   setState(() => _liked = now);
                 },
               ),
@@ -2546,6 +2552,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
   }
 
   void _toast(String msg) {
+    if (!mounted) return;
     _toastTimer?.cancel();
     setState(() => _toastMsg = msg);
     _toastTimer = Timer(const Duration(seconds: 2), () {
@@ -2681,19 +2688,23 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     _toast('Audio only');
   }
 
-  int _nextRelatedIndex = 0;
-
   void _playNextRelated() {
-    final related = context.read<AppProvider>().relatedVideos;
+    final provider = context.read<AppProvider>();
+    final related = provider.relatedVideos;
     if (related.isEmpty) {
       _toast('No related videos');
       return;
     }
-    // Advance through the list; tapping Next twice used to reopen the same
-    // video because it always took `related.first`.
-    if (_nextRelatedIndex >= related.length) _nextRelatedIndex = 0;
-    final next = related[_nextRelatedIndex];
-    _nextRelatedIndex++;
+    // The cursor lives on AppProvider, not this State: pushReplacement below
+    // throws this State away and builds a fresh one whose own counter would
+    // be 0, so the old per-State counter meant "Next" always reopened
+    // relatedVideos[0]. Reading/advancing the provider's cursor keeps the
+    // position alive across the replacement.
+    if (provider.nextRelatedIndex >= related.length) {
+      provider.nextRelatedIndex = 0;
+    }
+    final next = related[provider.nextRelatedIndex];
+    provider.nextRelatedIndex++;
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(

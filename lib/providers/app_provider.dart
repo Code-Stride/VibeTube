@@ -29,6 +29,16 @@ class AppProvider extends ChangeNotifier {
   List<Comment> comments = [];
   List<SponsorSegment> sponsorSegments = [];
 
+  /// Cursor for the "Next" / auto-advance button in the player.
+  ///
+  /// It can't live on PlayerScreen's State: tapping Next does a
+  /// `Navigator.pushReplacement`, which disposes the current State and
+  /// creates a fresh one whose cursor is 0 — so the second tap always
+  /// reopened relatedVideos[0] and the list never advanced. Living on the
+  /// provider keeps it alive across replacements; [loadVideoDetails] resets
+  /// it for each freshly opened video.
+  int nextRelatedIndex = 0;
+
   List<String> searchHistory = [];
 
   VideoDetails? currentVideo;
@@ -555,6 +565,9 @@ class AppProvider extends ChangeNotifier {
     comments = [];
     sponsorSegments = [];
     dislikeCount = null;
+    // A new video was opened (not auto-advanced into): restart the
+    // related-video cursor so the first "Next" picks relatedVideos[0].
+    nextRelatedIndex = 0;
     clearCaptions(notify: false);
     notifyListeners();
 

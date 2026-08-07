@@ -95,6 +95,9 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _scheduleUpdateCheck() async {
     await Future.delayed(const Duration(seconds: 4));
     if (!mounted || _updateShown) return;
+    // Capture the provider before any further await: the dialog show below
+    // crosses an async gap, and reading context after it trips
+    // use_build_context_synchronously (and is unsafe once popped).
     final provider = context.read<AppProvider>();
     final u = provider.pendingUpdate;
     if (u != null && u.hasUpdate) {
@@ -383,7 +386,11 @@ class _HomeFeedState extends State<_HomeFeed> {
           child: ListView.builder(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 12),
-            itemCount: provider.musicVideos.take(10).length,
+            // min(len, 10) without building a 10-element Iterable on every
+            // rebuild (take(10).length did, hundreds of times during scroll).
+            itemCount: provider.musicVideos.length < 10
+                ? provider.musicVideos.length
+                : 10,
             itemBuilder: (context, i) {
               final video = provider.musicVideos[i];
               return GestureDetector(
@@ -665,7 +672,7 @@ class _MusicHomeFeedState extends State<_MusicHomeFeed> {
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 12),
-        itemCount: videos.take(10).length,
+        itemCount: videos.length < 10 ? videos.length : 10,
         itemBuilder: (context, i) {
           final video = videos[i];
           return GestureDetector(

@@ -1,5 +1,6 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/painting.dart' show ImageStream, ImageStreamListener;
 import 'package:provider/provider.dart';
 import '../models/video.dart';
 import '../providers/app_provider.dart';
@@ -246,10 +247,18 @@ class VideoCard extends StatelessWidget {
 
   Widget _avatar(Video v, VibeColors c) {
     if (v.channelAvatar.isNotEmpty) {
-      return CircleAvatar(
+      // CachedNetworkImageProvider has no widget-level errorWidget, so a 404
+      // or decode failure used to render an empty/error circle (and can throw
+      // during image resolution). Resolve the provider first and fall back to
+      // the initials avatar if it errors, so a bad avatar URL never leaves a
+      // broken image in the card.
+      return _NetworkAvatar(
+        url: v.channelAvatar,
         radius: 18,
-        backgroundImage: CachedNetworkImageProvider(v.channelAvatar),
         backgroundColor: c.surfaceLight,
+        fallback: initialLetter(v.channelName),
+        fallbackBg: c.surfaceVariant,
+        fallbackFg: c.textPrimary,
       );
     }
     final letter = initialLetter(v.channelName);
@@ -310,6 +319,112 @@ class VideoCard extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+/// Channel avatar backed by a network image with a safe initials fallback.
+///
+/// [CachedNetworkImageProvider] exposes no widget-level errorWidget; on a 404
+/// or decode failure it can throw during image resolution or render a bare
+/// error circle. This resolves the stream first and swaps to the initials
+/// avatar on any error, so a broken avatar URL degrades gracefully instead of
+/// leaving a broken image in the card.
+class _NetworkAvatar extends StatefulWidget {
+  const _NetworkAvatar({
+    required this.url,
+    required this.radius,
+    required this.backgroundColor,
+    required this.fallback,
+    required this.fallbackBg,
+    required this.fallbackFg,
+  });
+
+  final String url;
+  final double radius;
+  final Color backgroundColor;
+  final String fallback;
+  final Color fallbackBg;
+  final Color fallbackFg;
+
+  @override
+  State<_NetworkAvatar> createState() => _NetworkAvatarState();
+}
+
+class _NetworkAvatarState extends State<_NetworkAvatar> {
+  ImageProvider? _provider;
+  bool _failed = false;
+  ImageStream? _stream;
+  ImageStreamListener? _listener;
+
+  @override
+  void initState() {
+    super.initState();
+    _resolve();
+  }
+
+  void _resolve() {
+    final provider = CachedNetworkImageProvider(widget.url);
+    // Listen for the first resolution result so we can fall back on error
+    // without surfacing a broken-image widget. The listener is kept so
+    // dispose() can remove it (leaving it attached leaks the stream →
+    // ImageCompleter → decoded image for the widget's lifetime).
+    final stream = provider.resolve(const ImageConfiguration());
+    _stream = stream;
+    final listener = ImageStreamListener(
+      (info, _) {
+        if (!mounted) return;
+        setState(() {
+          _provider = provider;
+        });
+        _removeListener();
+      },
+      onError: (object, stackTrace) {
+        if (!mounted) return;
+        setState(() => _failed = true);
+        _removeListener();
+      },
+    );
+    _listener = listener;
+    stream.addListener(listener);
+  }
+
+  void _removeListener() {
+    final s = _stream;
+    final l = _listener;
+    if (s != null && l != null) {
+      s.removeListener(l);
+    }
+    _listener = null;
+    _stream = null;
+  }
+
+  @override
+  void dispose() {
+    _removeListener();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_failed || _provider == null) {
+      return CircleAvatar(
+        radius: widget.radius,
+        backgroundColor: widget.fallbackBg,
+        child: Text(
+          widget.fallback,
+          style: TextStyle(
+            color: widget.fallbackFg,
+            fontWeight: FontWeight.bold,
+            fontSize: widget.radius * 0.78,
+          ),
+        ),
+      );
+    }
+    return CircleAvatar(
+      radius: widget.radius,
+      backgroundImage: _provider,
+      backgroundColor: widget.backgroundColor,
     );
   }
 }
