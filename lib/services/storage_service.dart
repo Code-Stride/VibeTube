@@ -142,7 +142,11 @@ class StorageService {
         await setList(_kDownloads, list);
       });
 
-  Future<void> clearHistory() async => setList(_kHistory, []);
+  /// Serialised like every other history mutator: an in-flight
+  /// [addToHistory] could otherwise land after the clear and resurrect an
+  /// entry the user just deleted.
+  Future<void> clearHistory() =>
+      _synchronized(_kHistory, () => setList(_kHistory, []));
 
   // ---- Search History ----
 

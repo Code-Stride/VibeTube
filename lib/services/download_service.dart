@@ -19,9 +19,30 @@ class DownloadService {
     return '${d.path}/$videoId.mp4';
   }
 
+  /// Paths whose MP4 header has already been verified, keyed to the file
+  /// length they were verified at.
+  ///
+  /// [isDownloaded] is called for every row of the Downloads list on each
+  /// rebuild, and each call used to open a [RandomAccessFile]. Keying on the
+  /// length means a re-downloaded or truncated file still re-validates.
+  final Map<String, int> _validatedLengths = {};
+
   Future<bool> isDownloaded(String videoId) async {
     final path = await pathFor(videoId);
-    return _isValidMp4(File(path));
+    final file = File(path);
+    if (!await file.exists()) {
+      _validatedLengths.remove(path);
+      return false;
+    }
+    final length = await file.length();
+    if (_validatedLengths[path] == length) return true;
+    final valid = await _isValidMp4(file);
+    if (valid) {
+      _validatedLengths[path] = length;
+    } else {
+      _validatedLengths.remove(path);
+    }
+    return valid;
   }
 
   Future<bool> _isValidMp4(File file) async {
@@ -44,6 +65,14 @@ class DownloadService {
       header[6] == 0x79 &&
       header[7] == 0x70;
 
+  /// A transfer only counts as complete when the server told us how many bytes
+  /// to expect and we received exactly that many.
+  ///
+  /// `total <= 0` means no Content-Length was sent, so there is nothing to
+  /// compare against and we fall back to the structural check alone.
+  static bool isCompleteTransfer({required int received, required int total}) =>
+      total <= 0 || received == total;
+
   /// Download progressive MP4 URL to app storage.
   /// Uses a .part file during download, renamed on completion to avoid
   /// serving partial/corrupted files as complete downloads.
@@ -62,6 +91,7 @@ class DownloadService {
         return path;
       }
       // Suspiciously small — likely a partial/corrupt file; delete and retry
+      _validatedLengths.remove(path);
       try {
         await file.delete();
       } catch (_) {}
@@ -131,6 +161,22 @@ class DownloadService {
       rethrow;
     }
 
+    // Byte-count check first. A googlevideo URL that expires mid-transfer
+    // closes the connection cleanly, so the stream simply ends with no error
+    // and the partial file still carries a valid ftyp header — it would sail
+    // through the structural check below, get renamed to .mp4 and be recorded
+    // as a finished download. Worse, the early-exit at the top of this method
+    // would then hand that truncated file back forever and the user could
+    // never re-download it.
+    if (!isCompleteTransfer(received: received, total: total)) {
+      try {
+        await partFile.delete();
+      } catch (_) {}
+      throw Exception(
+        'Incomplete download: got $received of $total bytes',
+      );
+    }
+
     if (!await _isValidMp4(partFile)) {
       try {
         await partFile.delete();
@@ -146,6 +192,7 @@ class DownloadService {
 
   Future<void> delete(String videoId) async {
     final p = await pathFor(videoId);
+    _validatedLengths.remove(p);
     final f = File(p);
     if (await f.exists()) await f.delete();
   }
