@@ -7,6 +7,15 @@ and this project roughly follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- Manual 1080p, 1440p, 4K and 8K playback now combines YouTube's separate
+  adaptive video and audio tracks through a local DASH manifest instead of
+  trying to play a silent video-only URL.
+- The quality sheet now lists only the resolutions that the current video can
+  actually provide, including high-resolution DASH options when matching audio
+  is available.
+- A manually selected resolution never silently falls back to Auto or 360p.
+
 ### Planned
 - Further video quality selection polish
 - Voice search

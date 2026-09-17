@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -8,6 +9,7 @@ import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:video_player/video_player.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
+
 import '../models/video.dart';
 import '../providers/app_provider.dart';
 import '../utils/theme.dart';
@@ -19,6 +21,7 @@ import '../services/native_player.dart';
 import '../services/audio_helper.dart';
 import '../providers/mini_player_controller.dart';
 import '../services/permissions.dart';
+import '../services/dash_manifest_service.dart';
 
 class PlayerScreen extends StatefulWidget {
   final String videoId;
@@ -38,7 +41,8 @@ class PlayerScreen extends StatefulWidget {
   State<PlayerScreen> createState() => _PlayerScreenState();
 }
 
-class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver {
+class _PlayerScreenState extends State<PlayerScreen>
+    with WidgetsBindingObserver {
   /// False while the app is backgrounded, so periodic UI work can pause.
   bool _appResumed = true;
 
@@ -55,16 +59,19 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
   String _sponsorLabel = '';
   Timer? _hideTimer;
   Timer? _posTimer;
+
   /// Position/duration live in ValueNotifiers rather than setState fields.
   ///
   /// The 250ms position timer used to setState the whole screen, rebuilding
   /// the non-lazy info ListView (up to 8 comment tiles + 15 related
   /// VideoCards, each with a network image) four times a second. Only the few
   /// widgets that actually render a timestamp subscribe now.
-  final ValueNotifier<Duration> _positionVN =
-      ValueNotifier<Duration>(Duration.zero);
-  final ValueNotifier<Duration> _durationVN =
-      ValueNotifier<Duration>(Duration.zero);
+  final ValueNotifier<Duration> _positionVN = ValueNotifier<Duration>(
+    Duration.zero,
+  );
+  final ValueNotifier<Duration> _durationVN = ValueNotifier<Duration>(
+    Duration.zero,
+  );
   Duration get _position => _positionVN.value;
   Duration get _duration => _durationVN.value;
 
@@ -75,6 +82,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
       builder: (_, __) => build(_positionVN.value, _durationVN.value),
     );
   }
+
   bool _seeking = false;
   double _seekValue = 0;
   int? _dislikes;
@@ -282,8 +290,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     // the related list or a deep link fell through and built a SECOND
     // controller on the same URL — two decoders, two audio tracks.
     // A local-file request must still get its own controller.
-    final wantsLocal =
-        widget.localPath != null && widget.localPath!.isNotEmpty;
+    final wantsLocal = widget.localPath != null && widget.localPath!.isNotEmpty;
     if (!wantsLocal &&
         mini.hasSession &&
         mini.video?.id == widget.videoId &&
@@ -339,6 +346,12 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
       return;
     }
     _dislikes = provider.dislikeCount;
+    // A saved default such as 4K must not make a 720p-only upload fail to
+    // start. Manual selections stay strict; only the initial app-wide default
+    // falls back to adaptive playback when that height is genuinely absent.
+    if (!details.canLockQuality(_quality)) {
+      _quality = 'Auto (HLS)';
+    }
     await _startPlayback(details);
   }
 
@@ -351,10 +364,12 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     final q = (details.isLive) ? 'Auto (HLS)' : (quality ?? _quality);
     // Live streams require HLS / DASH — force Auto HLS path
 
-    final candidates = <String>[];
-    void add(String? u) {
-      if (u != null && u.isNotEmpty && !candidates.contains(u)) {
-        candidates.add(u);
+    final candidates = <({String url, String? userAgent, String kind})>[];
+    void add(String? u, {String? userAgent, String kind = 'stream'}) {
+      if (u != null &&
+          u.isNotEmpty &&
+          !candidates.any((candidate) => candidate.url == u)) {
+        candidates.add((url: u, userAgent: userAgent, kind: kind));
       }
     }
 
@@ -367,16 +382,16 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
 
     if (details.isLive) {
       // LIVE: HLS/DASH only (ANDROID HLS verified). No progressive.
-      add(details.hlsUrl);
-      add(details.dashUrl);
+      add(details.hlsUrl, kind: 'HLS master');
+      add(details.dashUrl, kind: 'DASH manifest');
       if (details.hlsVariants.isNotEmpty) {
         final hs = details.hlsVariants.keys.toList()
           ..sort((a, b) => b.compareTo(a));
         for (final h in hs) {
-          add(details.hlsVariants[h]);
+          add(details.hlsVariants[h], kind: 'HLS ${h}p');
         }
       }
-      add(details.preferredPlayUrl);
+      add(details.preferredPlayUrl, kind: 'live fallback');
     } else if (isAuto) {
       // Try highest quality HLS variants FIRST (not master playlist)
       if (details.hlsVariants.isNotEmpty) {
@@ -384,19 +399,32 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
           ..sort((a, b) => b.compareTo(a));
         for (final prefer in [2160, 1440, 1080, 720, 480]) {
           if (details.hlsVariants.containsKey(prefer)) {
-            add(details.hlsVariants[prefer]);
+            add(details.hlsVariants[prefer], kind: 'HLS ${prefer}p');
           }
         }
         for (final h in hs) {
-          add(details.hlsVariants[h]);
+          add(details.hlsVariants[h], kind: 'HLS ${h}p');
         }
       }
-      add(details.hlsUrl);
-      add(details.preferredPlayUrl);
-      add(details.bestMuxedUrl);
+      add(details.hlsUrl, kind: 'HLS adaptive');
+      add(details.preferredPlayUrl, kind: 'automatic fallback');
+      add(
+        details.bestMuxedUrl,
+        userAgent: details.userAgentForUrl(details.bestMuxedUrl),
+        kind: 'progressive',
+      );
     } else if (q == 'Audio Only') {
-      add(details.urlForQuality(q));
-      add(details.bestMuxedUrl);
+      final audioUrl = details.urlForQuality(q);
+      add(
+        audioUrl,
+        userAgent: details.userAgentForUrl(audioUrl),
+        kind: 'audio',
+      );
+      add(
+        details.bestMuxedUrl,
+        userAgent: details.userAgentForUrl(details.bestMuxedUrl),
+        kind: 'progressive fallback',
+      );
     } else {
       // Locked quality. The old code appended every other height and then the
       // adaptive master playlist, so a failure at the requested height
@@ -407,28 +435,70 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
       bool near(int h) => (h - target).abs() <= tolerance;
 
       if (target > 0) {
-        // Exact HLS variant is the best lock available.
+        void addMuxedAtTarget() {
+          if (details.progressiveByHeight.containsKey(target)) {
+            final url = details.progressiveByHeight[target];
+            add(
+              url,
+              userAgent: details.userAgentForUrl(url),
+              kind: 'progressive ${target}p',
+            );
+          }
+          for (final h in details.progressiveByHeight.keys.where(near)) {
+            final url = details.progressiveByHeight[h];
+            add(
+              url,
+              userAgent: details.userAgentForUrl(url),
+              kind: 'progressive ${h}p',
+            );
+          }
+          for (final f in details.formats.where(
+            (f) => f.isMuxed && f.url.isNotEmpty && near(f.height),
+          )) {
+            add(
+              f.url,
+              userAgent: f.clientUserAgent,
+              kind: 'muxed ${f.height}p',
+            );
+          }
+        }
+
+        // Muxed 360p/720p is the most compatible path. At 1080p and above,
+        // YouTube only supplies separate tracks, so the generated DASH source
+        // is tried first and ExoPlayer keeps audio/video synchronized.
+        if (target <= 720) addMuxedAtTarget();
+        try {
+          final dashSources = await DashManifestService.createSources(
+            details,
+            target,
+          );
+          if (playbackRequestId != _playbackRequestId) return;
+          for (final source in dashSources) {
+            add(
+              source.uri.toString(),
+              userAgent: source.userAgent,
+              kind:
+                  'DASH ${source.height}p${source.videoCodec.isEmpty ? '' : ' · ${source.videoCodec}'}',
+            );
+          }
+        } catch (e) {
+          _log('DASH source creation failed: $e');
+        }
+
         if (details.hlsVariants.containsKey(target)) {
-          add(details.hlsVariants[target]);
+          add(details.hlsVariants[target], kind: 'HLS ${target}p');
         }
         for (final h in details.hlsVariants.keys.where(near)) {
-          add(details.hlsVariants[h]);
+          add(details.hlsVariants[h], kind: 'HLS ${h}p');
         }
-        // Progressive muxed at the same height.
-        if (details.progressiveByHeight.containsKey(target)) {
-          add(details.progressiveByHeight[target]);
-        }
-        for (final h in details.progressiveByHeight.keys.where(near)) {
-          add(details.progressiveByHeight[h]);
-        }
-        // Muxed formats list, same height only.
-        for (final f in details.formats.where(
-          (f) => f.isMuxed && f.url.isNotEmpty && near(f.height),
-        )) {
-          add(f.url);
-        }
+        if (target > 720) addMuxedAtTarget();
       } else {
-        add(details.urlForQuality(q));
+        final url = details.urlForQuality(q);
+        add(
+          url,
+          userAgent: details.userAgentForUrl(url),
+          kind: 'selected stream',
+        );
       }
     }
 
@@ -465,19 +535,17 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     );
 
     Object? lastErr;
-    for (final url in candidates) {
+    for (final candidate in candidates) {
       if (playbackRequestId != _playbackRequestId) return;
       try {
         final attached = await _attachController(
-          url,
+          candidate.url,
           resumeAt: resumeAt,
-          preferredUa: details.userAgentForUrl(url),
+          preferredUa:
+              candidate.userAgent ?? details.userAgentForUrl(candidate.url),
         );
         if (attached) {
-          final tag = url.contains('m3u8')
-              ? (url == details.hlsUrl ? 'HLS-master' : 'HLS-variant')
-              : 'MP4';
-          _log('Playing $q via $tag');
+          _log('Playing $q via ${candidate.kind}');
           if (mounted) setState(() {}); // refresh quality label if needed
           return;
         }
@@ -504,8 +572,11 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
   /// hold `true` from a previous attach when `_finishAttach` bailed out on a
   /// request-ID mismatch — so a failed quality switch reported success and
   /// left the old stream playing.
-  Future<bool> _attachController(String url,
-      {Duration? resumeAt, String? preferredUa}) async {
+  Future<bool> _attachController(
+    String url, {
+    Duration? resumeAt,
+    String? preferredUa,
+  }) async {
     final requestId = ++_attachRequestId;
     if (mounted) setState(() => _isBuffering = true);
 
@@ -543,8 +614,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
         },
       if (isHls)
         {
-          'User-Agent':
-              'com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)',
+          'User-Agent': 'com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)',
           'Accept': '*/*',
         }
       else
@@ -556,8 +626,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
         },
       null,
       {
-        'User-Agent':
-            'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36',
+        'User-Agent': 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36',
         'Accept': '*/*',
       },
     ];
@@ -1681,19 +1750,28 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
                         return Stack(
                           alignment: Alignment.center,
                           children: segments.map((s) {
-                            final left = ((s.start * 1000 / total) * box.maxWidth)
-                                .clamp(0.0, box.maxWidth);
+                            final left =
+                                ((s.start * 1000 / total) * box.maxWidth).clamp(
+                                  0.0,
+                                  box.maxWidth,
+                                );
                             // Clamp the width against the *remaining* space:
                             // clamping both independently let an outro segment
                             // near the end paint past the right edge.
-                            final available = (box.maxWidth - left).clamp(0.0, box.maxWidth);
+                            final available = (box.maxWidth - left).clamp(
+                              0.0,
+                              box.maxWidth,
+                            );
                             final width =
-                                (((s.end - s.start) * 1000 / total) * box.maxWidth)
+                                (((s.end - s.start) * 1000 / total) *
+                                        box.maxWidth)
                                     .clamp(0.0, available);
                             if (width <= 0) return const SizedBox.shrink();
                             return Positioned(
                               left: left,
-                              width: width < 2 ? (available < 2 ? available : 2) : width,
+                              width: width < 2
+                                  ? (available < 2 ? available : 2)
+                                  : width,
                               height: 3,
                               child: DecoratedBox(
                                 decoration: BoxDecoration(
@@ -2377,8 +2455,8 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                   child: Text(
-                    (details?.hlsVariants.isNotEmpty == true)
-                        ? '${details!.hlsVariants.length} stream(s) · up to ${_maxQualityLabel(details)}'
+                    ((details?.availableQualities.length ?? 0) > 2)
+                        ? '${details!.availableQualities.length - 2} selectable quality level(s) · up to ${_maxQualityLabel(details)}'
                         : (hasHls
                               ? 'HLS master only · try Auto'
                               : 'Only progressive (often 360p)'),
@@ -2408,7 +2486,8 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
                         final hasExact =
                             d != null &&
                             (d.hlsVariants.containsKey(h) ||
-                                d.progressiveByHeight.containsKey(h));
+                                d.progressiveByHeight.containsKey(h) ||
+                                d.adaptiveDashHeights.contains(h));
                         final hasNear =
                             d != null &&
                             (d.hlsVariants.keys.any(
@@ -2416,17 +2495,27 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
                                 ) ||
                                 d.progressiveByHeight.keys.any(
                                   (x) => (x - h).abs() <= 20,
+                                ) ||
+                                d.adaptiveDashHeights.any(
+                                  (x) => (x - h).abs() <= 20,
                                 ));
                         if (hasExact || hasNear) {
                           // hasExact/hasNear are only true when d != null.
+                          final isDash =
+                              d.adaptiveDashHeights.contains(h) ||
+                              d.adaptiveDashHeights.any(
+                                (x) => (x - h).abs() <= 20,
+                              );
                           final isHls =
                               d.hlsVariants.containsKey(h) ||
                               d.hlsVariants.keys.any(
                                 (x) => (x - h).abs() <= 20,
                               );
-                          sub = isHls
-                              ? 'Tap to lock · HLS'
-                              : 'Tap to lock · MP4';
+                          sub = isDash
+                              ? 'Tap to lock · DASH (video + audio)'
+                              : (isHls
+                                    ? 'Tap to lock · HLS'
+                                    : 'Tap to lock · MP4');
                         } else if (hasHls) {
                           sub = 'via nearest HLS';
                         } else {
@@ -2938,13 +3027,19 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
 
   String _maxQualityLabel(VideoDetails? d) {
     if (d == null) return '720p';
-    final hs = <int>[...d.hlsVariants.keys, ...d.progressiveByHeight.keys];
+    final hs = <int>[
+      ...d.hlsVariants.keys,
+      ...d.progressiveByHeight.keys,
+      ...d.adaptiveDashHeights,
+    ];
     if (hs.isEmpty) {
       return (d.hlsUrl != null && d.hlsUrl!.isNotEmpty) ? '1080p' : '360p';
     }
     hs.sort();
     final h = hs.last;
-    if (h >= 2160) return '2160p';
+    if (h >= 4000) return '4320p';
+    if (h >= 2600) return '2880p';
+    if (h >= 2000) return '2160p';
     if (h >= 1440) return '1440p';
     if (h >= 1080) return '1080p';
     if (h >= 720) return '720p';

@@ -197,8 +197,9 @@ class VibeTubeApp extends StatelessWidget {
             builder: (context, child) {
               return Builder(
                 builder: (context) {
-                  final showOverlay = context.select<MiniPlayerController, bool>(
-                      (m) => m.showMiniBar && m.useGlobalOverlay);
+                  final showOverlay =
+                      context.select<MiniPlayerController, bool>(
+                          (m) => m.showMiniBar && m.useGlobalOverlay);
                   return Stack(
                     fit: StackFit.expand,
                     children: [

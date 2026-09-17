@@ -1,5 +1,7 @@
 import 'dart:async';
+
 import 'package:flutter/material.dart';
+
 import '../api/innertube_client.dart';
 import '../models/video.dart';
 import '../utils/theme.dart';
@@ -9,6 +11,7 @@ import '../services/storage_service.dart';
 import '../services/update_service.dart';
 import '../services/native_player.dart';
 import '../services/caption_service.dart';
+import '../services/dash_manifest_service.dart';
 
 class AppProvider extends ChangeNotifier {
   final InnerTubeClient _client = InnerTubeClient();
@@ -81,6 +84,7 @@ class AppProvider extends ChangeNotifier {
 
   bool isDarkMode = true;
   bool isMusicMode = false;
+
   /// Ad-free playback is a *property of the InnerTube clients* this app uses
   /// (IOS / ANDROID / MEDIACONNECT never return ad breaks), not something the
   /// app can switch on and off. The field is kept so existing preferences
@@ -200,7 +204,10 @@ class AppProvider extends ChangeNotifier {
         videos = await _client.getTrending(region: requestRegion);
         _feedContinuation = null; // trending is assembled from several queries
       } else {
-        final page = await _client.getCategoryPage(category, region: requestRegion);
+        final page = await _client.getCategoryPage(
+          category,
+          region: requestRegion,
+        );
         videos = page.videos;
         _feedContinuation = page.continuation;
       }
@@ -246,8 +253,9 @@ class AppProvider extends ChangeNotifier {
       // A page that yields nothing new, or repeats the same token, ends the
       // feed rather than looping forever.
       final next = page.continuation;
-      _feedContinuation =
-          (page.videos.isEmpty || next == null || next == token) ? null : next;
+      _feedContinuation = (page.videos.isEmpty || next == null || next == token)
+          ? null
+          : next;
     } catch (e) {
       debugPrint('loadMoreFeed: $e');
       _feedContinuation = null;
@@ -404,7 +412,9 @@ class AppProvider extends ChangeNotifier {
         }
       }
       final next = more.continuation;
-      _shortsContinuation = (added == 0 || next == null || next == token) ? null : next;
+      _shortsContinuation = (added == 0 || next == null || next == token)
+          ? null
+          : next;
       notifyListeners();
     } catch (e) {
       debugPrint('loadMoreShorts: $e');
@@ -520,8 +530,9 @@ class AppProvider extends ChangeNotifier {
         }
       }
       final next = result.continuation;
-      _searchContinuation =
-          (added == 0 || next == null || next == token) ? null : next;
+      _searchContinuation = (added == 0 || next == null || next == token)
+          ? null
+          : next;
     } catch (e) {
       debugPrint('loadMoreSearch: $e');
       _searchContinuation = null;
@@ -910,6 +921,7 @@ class AppProvider extends ChangeNotifier {
     _client.dispose();
     downloader.dispose();
     HlsParser.dispose();
+    unawaited(DashManifestService.dispose());
     // Was leaked: CaptionService keeps its own shared http.Client, so without
     // this its sockets outlived the provider.
     CaptionService.dispose();

@@ -18,6 +18,10 @@ analyzer:
     # without failing CI for the many existing guarded call sites that read
     # context after an await; new unguarded sites will show up yellow.
     use_build_context_synchronously: warning
+  exclude:
+    - build/**
+    - android/**
+    - ios/**
 
 linter:
   # The lint rules applied to this project can be customized in the

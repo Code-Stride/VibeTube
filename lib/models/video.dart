@@ -54,36 +54,36 @@ class Video {
   }
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'title': title,
-        'thumbnailUrl': thumbnailUrl,
-        'channelName': channelName,
-        'channelId': channelId,
-        'channelAvatar': channelAvatar,
-        'viewCount': viewCount,
-        'duration': duration.inSeconds,
-        'publishedAt': publishedAt,
-        'description': description,
-        'localPath': localPath,
-        'isLive': isLive,
-        'isShort': isShort,
-      };
+    'id': id,
+    'title': title,
+    'thumbnailUrl': thumbnailUrl,
+    'channelName': channelName,
+    'channelId': channelId,
+    'channelAvatar': channelAvatar,
+    'viewCount': viewCount,
+    'duration': duration.inSeconds,
+    'publishedAt': publishedAt,
+    'description': description,
+    'localPath': localPath,
+    'isLive': isLive,
+    'isShort': isShort,
+  };
 
   factory Video.fromJson(Map<String, dynamic> j) => Video(
-        id: j['id'] ?? '',
-        title: j['title'] ?? '',
-        thumbnailUrl: j['thumbnailUrl'] ?? '',
-        channelName: j['channelName'] ?? '',
-        channelId: j['channelId'] ?? '',
-        channelAvatar: j['channelAvatar'] ?? '',
-        viewCount: j['viewCount'] ?? 0,
-        duration: Duration(seconds: j['duration'] ?? 0),
-        publishedAt: j['publishedAt'] ?? '',
-        description: j['description'] ?? '',
-        localPath: j['localPath'] ?? '',
-        isLive: j['isLive'] == true,
-        isShort: j['isShort'] == true,
-      );
+    id: j['id'] ?? '',
+    title: j['title'] ?? '',
+    thumbnailUrl: j['thumbnailUrl'] ?? '',
+    channelName: j['channelName'] ?? '',
+    channelId: j['channelId'] ?? '',
+    channelAvatar: j['channelAvatar'] ?? '',
+    viewCount: j['viewCount'] ?? 0,
+    duration: Duration(seconds: j['duration'] ?? 0),
+    publishedAt: j['publishedAt'] ?? '',
+    description: j['description'] ?? '',
+    localPath: j['localPath'] ?? '',
+    isLive: j['isLive'] == true,
+    isShort: j['isShort'] == true,
+  );
 
   Video copyWith({
     String? id,
@@ -130,6 +130,15 @@ class VideoFormat {
   final bool isAudioOnly;
   final bool hasAudio;
   final bool hasVideo;
+  final int? initRangeStart;
+  final int? initRangeEnd;
+  final int? indexRangeStart;
+  final int? indexRangeEnd;
+  final int contentLength;
+  final int approxDurationMs;
+  final int fps;
+  final int audioSampleRate;
+  final int audioChannels;
 
   /// User-Agent of the InnerTube client this URL was minted for.
   ///
@@ -150,11 +159,43 @@ class VideoFormat {
     this.isAudioOnly = false,
     this.hasAudio = false,
     this.hasVideo = false,
+    this.initRangeStart,
+    this.initRangeEnd,
+    this.indexRangeStart,
+    this.indexRangeEnd,
+    this.contentLength = 0,
+    this.approxDurationMs = 0,
+    this.fps = 0,
+    this.audioSampleRate = 0,
+    this.audioChannels = 0,
     this.clientUserAgent = '',
   });
 
   bool get isMuxed =>
       url.isNotEmpty && hasVideo && hasAudio && !isAudioOnly && !isVideoOnly;
+
+  /// YouTube's high-resolution streams are separate ISO-BMFF/WebM files.
+  /// ExoPlayer can join them through a small DASH manifest when the byte
+  /// ranges that describe each file's initialization and index are present.
+  bool get canUseInDashManifest =>
+      url.isNotEmpty &&
+      initRangeStart != null &&
+      initRangeEnd != null &&
+      indexRangeStart != null &&
+      indexRangeEnd != null;
+
+  String get containerMimeType {
+    final i = mimeType.indexOf(';');
+    return (i < 0 ? mimeType : mimeType.substring(0, i)).trim().toLowerCase();
+  }
+
+  String get codecs {
+    final match = RegExp(
+      r'''codecs\s*=\s*["']([^"']+)["']''',
+      caseSensitive: false,
+    ).firstMatch(mimeType);
+    return match?.group(1)?.trim() ?? '';
+  }
 }
 
 class VideoDetails extends Video {
@@ -162,8 +203,10 @@ class VideoDetails extends Video {
   final String? hlsUrl;
   final String? dashUrl;
   final int likeCount;
+
   /// height (e.g. 720) -> specific HLS media playlist URL (muxed A/V)
   final Map<int, String> hlsVariants;
+
   /// height -> progressive muxed mp4 when available
   final Map<int, String> progressiveByHeight;
 
@@ -208,7 +251,8 @@ class VideoDetails extends Video {
 
   String? get bestMuxedUrl {
     if (progressiveByHeight.isNotEmpty) {
-      final h = progressiveByHeight.keys.toList()..sort((a, b) => b.compareTo(a));
+      final h = progressiveByHeight.keys.toList()
+        ..sort((a, b) => b.compareTo(a));
       return progressiveByHeight[h.first];
     }
     final muxed = formats.where((f) => f.isMuxed).toList()
@@ -231,6 +275,27 @@ class VideoDetails extends Video {
   }
 
   String? get progressiveUrl => bestMuxedUrl;
+
+  /// Heights for which a same-client video-only + audio-only DASH pair can
+  /// actually be built. Keeping both URLs from the same InnerTube client is
+  /// important: googlevideo may reject a URL replayed with another client's
+  /// User-Agent.
+  Set<int> get adaptiveDashHeights {
+    final audios = formats
+        .where((f) => f.isAudioOnly && f.canUseInDashManifest)
+        .toList();
+    if (audios.isEmpty) return const <int>{};
+    final heights = <int>{};
+    for (final video in formats.where(
+      (f) => f.isVideoOnly && f.height > 0 && f.canUseInDashManifest,
+    )) {
+      final sameClientAudio = audios.any(
+        (a) => a.clientUserAgent == video.clientUserAgent,
+      );
+      if (sameClientAudio) heights.add(video.height);
+    }
+    return heights;
+  }
 
   /// Resolve a concrete playable URL for the chosen quality label.
   String? urlForQuality(String quality) {
@@ -283,8 +348,10 @@ class VideoDetails extends Video {
     // 3) formats list muxed
     final muxed = formats.where((f) => f.isMuxed && f.url.isNotEmpty).toList();
     if (muxed.isNotEmpty) {
-      muxed.sort((a, b) =>
-          (a.height - target).abs().compareTo((b.height - target).abs()));
+      muxed.sort(
+        (a, b) =>
+            (a.height - target).abs().compareTo((b.height - target).abs()),
+      );
       return muxed.first.url;
     }
 
@@ -297,13 +364,16 @@ class VideoDetails extends Video {
     final heights = <int>{
       ...hlsVariants.keys,
       ...progressiveByHeight.keys,
+      ...adaptiveDashHeights,
     };
     for (final f in formats.where((f) => f.isMuxed && f.height > 0)) {
       heights.add(f.height);
     }
 
     String labelFor(int h) {
-      if (h >= 2160) return '2160p';
+      if (h >= 4000) return '4320p';
+      if (h >= 2600) return '2880p';
+      if (h >= 2000) return '2160p';
       if (h >= 1440) return '1440p';
       if (h >= 1080) return '1080p';
       if (h >= 720) return '720p';
@@ -325,6 +395,8 @@ class VideoDetails extends Video {
     // "Auto (HLS)" + "Audio Only" rather than advertising phantom heights the
     // player cannot actually lock to.
     const order = [
+      '4320p',
+      '2880p',
       '2160p',
       '1440p',
       '1080p',
@@ -332,7 +404,7 @@ class VideoDetails extends Video {
       '480p',
       '360p',
       '240p',
-      '144p'
+      '144p',
     ];
     final list = order.where(labels.contains).toList();
     return ['Auto (HLS)', ...list, 'Audio Only'];
@@ -353,7 +425,11 @@ class VideoDetails extends Video {
     if (hlsVariants.containsKey(target)) return true;
     if (progressiveByHeight.containsKey(target)) return true;
     // nearest within 20p from known heights (1080 vs 1088 etc.)
-    for (final h in [...hlsVariants.keys, ...progressiveByHeight.keys]) {
+    for (final h in [
+      ...hlsVariants.keys,
+      ...progressiveByHeight.keys,
+      ...adaptiveDashHeights,
+    ]) {
       if ((h - target).abs() <= 20) return true;
     }
     return formats.any((f) => f.isMuxed && (f.height - target).abs() <= 20);
@@ -440,7 +516,6 @@ class AppUpdateInfo {
     required this.hasUpdate,
   });
 }
-
 
 /// A single timed caption line.
 ///
