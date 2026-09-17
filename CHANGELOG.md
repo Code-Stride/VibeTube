@@ -7,7 +7,17 @@ and this project roughly follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-### Fixed
+### Planned
+- Further video quality selection polish
+- Voice search
+- Playlist support
+
+## [1.12.0] - 2026-09-17
+
+Deep bug audit: 39 findings triaged, 37 fixed. See PR "Deep bug audit" for the
+full analysis.
+
+### Fixed — high-resolution playback
 - Manual 1080p, 1440p, 4K and 8K playback now combines YouTube's separate
   adaptive video and audio tracks through a local DASH manifest instead of
   trying to play a silent video-only URL.
@@ -15,16 +25,6 @@ and this project roughly follows [Semantic Versioning](https://semver.org/).
   actually provide, including high-resolution DASH options when matching audio
   is available.
 - A manually selected resolution never silently falls back to Auto or 360p.
-
-### Planned
-- Further video quality selection polish
-- Voice search
-- Playlist support
-
-## [1.12.0] - 2026-07-17
-
-Deep bug audit: 39 findings triaged, 37 fixed. See PR "Deep bug audit" for the
-full analysis.
 
 ### Fixed — playback
 - **Screen no longer sleeps mid-video.** Background play defaults to on, and
@@ -342,7 +342,8 @@ full analysis.
 ### Added
 - Initial Flutter app + CI APK build
 
-[Unreleased]: https://github.com/Code-Stride/VibeTube/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/Code-Stride/VibeTube/compare/v1.12.0...HEAD
+[1.12.0]: https://github.com/Code-Stride/VibeTube/releases/tag/v1.12.0
 [1.5.0]: https://github.com/Code-Stride/VibeTube/releases/tag/v1.5.0
 [1.4.2]: https://github.com/Code-Stride/VibeTube/releases/tag/v1.4.2
 [1.4.1]: https://github.com/Code-Stride/VibeTube/releases/tag/v1.4.1

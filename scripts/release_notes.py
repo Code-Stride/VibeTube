@@ -69,7 +69,12 @@ def parse_changelog(text: str, version: str) -> tuple[str, dict[str, list[str]]]
         if heading:
             flush()
             buffer = []
-            current = heading.group(1).strip().lower()
+            # Changelog headings may carry a descriptive suffix, for example
+            # "Fixed — playback" or "Fixed — feeds and navigation". Treat
+            # those as the canonical Keep a Changelog section so every fix is
+            # included in release notes.
+            section = re.split(r"\s+(?:—|–|-)\s+", heading.group(1), maxsplit=1)[0]
+            current = section.strip().lower()
             continue
         if line.strip():
             buffer.append(line)
